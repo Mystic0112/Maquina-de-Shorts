@@ -12,7 +12,8 @@
     "language": "pt-BR"
   },
   "upload": {
-    "privacyStatus": "unlisted",
+    "enabled": true,
+    "privacyStatus": "public",
     "categoryId": "27",
     "maxUploadsPerDay": 3
   }
