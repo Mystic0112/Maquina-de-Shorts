@@ -2,7 +2,7 @@
 
 Pipeline autônomo que produz YouTube Shorts de **curiosidades** (história, ciência, espaço) do tema ao vídeo final, sem edição manual, mais um painel local para acompanhar produção, qualidade, custo e resultados do canal.
 
-> **Status:** Marcos 1 e 2 implementados (tema → vídeo final → metadados → upload). O upload vem **desligado** (`upload.enabled: false`) até o canal ser autorizado com `npm run auth:youtube`. Agendamento automático (Marco 3) ainda não está implementado.
+> **Status:** Marcos 1 e 2 implementados (tema → vídeo final → metadados → upload). O upload vem **desligado** (`upload.enabled: false`) até o canal ser autorizado com `npm run auth:youtube`. Os scripts de agendamento (Marco 3) estão em `scheduler/`, mas a tarefa no Agendador do Windows só existe depois de registrada à mão (veja [Agendamento](#agendamento-marco-3)).
 
 ## Como funciona
 
@@ -92,6 +92,40 @@ A narração é uma voz sintética comum sobre imagens reais/de arquivo, que a p
 O vídeo final fica em `render_output/<runId>/final.mp4`, e o log em `logs/<runId>.log`.
 
 **Códigos de saída:** `0` sucesso, `1` erro, `3` trava de qualidade (nenhum vídeo publicável nas tentativas).
+
+## Agendamento (Marco 3)
+
+Os scripts ficam em `scheduler/` e rodam no Windows PowerShell 5.1 (já vem no Windows). Nada é registrado sozinho: a tarefa só existe depois de rodar o `register_task.ps1`.
+
+| Script | O que faz |
+|---|---|
+| `scheduler/run_once.ps1` | Uma execução desassistida: trava contra execução dupla, timeout (padrão 60 min, mata a árvore de processos), log em `logs/scheduler/<data>.log` (30 dias), alerta em `data/alerts.jsonl` + notificação do Windows em falha/timeout |
+| `scheduler/register_task.ps1` | Cria/atualiza a tarefa **Maquina de Shorts** no Agendador de Tarefas (`-DryRun` só mostra) |
+| `scheduler/unregister_task.ps1` | Remove a tarefa (mantém logs e alertas) |
+| `scheduler/status.ps1` | Estado da tarefa, última/próxima execução, último resultado e os 3 últimos alertas |
+
+```powershell
+# conferir o que seria registrado (não registra nada)
+powershell -NoProfile -ExecutionPolicy Bypass -File scheduler\register_task.ps1 -DryRun
+# registrar: 09:00 e 18:00, atraso aleatório de até 20 min, só com você logado
+powershell -NoProfile -ExecutionPolicy Bypass -File scheduler\register_task.ps1
+# outros horários
+powershell -NoProfile -ExecutionPolicy Bypass -File scheduler\register_task.ps1 -Times 08:30,20:00 -RandomDelayMinutes 10
+# testar já, sem esperar o horário / ver o estado / remover
+Start-ScheduledTask -TaskName 'Maquina de Shorts'
+powershell -NoProfile -ExecutionPolicy Bypass -File scheduler\status.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scheduler\unregister_task.ps1
+```
+
+**A tarefa:** roda `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scheduler\run_once.ps1` como o seu usuário, acorda o PC (se o plano de energia permitir *timers de ativação*), só com rede, recupera um horário perdido quando o PC volta (`StartWhenAvailable`), nunca abre uma segunda instância e é encerrada pelo Windows após 90 min (o wrapper já encerra o pipeline aos 60). Roda também na bateria; `-RequireAC` volta ao padrão do Windows (não inicia na bateria e para ao desconectar).
+
+**Logado ou não:** o padrão (`-LogonType Interactive`) só roda com você logado (sessão bloqueada conta como logado) e não guarda senha. Para rodar deslogado, registre num PowerShell **como administrador** com `-LogonType S4U` (sem senha guardada; sem acesso a pastas de rede) ou `-LogonType Password` (pede a senha do Windows, guardada pelo próprio Windows). Nesses dois modos a notificação do Windows não aparece, mas o alerta continua em `data/alerts.jsonl`.
+
+**Códigos de saída do `run_once.ps1`** (também viram o "Último resultado" da tarefa): `0` sucesso ou execução pulada porque outra estava em andamento, `1` erro (pipeline ou wrapper, ex.: node ausente), `3` trava de qualidade ("nenhum vídeo publicável hoje": só aviso no log, sem alerta), `124` timeout.
+
+**Alertas:** uma linha JSON por falha em `data/alerts.jsonl`: `timestamp`, `kind` (`failure`, `timeout`, `wrapper_error`), `message` (segredos mascarados), `exitCode`, `runId` (quando detectado) e `log`.
+
+**Testar sem o pipeline real:** `$env:MAQUINA_SCHEDULER_TEST='fail'` (ou `ok`, `quality`, `hang` com `-TimeoutMinutes 0.3`) faz o `run_once.ps1` rodar `scheduler/test/fake_pipeline.mjs`; o log vai para `logs/scheduler/<data>.test.log` e o alerta sai com `"test": true`. `MAQUINA_NODE_DIR` força uma pasta específica do Node.
 
 ## Painel
 
