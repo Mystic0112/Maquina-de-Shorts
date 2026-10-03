@@ -4,7 +4,9 @@ import { youtube as youtubeApi } from "@googleapis/youtube";
 import type { ActualPrivacyStatus, UploadRecord } from "../../shared/history.js";
 import { loadConfig, type PipelineConfig } from "../lib/config.js";
 import { readJsonIfExists, withFileLock, writeFileAtomic } from "../lib/fileLock.js";
+import { contentBindingProblems } from "../lib/contentHash.js";
 import { getLogger, type Logger } from "../lib/logger.js";
+import { licenseKind, uniqueClips, usableCreatorName } from "./07-generateMetadata.js";
 import { saveRunContext } from "../lib/runContext.js";
 import {
   appendUploadRecord,
@@ -90,6 +92,13 @@ export function publishBlockers(ctx: RunContext, settings: Pick<UploadSettings, 
     if (!settings.allowWithoutFactCheck) blockers.push('script was not fact-checked (set upload.allowWithoutFactCheck=true to allow)');
   } else if (fc !== "pass" && fc !== "corrected") {
     blockers.push(`fact-check verdict is "${fc ?? "missing"}" (needs "pass" or "corrected")`);
+  }
+  // Verdicts only count for the exact script/footage they judged.
+  blockers.push(...contentBindingProblems(ctx, { requireHashes: true }));
+  // CC BY requires attribution: every credited clip needs a real author name.
+  const unattributed = uniqueClips(ctx.footage ?? []).filter((c) => licenseKind(c) === "attribution" && !usableCreatorName(c.creator));
+  if (unattributed.length > 0) {
+    blockers.push(`${unattributed.length} CC BY clip(s) without a usable author name (${unattributed.map((c) => c.sourceUrl || c.path).join(", ")})`);
   }
   return blockers;
 }
@@ -321,6 +330,12 @@ export async function uploadRun(ctx: RunContext, settings: UploadSettings, deps:
     log.warn(`Already uploaded as ${ctx.upload.videoId}; not uploading again`);
     return ctx;
   }
+  // A video that already reached YouTube is always recorded first, whatever the gates say now.
+  const journal = await readJournal(ctx.runDir);
+  if (journal?.videoId) {
+    const recover = () => completeJournaledUpload(ctx, { ...journal, videoId: journal.videoId as string }, deps, log);
+    return deps.lock ? deps.lock(recover) : recover();
+  }
   if (!settings.enabled) {
     log.info("Upload disabled (upload.enabled=false in config): skipping 08-uploadYouTube");
     return { ...ctx, upload: { status: "skipped-disabled", requestedPrivacyStatus: requested, reason: "upload.enabled=false" } };
@@ -332,8 +347,8 @@ export async function uploadRun(ctx: RunContext, settings: UploadSettings, deps:
   if (!render?.videoPath || !existsSync(render.videoPath)) throw new Error("08-uploadYouTube requires a rendered final.mp4");
 
   const run = async (): Promise<RunContext> => {
-    const journal = await readJournal(ctx.runDir);
-    if (journal?.videoId) return completeJournaledUpload(ctx, { ...journal, videoId: journal.videoId }, deps, log);
+    const latest = await readJournal(ctx.runDir); // re-read under the lock
+    if (latest?.videoId) return completeJournaledUpload(ctx, { ...latest, videoId: latest.videoId }, deps, log);
     return performUpload({ ...ctx, metadata, render }, settings, deps, log);
   };
   return deps.lock ? deps.lock(run) : run();

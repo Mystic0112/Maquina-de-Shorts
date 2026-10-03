@@ -16,7 +16,8 @@ Contract (see src/orchestrator/types.ts -> FootageClip):
     stdout : exactly one JSON object {"clips": [FootageClip, ...], "errors": [ErrorEntry, ...]}
              Up to clipsPerQuery items of EACH requested kind per query. Images have
              kind "image", durationSeconds 0 and their real (downloaded) width/height.
-             Each clip may also carry "licenseUrl" (CC deed, NASA/Pexels/Pixabay terms) when known.
+             Each clip may also carry "licenseUrl" (CC deed, NASA/Pexels/Pixabay terms) and
+             "creatorUrl" (author page, e.g. when the Commons author is only given as a link).
              ErrorEntry = {"sceneIndex": int|null, "query": str|null, "source": str|null,
                            "phase": str, "message": str}
     stderr : all logging (API keys and key=/token= URL parameters are redacted everywhere,
@@ -30,9 +31,12 @@ queried, and every candidate passes a per-item license gate BEFORE it is downloa
   - nasa                   : public domain only when every credit names NASA, a NASA centre or an
                              enumerated NASA/US-government partner; the FULL search metadata and
                              the asset's metadata.json (EXIF/IPTC/XMP credit fields) are checked,
-                             and any other credit (SpaceX, ESA, Getty...) or copyright text rejects
+                             and any other credit (SpaceX, ESA, Getty...) or copyright text rejects.
+                             Names in NASA's photographer/secondary_creator fields must be credited
+                             NASA-style in the item's own text (or be enumerated NASA staff)
   - wikimedia              : only Public domain / CC0 / CC BY (any version); SA, NC, ND, GFDL
-                             and anything unrecognised are dropped
+                             and anything unrecognised are dropped; CC BY needs a usable author
+                             (Commons Attribution -> Artist link text -> Credit -> name from URL)
 Archive sources (wikimedia, nasa) also need lexical overlap between the query and the item's
 title/description, and AI-generated items are skipped.
 
@@ -427,7 +431,8 @@ _ROLE_ONLY_RE = re.compile(
     r"engineers?|technicians?|graphics?|music|interviewees?|support|production)"
 )
 _CREDIT_MARKER_RE = re.compile(
-    r"\b(?:credits?\s*:|(?:music|soundtrack|song)\s*:|courtesy(?:\s+of)?\b|(?:image|photo|photograph|video|footage|"
+    r"\b(?:credits?\s*:|(?:music|soundtrack|song|images?|photos?|photographs?|videos?|footage|animations?|"
+    r"graphics?|illustrations?)\s*:|courtesy(?:\s+of)?\b|(?:image|photo|photograph|video|footage|"
     r"animation|illustration|artwork|visualization|rendering|processing|processed|enhanced|music)\s+by\b)\s*:?",
     re.IGNORECASE,
 )
@@ -497,8 +502,59 @@ _ORG_WORDS = frozenset(
         "mission",
         "public",
         "domain",
+        "technologies",
+        "technology",
+        "machines",
+        "labs",
+        "alliance",
+        "launch",
+        "photography",
+        "maxar",
+        "planet",
+        "intuitive",
+        "astrobotic",
+        "firefly",
+        "relativity",
+        "axiom",
+        "sierra",
+        "dynetics",
+        "raytheon",
+        "industries",
+        "international",
+        "solutions",
+        "ventures",
+        "robotics",
+        "satellites",
+        "satellite",
+        "imaging",
+        "films",
+        "productions",
+        "gmbh",
+        "plc",
     }
 )
+# NASA (and NASA-contract) staff photographers whose bare name in NASA's own catalogue fields may be
+# trusted without an in-text "NASA/<name>" credit. Normalised: lower case, no dots, single spaces.
+NASA_STAFF_PHOTOGRAPHERS = frozenset({
+    "bill ingalls", "joel kowsky", "aubrey gemignani", "keegan barber", "connie moore", "carla cioffi",
+    "kim shiflett", "frank michaux", "glenn benson", "ben smegelsky", "cory huston", "cory s huston",
+    "isaac watson", "kevin o'connell", "kevin davidson", "john kraus", "chris coleman", "jamie peer",
+    "randy beaudoin", "steven seipel", "charles babir", "robert markowitz", "josh valcarcel", "james blair",
+    "bill stafford", "norah moran", "lauren harnett", "helen arase vargas", "emmett given", "fred deaton",
+    "danny nowlin", "sam lott", "charles beason", "carla thomas", "lauren hughes", "jim ross", "ken ulbrich",
+    "steve freeman", "genaro vavuris", "marvin smith", "bridget caswell", "jef janis", "quentin schwinn",
+    "jordan cochran", "sara lowthian hanna", "david c bowman", "mark knopp", "ryan hill", "michael democker",
+    "eric bordelon", "jude guidry", "allison stancil", "terry zaperach", "brea reeves", "patrick black",
+    "chris gunn", "taylor mickal", "rebecca roth", "bill hrybyk", "desiree stover", "pat izzo",
+})  # fmt: skip
+# Independent photographers and citizen image processors whose work is copyrighted / CC BY(-NC) even
+# when it is hosted by NASA or credited as "NASA/.../<name>".
+INDEPENDENT_CREATORS = frozenset({
+    "ben cooper", "kevin m gill", "kevin gill", "sean doran", "seán doran", "gerald eichstädt",
+    "gerald eichstaedt", "björn jónsson", "bjorn jonsson", "thomas thomopoulos", "justin cowart", "jason major",
+    "andrea luck", "roman tkachenko", "mattias malmer", "ian regan", "brady kenniston", "trevor mahlmann",
+    "john pisani", "emily lakdawalla",
+})  # fmt: skip
 # Normalised (lower-case, hyphens as spaces, leading "NASA"/"NASA's" removed) entity names that may
 # appear in a NASA credit line. Everything else, including unknown names, rejects the item.
 NASA_ALLOWED_ENTITIES = frozenset({
@@ -539,17 +595,32 @@ def _looks_like_person(entity: str) -> bool:
     return bool(_PERSON_RE.fullmatch(entity)) and not (_ORG_WORDS & set(entity.lower().replace(".", " ").split()))
 
 
+def _person_key(name: str) -> str:
+    return re.sub(r"\s+", " ", name.lower().replace(".", " ")).strip()
+
+
+def _is_agency_entity(entity: str) -> bool:
+    norm = _normalise_entity(entity)
+    return norm in NASA_ALLOWED_ENTITIES or bool(_NASA_ENTITY_PATTERNS.fullmatch(norm))
+
+
 def credit_rejection(credit: str) -> str | None:
-    """A credit passes only if every party is NASA/an allowed partner, or a person credited after one."""
+    """A credit passes only if every party is NASA/an allowed partner, or a person credited together
+    with one in the same line ("NASA/<name>" or "<name>/NASA"). Known independents never pass."""
     seen_agency = False
+    people: list[str] = []
     for entity in _credit_entities(credit):
         norm = _normalise_entity(entity)
-        if norm in NASA_ALLOWED_ENTITIES or _NASA_ENTITY_PATTERNS.fullmatch(norm):
+        if _is_agency_entity(entity):
             seen_agency = True
         elif _ROLE_ONLY_RE.fullmatch(norm):
             seen_agency = seen_agency or entity.lower().startswith("nasa")
-        elif not (seen_agency and _looks_like_person(entity)):
+        elif _looks_like_person(entity) and _person_key(entity) not in INDEPENDENT_CREATORS:
+            people.append(entity)
+        else:
             return f"credits non-NASA party {entity[:60]!r}"
+    if people and not seen_agency:
+        return f"credits {people[0][:60]!r} without NASA attribution"
     return None
 
 
@@ -559,9 +630,14 @@ def extract_credits(text: str) -> list[str]:
         rest = text[match.end() : match.end() + 200]
         end = _CREDIT_END_RE.search(rest)
         credit = (rest[: end.start()] if end else rest).strip()
+        if credit and _AGENCY_BEFORE_MARKER_RE.search(text[max(0, match.start() - 12) : match.start()]):
+            credit = f"NASA/{credit}"  # "NASA photo by <name>", "NASA's image: <name>"
         if credit:
             credits.append(credit)
     return credits
+
+
+_AGENCY_BEFORE_MARKER_RE = re.compile(r"\bNASA(?:'s)?\s*$", re.IGNORECASE)
 
 
 def _clean_provenance_text(text: str) -> str:
@@ -595,16 +671,52 @@ def _candidate_provenance(cand: Any) -> str:
     return "\n".join([*prose, *nasa_structured_credits(meta)])
 
 
+_NASA_PAREN_CREDIT_RE = re.compile(r"\(\s*(NASA(?:'s)?\s*/[^()\n]{2,80})\)", re.IGNORECASE)
+_NASA_PHOTO_BY_RE = re.compile(
+    r"\bNASA(?:'s)?\s+(?:photo|image|video|footage)(?:graph)?s?\s+(?:taken\s+)?by\s+([^.;,\n()]{2,60})", re.IGNORECASE
+)
+
+
+def nasa_attributed_names(text: str) -> set[str]:
+    """Person names the item's own text credits NASA-style: 'NASA/<name>', '<name>/NASA',
+    '(NASA/<name>)', 'NASA photo by <name>' -- only from credit lines that pass as a whole."""
+    cleaned = _clean_provenance_text(text)
+    lines = [*extract_credits(cleaned), *_NASA_PAREN_CREDIT_RE.findall(cleaned)]
+    lines += [f"NASA/{name.strip()}" for name in _NASA_PHOTO_BY_RE.findall(cleaned)]
+    names: set[str] = set()
+    for line in lines:
+        entities = _credit_entities(line)
+        if credit_rejection(line) is None and any(_is_agency_entity(e) for e in entities):
+            names.update(_person_key(e) for e in entities if _looks_like_person(e) and not _is_agency_entity(e))
+    return names
+
+
+def nasa_structured_credit(value: str, attributed: set[str]) -> str:
+    """Credit text to vet for a NASA catalogue/metadata credit value.
+
+    Values that already name an agency ("NASA/Bill Ingalls", "ESA/A. Gerst") are vetted as written.
+    A bare person name counts as NASA only when the item's own text credits it NASA-style or it is an
+    enumerated NASA staff photographer; otherwise it stays bare and fails credit_rejection.
+    """
+    if any(_is_agency_entity(e) for e in _credit_entities(value)):
+        return value
+    key = _person_key(value)
+    trusted = key in attributed or key in NASA_STAFF_PHOTOGRAPHERS
+    if trusted and _looks_like_person(value) and key not in INDEPENDENT_CREATORS:
+        return f"NASA/{value}"
+    return value
+
+
 def nasa_structured_credits(meta: dict[str, Any]) -> list[str]:
-    """NASA's catalogue fields as credit lines. A bare name in photographer/secondary_creator is
-    attributed to the item's NASA centre (center/name), so staff producers pass while organisations
-    (SpaceX, Rocket Lab, Getty Images...) still fail the person check and reject the item."""
+    """NASA's catalogue fields (center, photographer, secondary_creator) as credit lines."""
+    prose = "\n".join(str(meta.get(k) or "") for k in ("title", "description", "description_508"))
+    attributed = nasa_attributed_names(prose)
     center = str(meta.get("center") or "").strip()
     lines = [f"Credit: {center}." if center else ""]
     for key in ("photographer", "secondary_creator"):
         value = str(meta.get(key) or "").strip()
         if value.lower() not in _EMPTY_CREDIT_VALUES:
-            lines.append(f"Credit: {center}/{value}." if center else f"Credit: {value}.")
+            lines.append(f"Credit: {nasa_structured_credit(value, attributed)}.")
     return [line for line in lines if line]
 
 
@@ -629,12 +741,14 @@ _META_CREDIT_KEY_RE = re.compile(
 )
 
 
-def nasa_asset_metadata_rejection(manifest: list[str], timeout: float = 20, center: str = "") -> str | None:
-    """Check the EXIF/IPTC/XMP credit fields of the asset's metadata.json; no metadata = reject.
+def nasa_asset_metadata_rejection(
+    manifest: list[str], timeout: float = 20, attributed: set[str] | None = None
+) -> str | None:
+    """Check the EXIF/IPTC/XMP/AVAIL credit fields of the asset's metadata.json; no metadata = reject.
 
-    AVAIL:* fields mirror NASA's catalogue (attributed to `center` like nasa_structured_credits);
-    credits embedded in the file itself (EXIF/IPTC/XMP/QuickTime) get no such benefit of the doubt.
+    Bare person names get the same rule as the catalogue fields (see nasa_structured_credit).
     """
+    attributed = attributed or set()
     import requests
 
     meta_url = next((u for u in manifest if u.lower().endswith("/metadata.json")), None)
@@ -655,8 +769,7 @@ def nasa_asset_metadata_rejection(manifest: list[str], timeout: float = 20, cent
                 continue
             if COPYRIGHT_MARKERS.search(text):
                 return f"{key} says {text[:60]!r}"
-            credited = f"{center}/{text}" if center and str(key).startswith("AVAIL:") else text
-            if reason := credit_rejection(credited):
+            if reason := credit_rejection(nasa_structured_credit(text, attributed)):
                 return f"{key}: {reason}"
     return None
 
@@ -789,14 +902,16 @@ def refine_renditions(cands: list[Any], cfg: GateConfig) -> list[Any]:
         info = commons_info.get(_candidate_title(cand))
         if cand.source == "wikimedia":
             reason = refine_wikimedia_image(cand, info, cfg) if images else refine_wikimedia(cand, info, cfg)
+            reason = reason or apply_commons_attribution(cand, info)
             _remember_commons_license_url(cand.clip_id, info)
         elif cand.source == "nasa":
             if nasa_probes >= cfg.nasa_probe_budget:
                 continue
             nasa_probes += 1
             manifest = _NASA_MANIFESTS.get(cand.download_url, [])
-            center = str(((cand.extra or {}).get("nasa_meta") or {}).get("center") or "")
-            reason = nasa_asset_metadata_rejection(manifest, _bounded(20, cfg.deadline), center)
+            meta = (cand.extra or {}).get("nasa_meta") or {}
+            prose = "\n".join(str(meta.get(k) or "") for k in ("title", "description", "description_508"))
+            reason = nasa_asset_metadata_rejection(manifest, _bounded(20, cfg.deadline), nasa_attributed_names(prose))
             if reason:
                 reason = f"license: {reason}"
             else:
@@ -807,6 +922,7 @@ def refine_renditions(cands: list[Any], cfg: GateConfig) -> list[Any]:
         if reason:
             log.info("rendition gate dropped %s (%s)", cand.clip_id, reason)
         else:
+            _VETTED_CLIP_IDS.add(cand.clip_id)
             rendition = (cand.extra or {}).get("rendition", "default")
             log.info("candidate %s -> %s %dx%d %.1fs", cand.clip_id, rendition, cand.width, cand.height, cand.duration)
             kept.append(cand)
@@ -835,7 +951,7 @@ COMMONS_TRANSCODE_PREFERENCE = ("1080p.vp9.webm", "1080p.webm", "720p.vp9.webm",
 def fetch_commons_videoinfo(titles: list[str]) -> dict[str, dict[str, Any]]:
     """Map File: title -> videoinfo (size, width, height, derivatives). Empty dict on failure."""
     return _commons_file_info(
-        titles, "videoinfo", {"viprop": "size|derivatives|extmetadata", "viextmetadatafilter": "LicenseUrl"}
+        titles, "videoinfo", {"viprop": "size|derivatives|extmetadata", "viextmetadatafilter": _COMMONS_EXTMETA}
     )
 
 
@@ -845,12 +961,116 @@ def fetch_commons_imageinfo(titles: list[str]) -> dict[str, dict[str, Any]]:
     return _commons_file_info(
         titles,
         "imageinfo",
-        {"iiprop": "url|size|mime|extmetadata", "iiextmetadatafilter": "LicenseUrl", "iiurlwidth": box,
+        {"iiprop": "url|size|mime|extmetadata", "iiextmetadatafilter": _COMMONS_EXTMETA, "iiurlwidth": box,
          "iiurlheight": box},
     )  # fmt: skip
 
 
 _COMMONS_LICENSE_URLS: dict[str, str] = {}
+_CREATOR_URLS: dict[str, str] = {}
+# Clip ids that passed the full pre-download gate; anything else is refused after download.
+_VETTED_CLIP_IDS: set[str] = set()
+_COMMONS_EXTMETA = "LicenseUrl|Attribution|Artist|Credit"
+_UNUSABLE_AUTHORS = frozenset({
+    "unknown", "unknown author", "author unknown", "unknown photographer", "anonymous", "anon", "n/a", "none",
+    "see below", "see source", "see description", "not provided", "various",
+})  # fmt: skip
+_URL_SITE_LABELS = {
+    "youtube.com": "YouTube", "youtu.be": "YouTube", "flickr.com": "Flickr", "vimeo.com": "Vimeo",
+    "commons.wikimedia.org": "Wikimedia Commons", "wikidata.org": "Wikidata", "instagram.com": "Instagram",
+    "twitter.com": "X", "x.com": "X", "facebook.com": "Facebook",
+}  # fmt: skip
+_GENERIC_URL_SEGMENTS = frozenset(
+    {"user", "users", "channel", "c", "people", "photos", "wiki", "watch", "video", "videos", "profile", "u", "w"}
+)
+_HREF_RE = re.compile(r"""href\s*=\s*["']([^"']+)["']""", re.IGNORECASE)
+
+
+def _html_text_and_href(raw: str) -> tuple[str, str | None]:
+    import html
+
+    match = _HREF_RE.search(raw)
+    href = html.unescape(match.group(1)).strip() if match else None
+    if href and href.startswith("//"):
+        href = "https:" + href
+    text = re.sub(r"\s+", " ", html.unescape(_HTML_TAG_RE.sub(" ", raw))).strip()
+    return text, _canonical_wiki_url(href) if href else None
+
+
+def _canonical_wiki_url(url: str) -> str:
+    """'…/w/index.php?title=User:X&action=edit&redlink=1' (a red link) -> '…/wiki/User:X'."""
+    from urllib.parse import parse_qs, quote, urlparse
+
+    parts = urlparse(url)
+    title = (parse_qs(parts.query).get("title") or [""])[0]
+    if parts.path.endswith("/index.php") and title:
+        return f"{parts.scheme or 'https'}://{parts.netloc}/wiki/{quote(title.replace(' ', '_'), safe=':/')}"
+    return url
+
+
+def usable_author(name: str) -> bool:
+    text = name.strip().strip(".")
+    low = text.lower()
+    return (
+        bool(text)
+        and not _BARE_URL_RE.fullmatch(text)
+        and low not in _UNUSABLE_AUTHORS
+        and not low.startswith("unknown")
+    )
+
+
+def name_from_url(url: str) -> str | None:
+    """'https://www.youtube.com/user/Editor' -> 'Editor (YouTube)'; None when no name can be derived."""
+    from urllib.parse import unquote, urlparse
+
+    parts = urlparse(url if "://" in url else "https://" + url)
+    host = parts.netloc.lower().removeprefix("www.").removeprefix("m.")
+    label = next((v for k, v in _URL_SITE_LABELS.items() if host == k or host.endswith("." + k)), host)
+    for segment in (unquote(s) for s in parts.path.split("/") if s):
+        segment = segment.split(":", 1)[1] if segment.lower().startswith("user:") else segment
+        segment = segment.lstrip("@").replace("_", " ").strip()
+        if segment.lower() in _GENERIC_URL_SEGMENTS or re.fullmatch(r"UC[\w-]{22}|\d+|[\w-]{11}", segment):
+            continue
+        if re.search(r"[A-Za-z]", segment) and len(segment) <= 60:
+            return f"{segment} ({label})" if label else segment
+    return None
+
+
+def commons_creator(info: dict[str, Any] | None, fallback: str = "") -> tuple[str, str | None]:
+    """Author for attribution: Attribution -> Artist link text -> Credit -> adapter creator -> name from URL."""
+    ext = (info or {}).get("extmetadata") or {}
+    texts: list[str] = []
+    urls: list[str] = []
+    for key in ("Attribution", "Artist", "Credit"):
+        text, href = _html_text_and_href(str((ext.get(key) or {}).get("value") or ""))
+        texts.append(text)
+        urls += [u for u in (href, text if _BARE_URL_RE.fullmatch(text) else None) if u]
+    texts.append(fallback)
+    if _BARE_URL_RE.fullmatch(fallback.strip()):
+        urls.append(fallback.strip())
+    first_url = urls[0] if urls else None
+    for text in texts:
+        if usable_author(text):
+            return text, first_url
+    for url in urls:
+        if derived := name_from_url(url):
+            return derived, url
+    return "", first_url
+
+
+def is_cc_by(license_name: str) -> bool:
+    return bool(_CC_BY_RE.fullmatch(_normalise_license(license_name)))
+
+
+def apply_commons_attribution(cand: Any, info: dict[str, Any] | None) -> str | None:
+    """Set cand.creator (+ creatorUrl) from Commons metadata; CC BY without a usable author is rejected."""
+    name, url = commons_creator(info, str(cand.creator or ""))
+    cand.creator = name
+    if url:
+        _CREATOR_URLS[cand.clip_id] = url
+    if not name and is_cc_by(cand.license or ""):
+        return "license: CC BY item without a usable author to attribute"
+    return None
 
 
 def _remember_commons_license_url(clip_id: str, info: dict[str, Any] | None) -> None:
@@ -1316,14 +1536,20 @@ def _fetch_and_validate(
 def _to_footage_clip(ctx: FetchContext, scene: SceneQuery, rec: dict[str, Any]) -> dict[str, Any] | None:
     source, license_name = str(rec.get("source") or ""), str(rec.get("license") or "")
     creator = str(rec.get("creator") or "")
-    # Provenance was vetted before download on the FULL metadata (with centre context); this record
-    # only carries truncated tags, so the re-check covers the source allowlist and license string.
+    # Provenance was vetted before download on the FULL metadata; this record only carries truncated
+    # tags, so the re-check covers the source allowlist and license string, and refuses any item that
+    # never received a pre-download verdict from the gate.
     reason = license_rejection(source, license_name, "")
+    if not reason and str(rec.get("clip_id") or "") not in _VETTED_CLIP_IDS:
+        reason = "no pre-download provenance verdict for this item"
     path = Path(str(rec.get("path") or "")).resolve()
     if reason or not path.is_file():
         ctx.errors.add(
             "license" if reason else "download", reason or f"file missing: {path}", scene=scene, source=source
         )
+        if reason:
+            with contextlib.suppress(OSError):
+                path.unlink()
         return None
     kind = "image" if rec.get("kind") == "image" else "video"
     dims = _measure(ctx, path, rec, still=kind == "image")
@@ -1351,6 +1577,8 @@ def _to_footage_clip(ctx: FetchContext, scene: SceneQuery, rec: dict[str, Any]) 
     license_url = license_url_for(source, license_name) or _COMMONS_LICENSE_URLS.get(clip_id)
     if license_url:
         clip["licenseUrl"] = license_url
+    if creator_url := _CREATOR_URLS.get(clip_id):
+        clip["creatorUrl"] = creator_url
     return clip
 
 

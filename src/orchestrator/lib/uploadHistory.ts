@@ -83,22 +83,3 @@ export async function appendUploadRecord(record: UploadRecord, file = historyPat
     return movedCorruptTo ? { movedCorruptTo } : {};
   });
 }
-
-/** Updates the record of one run in place (e.g. privacy read after the record was written). */
-export async function updateUploadRecord(runId: string, patch: Partial<UploadRecord>, file = historyPath()): Promise<boolean> {
-  return withFileLock(`${file}.lock`, HISTORY_LOCK, async () => {
-    if (!existsSync(file)) return false;
-    const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
-    if (!Array.isArray(parsed)) return false;
-    let found = false;
-    const entries = parsed.map((e: unknown) => {
-      if (!found && isUploadRecord(e) && e.runId === runId) {
-        found = true;
-        return { ...e, ...patch };
-      }
-      return e;
-    });
-    if (found) await writeFileAtomic(file, `${JSON.stringify(entries, null, 2)}\n`);
-    return found;
-  });
-}

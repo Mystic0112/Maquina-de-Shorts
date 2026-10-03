@@ -138,11 +138,24 @@ export async function prepareContext(options: PipelineOptions): Promise<RunConte
   if (options.resume) return loadRunContext(options.resume);
   const fresh = await createRunContext();
   if (!options.fixture) return fresh;
-  // A fixture copy is a new run: it never inherits another run's upload state, rejection or LLM spend.
-  const { upload: _upload, rejection: _rejection, llmUsage: _usage, ...fixture } = await readContextFile(resolveUserPath(options.fixture));
-  const ctx: RunContext = { ...fixture, runId: fresh.runId, runDir: fresh.runDir, createdAt: fresh.createdAt };
+  const ctx: RunContext = { ...fixtureContent(await readContextFile(resolveUserPath(options.fixture))), runId: fresh.runId, runDir: fresh.runDir, createdAt: fresh.createdAt };
   await saveRunContext(ctx);
   return ctx;
+}
+
+/**
+ * What a fixture contributes to a new run: content only. Verdicts, the rendered video and anything about
+ * publishing are dropped, so a fixture made from an uploaded run can never re-upload its final.mp4 and
+ * every verdict is recomputed for the new run.
+ */
+export function fixtureContent(fixture: RunContext): Omit<RunContext, "runId" | "runDir" | "createdAt"> {
+  const {
+    runId: _runId, runDir: _runDir, createdAt: _createdAt,
+    render: _render, metadata: _metadata, upload: _upload, quality: _quality, factCheck: _factCheck,
+    rejection: _rejection, llmUsage: _llmUsage,
+    ...content
+  } = fixture;
+  return content;
 }
 
 /** Relative paths are tried against the cwd first, then the project root. */

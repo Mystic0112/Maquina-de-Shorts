@@ -14,7 +14,11 @@ export const SECRET_ENV_VARS = [
 
 export const REDACTED = "***";
 
-const QUERY_SECRET = /([?&](?:key|api_key|apikey|token|access_token|refresh_token|client_secret)=)[^&\s"'<>]+/gi;
+const SECRET_NAMES = "key|api_key|apikey|token|access_token|refresh_token|id_token|client_secret|code_verifier";
+/** query strings and form bodies: "?key=..", "&token=..", and a form body's first "client_secret=.." */
+const QUERY_SECRET = new RegExp(`((?:^|[?&\\s"'])(?:${SECRET_NAMES})=)[^&\\s"'<>]+`, "gi");
+/** JSON bodies: "refresh_token": "..." */
+const JSON_SECRET = new RegExp(`("(?:${SECRET_NAMES})"\\s*:\\s*")[^"]*(")`, "gi");
 const BEARER = /(\bBearer\s+)[A-Za-z0-9._~+/-]+=*/g;
 /** Short values would mask ordinary words; real keys are long. */
 const MIN_LITERAL_LENGTH = 8;
@@ -29,7 +33,7 @@ export function secretValues(env: NodeJS.ProcessEnv = process.env): string[] {
 
 /** Masks secret query parameters, bearer tokens and literal values of the known secret env vars. */
 export function redactSecrets(text: string, env: NodeJS.ProcessEnv = process.env): string {
-  let out = text.replace(QUERY_SECRET, `$1${REDACTED}`).replace(BEARER, `$1${REDACTED}`);
+  let out = text.replace(QUERY_SECRET, `$1${REDACTED}`).replace(JSON_SECRET, `$1${REDACTED}$2`).replace(BEARER, `$1${REDACTED}`);
   for (const value of secretValues(env)) out = out.replace(new RegExp(escapeRegExp(value), "g"), REDACTED);
   return out;
 }

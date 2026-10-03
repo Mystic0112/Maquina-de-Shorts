@@ -35,7 +35,7 @@ Cada execução passa por nove estágios. Depois de cada um, o estado completo �
 
 - Windows 10/11 (o pipeline foi construído e testado em Windows)
 - Node.js 20 ou mais recente (painel: 22 ou mais recente)
-- Python 3.10 ou mais recente
+- Python 3.11 ou mais recente
 - Git
 - ffmpeg não precisa ser instalado: o Remotion já traz o dele
 

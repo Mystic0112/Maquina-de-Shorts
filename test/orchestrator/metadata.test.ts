@@ -56,8 +56,8 @@ describe("buildCredits", () => {
   const credits = buildCredits(footage);
 
   it("lists every CC BY file once with creator, license and link", () => {
-    expect(credits).toContain("• Ana Silva — CC BY 2.0 — https://c/A.jpg");
-    expect(credits).toContain("• Autor desconhecido — CC BY 4.0 — https://c/B.jpg");
+    expect(credits).toContain("• Ana Silva — CC BY 2.0 — https://c/A.jpg (recortado e editado)");
+    expect(credits).toContain("• Autor desconhecido — CC BY 4.0 — https://c/B.jpg (recortado e editado)");
     expect(credits.match(/https:\/\/c\/A\.jpg/g)).toHaveLength(1);
   });
 

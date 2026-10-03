@@ -80,21 +80,44 @@ function licenseLabel(c: Pick<FootageClip, "license" | "licenseUrl">): string {
   return c.licenseUrl ? `${c.license.trim()} (${c.licenseUrl})` : c.license.trim();
 }
 
+const PLACEHOLDER_CREATORS = new Set(["", "unknown", "desconhecido", "autor desconhecido", "n/a", "none", "-", "null", "undefined"]);
+
+function looksLikeUrl(text: string): boolean {
+  return /^(https?:\/\/|www\.)\S+$/i.test(text.trim());
+}
+
+/** A real author name: not empty, not a placeholder, not just a URL. */
+export function usableCreatorName(creator: string): boolean {
+  const name = creator.trim();
+  return !PLACEHOLDER_CREATORS.has(name.toLowerCase()) && !looksLikeUrl(name);
+}
+
+/** "Name (profile URL)"; a creator given only as a URL is shown as a profile link, never as a name. */
+function creatorLabel(c: Pick<FootageClip, "creator" | "creatorUrl">): string {
+  const raw = c.creator.trim();
+  const url = c.creatorUrl ?? (looksLikeUrl(raw) ? raw : undefined);
+  const name = usableCreatorName(raw) ? raw : url ? "Autor" : "Autor desconhecido";
+  return url ? `${name} (${url})` : name;
+}
+
+/** CC BY credits must indicate changes: every clip is cropped to 9:16, trimmed and re-encoded. */
+export const MODIFIED_NOTE = "(recortado e editado)";
+
 function attributionLine(c: FootageClip): string {
-  return `• ${c.creator.trim() || "Autor desconhecido"} — ${licenseLabel(c)} — ${c.sourceUrl || sourceLabel(c.source)}`;
+  return `• ${creatorLabel(c)} — ${licenseLabel(c)} — ${c.sourceUrl || sourceLabel(c.source)} ${MODIFIED_NOTE}`;
 }
 
 /** Same creator + license on several files: one line listing every file link (no credit is dropped). */
 function compactAttributionLines(clips: readonly FootageClip[]): string[] {
   const groups = new Map<string, FootageClip[]>();
   for (const c of clips) {
-    const key = `${c.creator.trim()}|${c.license.trim()}|${c.licenseUrl ?? ""}`;
+    const key = `${c.creator.trim()}|${c.creatorUrl ?? ""}|${c.license.trim()}|${c.licenseUrl ?? ""}`;
     groups.set(key, [...(groups.get(key) ?? []), c]);
   }
   return [...groups.values()].map((group) => {
     const first = group[0] as FootageClip;
     const links = group.map((c) => c.sourceUrl || sourceLabel(c.source)).join(" ");
-    return `• ${first.creator.trim() || "Autor desconhecido"} — ${licenseLabel(first)} — ${links}`;
+    return `• ${creatorLabel(first)} — ${licenseLabel(first)} — ${links} ${MODIFIED_NOTE}`;
   });
 }
 
@@ -252,11 +275,19 @@ function splitSentences(text: string): string[] {
   return text.split(/(?<=[.!?…])\s+/).map((s) => s.trim()).filter(Boolean);
 }
 
-/** Keeps only context sentences that appear verbatim in the fact-checked script (hook + narration). */
+/** Sentence identity ignoring case, whitespace and surrounding punctuation (never inner words). */
+function sentenceKey(text: string): string {
+  return normalizeSentence(text).replace(/^[\s"'“”‘’«»(\[-]+|[\s"'“”‘’«»)\].,;:!?…-]+$/g, "");
+}
+
+/**
+ * Keeps only context sentences that are WHOLE sentences of the fact-checked script (hook + narration).
+ * A fragment cut out of a sentence can drop a negation ("Não é verdade que ..."), so substrings don't count.
+ */
 export function verbatimContext(context: string | readonly string[], script: Pick<Script, "hook" | "scenes">): string {
-  const source = normalizeSentence([script.hook, ...script.scenes.map((s) => s.narration)].join(" "));
+  const sentences = new Set([script.hook, ...script.scenes.map((s) => s.narration)].flatMap(splitSentences).map(sentenceKey));
   const candidates = (typeof context === "string" ? [context] : context).flatMap(splitSentences);
-  return candidates.filter((sentence) => sentence.length >= 10 && source.includes(normalizeSentence(sentence))).slice(0, 2).join(" ");
+  return candidates.filter((sentence) => sentence.length >= 10 && sentences.has(sentenceKey(sentence))).slice(0, 2).join(" ");
 }
 
 export function buildMetadataPrompt(script: Script, categoryLabel: string): string {

@@ -9,8 +9,8 @@ import type { Logger } from "../../src/orchestrator/lib/logger.js";
 import { contentTokens, findSimilarSubject, titleSimilarity } from "../../src/orchestrator/lib/recentTopics.js";
 import { redactDeep, redactSecrets } from "../../src/orchestrator/lib/redact.js";
 import { pruneRuns, retentionAction, type RetentionSettings } from "../../src/orchestrator/lib/retention.js";
-import { readHistoryRecords, updateUploadRecord, appendUploadRecord } from "../../src/orchestrator/lib/uploadHistory.js";
-import { assertNotRejected, STAGES } from "../../src/orchestrator/runPipeline.js";
+import { readHistoryRecords, appendUploadRecord } from "../../src/orchestrator/lib/uploadHistory.js";
+import { assertNotRejected, fixtureContent, STAGES } from "../../src/orchestrator/runPipeline.js";
 import { buildScriptPrompt, recentSubjectsInstructions } from "../../src/orchestrator/stages/02-generateScript.js";
 import {
   buildCredits,
@@ -19,6 +19,7 @@ import {
   verbatimContext,
 } from "../../src/orchestrator/stages/07-generateMetadata.js";
 import { JOURNAL_FILE, publishBlockers, uploadRun, type UploadDeps, type YouTubeUploader } from "../../src/orchestrator/stages/08-uploadYouTube.js";
+import { footageHash, scriptHash } from "../../src/orchestrator/lib/contentHash.js";
 import type { FootageClip, RunContext, Script } from "../../src/orchestrator/types.js";
 
 const NOW = new Date("2026-10-03T12:00:00Z");
@@ -77,16 +78,20 @@ describe("minimalChildEnv", () => {
 // H1 / H2 upload hardening (beyond the QA regression tests)
 // ---------------------------------------------------------------------------------------------
 
+const boundScript: Script = { title: "T", hook: "h", scenes: [], cta: "c", language: "pt-BR" };
+
 function publishable(over: Partial<RunContext> = {}): RunContext {
   const dir = mkdtempSync(join(tmpdir(), "h-run-"));
   writeFileSync(join(dir, "final.mp4"), "mp4");
   return {
+    script: boundScript,
+    footage: [],
     runId: "20261003-120000-hard", runDir: dir, createdAt: NOW.toISOString(),
     topic: { categoryId: "espaco", categoryLabel: "Espaço", seedPrompt: "p" },
     render: { videoPath: join(dir, "final.mp4"), durationSeconds: 50, width: 1080, height: 1920 },
     metadata: { title: "T #Shorts", description: "d", tags: [], categoryId: "27", defaultLanguage: "pt-BR", defaultAudioLanguage: "pt-BR" },
-    factCheck: { verdict: "corrected", rounds: 2, claimsChecked: 3, claims: [], corrections: [], sources: [], searchQueries: [] },
-    quality: { passingScenes: 4, totalScenes: 5, passingRatio: 0.8, minPassingSceneRatio: 0.6, minScore: 6, verdict: "pass" },
+    factCheck: { verdict: "corrected", rounds: 2, claimsChecked: 3, claims: [], corrections: [], sources: [], searchQueries: [], scriptHash: scriptHash(boundScript) },
+    quality: { passingScenes: 4, totalScenes: 5, passingRatio: 0.8, minPassingSceneRatio: 0.6, minScore: 6, verdict: "pass", contentHash: footageHash(boundScript, []) },
     ...over,
   };
 }
@@ -97,9 +102,28 @@ describe("publishBlockers", () => {
   });
 
   it("requires explicit allowWithoutFactCheck for skipped fact-checks", () => {
-    const ctx = publishable({ factCheck: { verdict: "skipped", rounds: 0, claimsChecked: 0, claims: [], corrections: [], sources: [], searchQueries: [] } });
+    const ctx = publishable({ factCheck: { verdict: "skipped", rounds: 0, claimsChecked: 0, claims: [], corrections: [], sources: [], searchQueries: [], scriptHash: scriptHash(boundScript) } });
     expect(publishBlockers(ctx, {})).toHaveLength(1);
     expect(publishBlockers(ctx, { allowWithoutFactCheck: true })).toEqual([]);
+  });
+
+  it("blocks verdicts bound to different content", () => {
+    const other: Script = { ...boundScript, hook: "outro gancho" };
+    expect(publishBlockers(publishable({ script: other }), {}).join()).toMatch(/different script/);
+    const clip = { sceneIndex: 0, path: "p", kind: "image", durationSeconds: 0, width: 1, height: 1, source: "wikimedia", sourceUrl: "u", creator: "Ana", license: "CC0" } as FootageClip;
+    expect(publishBlockers(publishable({ footage: [clip] }), {}).join()).toMatch(/different script\/footage/);
+    expect(publishBlockers(publishable({ quality: { ...publishable().quality!, contentHash: undefined } }), {}).join()).toMatch(/not bound/);
+  });
+
+  it("blocks CC BY footage without a usable author", () => {
+    const clip = (creator: string) => ({ sceneIndex: 0, path: "p", kind: "image", durationSeconds: 0, width: 1, height: 1, source: "wikimedia", sourceUrl: `u-${creator}`, creator, license: "CC BY 4.0" }) as FootageClip;
+    for (const creator of ["", "https://www.youtube.com/user/Editor", "unknown"]) {
+      const footage = [clip(creator)];
+      const ctx = publishable({ footage, quality: { ...publishable().quality!, contentHash: footageHash(boundScript, footage) } });
+      expect(publishBlockers(ctx, {}).join()).toMatch(/usable author/);
+    }
+    const ok = [clip("Ana Souza")];
+    expect(publishBlockers(publishable({ footage: ok, quality: { ...publishable().quality!, contentHash: footageHash(boundScript, ok) } }), {})).toEqual([]);
   });
 
   it("blocks missing verdicts and rejections", () => {
@@ -147,6 +171,25 @@ describe("uploadRun journal", () => {
     expect(w.sessions).toEqual(["https://upload/old"]);
   });
 
+  it("records a journaled upload even when the run would now be blocked (or upload is disabled)", async () => {
+    const w = world();
+    const ctx = publishable({ quality: undefined, rejection: { stage: "04-synthesizeVoice", reason: "x" } });
+    writeFileSync(join(ctx.runDir, JOURNAL_FILE), JSON.stringify({ runId: ctx.runId, status: "uploaded", startedAt: NOW.toISOString(), requestedPrivacyStatus: "unlisted", videoId: "vidX" }));
+    const out = await uploadRun(ctx, { ...settings, enabled: false }, w.deps, silentLog);
+    expect(out.upload).toMatchObject({ status: "uploaded", videoId: "vidX" });
+    expect(w.history.map((r) => r.videoId)).toEqual(["vidX"]);
+    expect(w.sessions).toEqual([]);
+  });
+
+  it("a fixture copy keeps content only (never verdicts, render or upload state)", () => {
+    const src = publishable({ upload: { status: "uploaded", videoId: "v", requestedPrivacyStatus: "public" }, rejection: { stage: "03-fetchFootage", reason: "x" } });
+    const copy = fixtureContent(src);
+    for (const key of ["runId", "runDir", "createdAt", "render", "metadata", "upload", "quality", "factCheck", "rejection", "llmUsage"]) {
+      expect(copy).not.toHaveProperty(key);
+    }
+    expect(copy).toMatchObject({ script: src.script, topic: src.topic });
+  });
+
   it("refuses to continue a rejected run", () => {
     expect(() => assertNotRejected(publishable({ rejection: { stage: "02b-factCheck", reason: "x" } }))).toThrow(/cannot be resumed/);
   });
@@ -178,11 +221,10 @@ describe("history fail-closed and locking", () => {
     await expect(readHistoryRecords(file)).rejects.toThrow(/blocked/);
   });
 
-  it("accepts privacy 'unknown' and updates a record in place", async () => {
+  it("accepts privacy 'unknown'", async () => {
     const file = join(mkdtempSync(join(tmpdir(), "h-hist-")), "history.json");
     await appendUploadRecord(rec("a"), file);
-    expect(await updateUploadRecord("a", { privacyStatus: "private" }, file)).toBe(true);
-    expect((await readHistoryRecords(file))[0]?.privacyStatus).toBe("private");
+    expect((await readHistoryRecords(file))[0]?.privacyStatus).toBe("unknown");
   });
 
   it("serialises holders and takes over a stale lock", async () => {
@@ -221,9 +263,10 @@ describe("verbatimContext", () => {
     expect(verbatimContext(["Ele levou a chave no bolso.", "A chave valia milhões."], script)).toBe("Ele levou a chave no bolso.");
   });
 
-  it("tolerates spacing/case differences but not edits", () => {
+  it("tolerates spacing/case differences but not edits or fragments", () => {
     expect(verbatimContext("os  vigias ficaram sem binóculos no ninho de corvo.", script)).toBe("os  vigias ficaram sem binóculos no ninho de corvo.");
     expect(verbatimContext("Os vigias ficaram sem binóculo algum.", script)).toBe("");
+    expect(verbatimContext("ficaram sem binóculos no ninho de corvo.", script)).toBe("");
   });
 });
 
@@ -234,8 +277,11 @@ describe("credits and description fitting", () => {
     license: "CC BY 4.0", licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
   });
 
-  it("includes the license URL in CC BY lines", () => {
-    expect(buildCredits([ccby(1)])).toContain("CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)");
+  it("includes the license URL, the author's profile URL and the modification note in CC BY lines", () => {
+    const line = buildCredits([{ ...ccby(1), creatorUrl: "https://commons.wikimedia.org/wiki/User:Autor_1" }]).split("\n")[1];
+    expect(line).toBe(
+      `• Autor 1 (https://commons.wikimedia.org/wiki/User:Autor_1) — CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/) — ${ccby(1).sourceUrl} (recortado e editado)`,
+    );
   });
 
   it("compacts same-creator credits but never drops a file", () => {

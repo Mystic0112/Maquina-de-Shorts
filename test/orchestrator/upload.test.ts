@@ -16,7 +16,8 @@ import {
   type UploadSettings,
   type YouTubeUploader,
 } from "../../src/orchestrator/stages/08-uploadYouTube.js";
-import type { RunContext } from "../../src/orchestrator/types.js";
+import { footageHash, scriptHash } from "../../src/orchestrator/lib/contentHash.js";
+import type { RunContext, Script } from "../../src/orchestrator/types.js";
 
 const NOW = new Date("2026-10-03T12:00:00Z");
 const hoursAgo = (h: number): string => new Date(NOW.getTime() - h * 3600_000).toISOString();
@@ -156,6 +157,8 @@ describe("resumableUpload", () => {
   });
 });
 
+const boundScript: Script = { title: "Vênus", hook: "h", scenes: [], cta: "c", language: "pt-BR" };
+
 describe("08-uploadYouTube", () => {
   const dir = mkdtempSync(join(tmpdir(), "stage8-"));
   const videoPath = join(dir, "final.mp4");
@@ -165,8 +168,10 @@ describe("08-uploadYouTube", () => {
     topic: { categoryId: "espaco", categoryLabel: "Espaço", seedPrompt: "p" },
     render: { videoPath, durationSeconds: 56, width: 1080, height: 1920 },
     metadata: { title: "Vênus #Shorts", description: "d", tags: ["venus"], categoryId: "27", defaultLanguage: "pt-BR", defaultAudioLanguage: "pt-BR" },
-    factCheck: { verdict: "pass", rounds: 1, claimsChecked: 3, claims: [], corrections: [], sources: [], searchQueries: [] },
-    quality: { passingScenes: 5, totalScenes: 5, passingRatio: 1, minPassingSceneRatio: 0.6, minScore: 6, verdict: "pass" },
+    script: boundScript,
+    footage: [],
+    factCheck: { verdict: "pass", rounds: 1, claimsChecked: 3, claims: [], corrections: [], sources: [], searchQueries: [], scriptHash: scriptHash(boundScript) },
+    quality: { passingScenes: 5, totalScenes: 5, passingRatio: 1, minPassingSceneRatio: 0.6, minScore: 6, verdict: "pass", contentHash: footageHash(boundScript, []) },
   };
   /** Each upload test gets its own run dir (the upload journal lives there). */
   const fresh = (): RunContext => ({ ...ctx, runDir: mkdtempSync(join(tmpdir(), "stage8-")) });

@@ -7,6 +7,7 @@
 import path from "node:path";
 import { makeCancelSignal, renderMedia, selectComposition } from "@remotion/renderer";
 import { loadConfig } from "../lib/config.js";
+import { contentBindingProblems } from "../lib/contentHash.js";
 import { buildRenderPlan, COMPOSITION_ID } from "../../remotion/props.js";
 import { ensureBundle, newPublicPrefix, removeStagedAssets, renderStyleFrom, stageAssets, videoConfigFrom } from "../../remotion/node/renderKit.js";
 import type { RenderResult, RunContext } from "../types.js";
@@ -86,6 +87,9 @@ async function renderWith(
 }
 
 export async function run(ctx: RunContext): Promise<RunContext> {
+  // Never render content whose fact-check / footage verdicts were computed for something else.
+  const stale = contentBindingProblems(ctx, { requireHashes: false });
+  if (stale.length > 0) throw new Error(`Refusing to render ${ctx.runId}: ${stale.join("; ")}`);
   const config = loadConfig();
   const publicPrefix = newPublicPrefix();
   const { props, assets } = buildRenderPlan(ctx, videoConfigFrom(config), renderStyleFrom(config), { publicPrefix });

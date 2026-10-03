@@ -26,6 +26,7 @@ import {
   type SceneSelection,
   type ScoredClip,
 } from "../lib/relevance.js";
+import { footageHash } from "../lib/contentHash.js";
 import { PythonExitError, runPythonJson } from "../lib/python.js";
 import { RunRejectedError } from "../lib/rejection.js";
 import { creditsFitDescription } from "./07-generateMetadata.js";
@@ -47,6 +48,7 @@ const FootageClipSchema = z.object({
   creator: z.string(),
   license: z.string(),
   licenseUrl: z.string().optional(),
+  creatorUrl: z.string().optional(),
 });
 
 const FootageResponseSchema = z.object({
@@ -518,5 +520,5 @@ export async function run(ctx: RunContext): Promise<RunContext> {
     `Quality: ${quality.verdict} - ${quality.reason ?? ""}; kept kinds: ` +
       `${kinds.filter((k) => k === "video").length} video, ${kinds.filter((k) => k === "image").length} image`,
   );
-  return { ...ctx, footage: clips, quality };
+  return { ...ctx, footage: clips, quality: { ...quality, contentHash: footageHash(script, clips) } };
 }

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { resolveScript } from "../../shared/settings.js";
 import { loadConfig } from "../lib/config.js";
+import { scriptHash } from "../lib/contentHash.js";
 import { generateGroundedText, generateJson, withCorrection, type GroundedText } from "../lib/llmClient.js";
 import { getLogger } from "../lib/logger.js";
 import { RunRejectedError } from "../lib/rejection.js";
@@ -322,7 +323,7 @@ export async function run(ctx: RunContext): Promise<RunContext> {
     const skipped: FactCheckSummary = {
       verdict: "skipped", rounds: 0, claimsChecked: 0, claims: [], corrections: [], sources: [], searchQueries: [],
     };
-    return { ...ctx, factCheck: skipped };
+    return { ...ctx, factCheck: { ...skipped, scriptHash: scriptHash(ctx.script) } };
   }
   const { script, summary } = await factCheckScript(ctx.script, settings, { ...defaultFactCheckDeps, log: (m) => log.warn(m) });
   const failing = summary.claims.filter((c) => c.verdict !== "supported");
@@ -337,5 +338,5 @@ export async function run(ctx: RunContext): Promise<RunContext> {
     const rejected: RunContext = { ...ctx, factCheck: summary };
     throw new RunRejectedError(`Fact-check rejected the script: ${summary.reason ?? "unknown reason"}`, rejected);
   }
-  return { ...ctx, script, factCheck: summary };
+  return { ...ctx, script, factCheck: { ...summary, scriptHash: scriptHash(script) } };
 }

@@ -16,6 +16,12 @@ export const RUN_ID_PATTERN = /^\d{8}-\d{6}-[0-9a-f]{4}$/;
 
 const STOPWORDS = new Set(
   (
+    // short function words (3-letter tokens are kept so subjects like "lua", "sol", "mar" count)
+    "que com por uma uns dos das nos nas num numa sem mas nem seu sua meu tem tinha foi era sao ser vai via " +
+    "ate the and por pra pro qual ela ele eles elas voce aos ali sim nao nem bem tao ter dar faz " +
+    // generic words that don't identify a subject (they made different subjects collide)
+    "maior maiores menor menores mundo mundial grande grandes enorme pequeno pequena primeiro primeira ultimo ultima " +
+    "unico unica antigo antiga antigos antigas novo nova vez vezes tempo seculo seculos " +
     "para como mais quando onde sobre entre pelo pela pelos pelas isso esse essa este esta esses essas estes estas " +
     "aquele aquela foram eram porque qual quais quem cada muito muita muitos muitas pouco pouca tudo todo toda todos " +
     "todas nunca sempre ainda depois antes desde contra seus suas dele dela deles delas voce voces sabia mesmo mesma " +
@@ -28,15 +34,24 @@ function stem(token: string): string {
   return token.length > 4 && token.endsWith("s") ? token.slice(0, -1) : token;
 }
 
-/** Distinctive words of a title: accent-free, lowercase, no stopwords/short words, light plural stemming. */
+/** Multi-word names that describe a setting, not a subject ("o maior X do Sistema Solar"). */
+const GENERIC_PHRASES = [
+  "sistema solar", "via lactea", "planeta terra", "segunda guerra mundial", "primeira guerra mundial",
+  "idade media", "imperio romano", "grecia antiga", "egito antigo", "seres humanos", "ser humano",
+];
+
+function normalizeText(text: string): string {
+  return text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+}
+
+/**
+ * Distinctive words of a title: accent-free, lowercase, without stopwords, generic words and generic
+ * phrases, light plural stemming.
+ */
 export function contentTokens(text: string): Set<string> {
-  const words = text
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase()
-    .replace(/#\w+/g, " ")
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter((w) => w.length >= 4 && !STOPWORDS.has(w));
+  let normalized = normalizeText(text).replace(/#\w+/g, " ");
+  for (const phrase of GENERIC_PHRASES) normalized = normalized.split(phrase).join(" ");
+  const words = normalized.split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3 && !STOPWORDS.has(w));
   return new Set(words.map(stem));
 }
 

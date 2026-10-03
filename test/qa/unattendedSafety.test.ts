@@ -18,6 +18,7 @@ import { factCheckScript, type FactCheckDeps, type FactCheckResult } from "../..
 import { formatAdapterError } from "../../src/orchestrator/stages/03-fetchFootage.js";
 import { assembleMetadata } from "../../src/orchestrator/stages/07-generateMetadata.js";
 import { uploadRun, type UploadDeps, type UploadSettings, type YouTubeUploader } from "../../src/orchestrator/stages/08-uploadYouTube.js";
+import { footageHash, scriptHash } from "../../src/orchestrator/lib/contentHash.js";
 import type { FootageClip, RunContext, Script } from "../../src/orchestrator/types.js";
 
 const NOW = new Date("2026-10-03T12:00:00Z");
@@ -32,17 +33,22 @@ function record(runId: string, hoursAgo: number): UploadRecord {
   };
 }
 
+const boundScript: Script = { title: "Vênus", hook: "Um dia em Vênus.", scenes: [], cta: "Siga.", language: "pt-BR" };
+
 function renderedRun(over: Partial<RunContext> = {}): RunContext {
   const dir = mkdtempSync(join(tmpdir(), "qa-run-"));
   const videoPath = join(dir, "final.mp4");
   writeFileSync(videoPath, "mp4");
+  // Verdicts are bound to the content they judged (round 2, N4): hashes of this script + (empty) footage.
   return {
+    script: boundScript,
+    footage: [],
     runId: "20261003-120000-qa01", runDir: dir, createdAt: NOW.toISOString(),
     topic: { categoryId: "espaco", categoryLabel: "Espaço", seedPrompt: "p" },
     render: { videoPath, durationSeconds: 50, width: 1080, height: 1920 },
     metadata: { title: "Vênus #Shorts", description: "d", tags: ["venus"], categoryId: "27", defaultLanguage: "pt-BR", defaultAudioLanguage: "pt-BR" },
-    factCheck: { verdict: "pass", rounds: 1, claimsChecked: 3, claims: [], corrections: [], sources: [], searchQueries: [] },
-    quality: { passingScenes: 5, totalScenes: 5, passingRatio: 1, minPassingSceneRatio: 0.6, minScore: 6, verdict: "pass" },
+    factCheck: { verdict: "pass", rounds: 1, claimsChecked: 3, claims: [], corrections: [], sources: [], searchQueries: [], scriptHash: scriptHash(boundScript) },
+    quality: { passingScenes: 5, totalScenes: 5, passingRatio: 1, minPassingSceneRatio: 0.6, minScore: 6, verdict: "pass", contentHash: footageHash(boundScript, []) },
     ...over,
   };
 }

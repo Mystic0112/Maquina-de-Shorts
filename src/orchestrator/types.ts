@@ -38,6 +38,8 @@ export interface FootageClip {
   borrowedFromScene?: number; // set when this scene had no usable clip and reuses another scene's clip
   /** License deed URL from the adapter (e.g. https://creativecommons.org/licenses/by/4.0/), when known. */
   licenseUrl?: string;
+  /** Author profile URL (e.g. Commons user page), when the adapter knows it. */
+  creatorUrl?: string;
 }
 
 export interface WordTiming {
@@ -97,6 +99,8 @@ export interface QualitySummary {
   previousRunIds?: string[];
   /** runId of the attempt that replaced this one after a "fail" verdict. */
   retriedAs?: string;
+  /** sha256 of script + selected footage this verdict was computed on (see lib/contentHash.ts). */
+  contentHash?: string;
 }
 
 /** Topics/titles a retry attempt must steer away from (set by runPipeline on quality-gate retries). */
@@ -156,6 +160,8 @@ export interface FactCheckSummary {
   reason?: string;
   /** Script as written by 02-generateScript, kept when the fact-check changed it. */
   originalScript?: Script;
+  /** sha256 of the script this verdict applies to (the checked/corrected script; see lib/contentHash.ts). */
+  scriptHash?: string;
 }
 
 /** Written by 07-generateMetadata; already validated against YouTube limits. */
