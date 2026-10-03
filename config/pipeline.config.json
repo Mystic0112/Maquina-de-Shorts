@@ -12,7 +12,7 @@
     "language": "pt-BR"
   },
   "upload": {
-    "enabled": true,
+    "enabled": false,
     "privacyStatus": "public",
     "categoryId": "27",
     "maxUploadsPerDay": 3

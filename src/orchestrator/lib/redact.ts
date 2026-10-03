@@ -10,6 +10,7 @@ export const SECRET_ENV_VARS = [
   "YOUTUBE_API_KEY",
   "PEXELS_API_KEY",
   "PIXABAY_API_KEY",
+  "INSTAGRAM_APP_SECRET",
 ] as const;
 
 export const REDACTED = "***";
@@ -20,6 +21,8 @@ const QUERY_SECRET = new RegExp(`((?:^|[?&\\s"'])(?:${SECRET_NAMES})=)[^&\\s"'<>
 /** JSON bodies: "refresh_token": "..." */
 const JSON_SECRET = new RegExp(`("(?:${SECRET_NAMES})"\\s*:\\s*")[^"]*(")`, "gi");
 const BEARER = /(\bBearer\s+)[A-Za-z0-9._~+/-]+=*/g;
+/** rupload.facebook.com uses "Authorization: OAuth <token>"; the length floor keeps "OAuth client ..." prose intact. */
+const OAUTH_HEADER = /(\bOAuth\s+)[A-Za-z0-9._~+/-]{20,}=*/g;
 /** Short values would mask ordinary words; real keys are long. */
 const MIN_LITERAL_LENGTH = 8;
 
@@ -27,13 +30,27 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export function secretValues(env: NodeJS.ProcessEnv = process.env): string[] {
-  return SECRET_ENV_VARS.map((name) => env[name]?.trim() ?? "").filter((v) => v.length >= MIN_LITERAL_LENGTH);
+/** Secrets that live in files, not env vars (e.g. the Instagram access token), registered once loaded. */
+const runtimeSecrets = new Set<string>();
+
+/** Masks this literal value in every later redaction (tokens read from secrets/ files). */
+export function registerSecret(value: string | undefined): void {
+  const v = value?.trim();
+  if (v && v.length >= MIN_LITERAL_LENGTH) runtimeSecrets.add(v);
 }
 
-/** Masks secret query parameters, bearer tokens and literal values of the known secret env vars. */
+export function secretValues(env: NodeJS.ProcessEnv = process.env): string[] {
+  const fromEnv = SECRET_ENV_VARS.map((name) => env[name]?.trim() ?? "").filter((v) => v.length >= MIN_LITERAL_LENGTH);
+  return [...fromEnv, ...runtimeSecrets];
+}
+
+/** Masks secret query parameters, bearer/OAuth tokens and literal values of known secrets (env + registered). */
 export function redactSecrets(text: string, env: NodeJS.ProcessEnv = process.env): string {
-  let out = text.replace(QUERY_SECRET, `$1${REDACTED}`).replace(JSON_SECRET, `$1${REDACTED}$2`).replace(BEARER, `$1${REDACTED}`);
+  let out = text
+    .replace(QUERY_SECRET, `$1${REDACTED}`)
+    .replace(JSON_SECRET, `$1${REDACTED}$2`)
+    .replace(BEARER, `$1${REDACTED}`)
+    .replace(OAUTH_HEADER, `$1${REDACTED}`);
   for (const value of secretValues(env)) out = out.replace(new RegExp(escapeRegExp(value), "g"), REDACTED);
   return out;
 }

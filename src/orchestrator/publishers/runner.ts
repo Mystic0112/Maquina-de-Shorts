@@ -198,6 +198,7 @@ async function performPublish(ctx: PublishableContext, p: Publisher, deps: Publi
           journal = { ...journal, sessionUri };
           await writePublishJournal(ctx.runDir, p.id, journal);
         },
+        log: { info: (m) => log.info(`${prefix}${m}`), warn: (m) => log.warn(`${prefix}${m}`) },
       });
     } catch (error) {
       if (error instanceof UploadSessionLostError) {

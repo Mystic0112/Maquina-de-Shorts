@@ -12,6 +12,7 @@
   main { max-width:760px; margin:0 auto; padding:48px 16px 64px; }
   h1 { font-size:30px; line-height:1.2; margin:0 0 4px; }
   h2 { font-size:19px; margin:30px 0 6px; }
+  h3 { font-size:16px; margin:18px 0 4px; }
   p, li { color:var(--muted); }
   .meta { font-size:14px; color:var(--muted); }
   a { color:var(--accent); }
@@ -21,32 +22,51 @@
 </head>
 <body>
 <main>
-  <nav><a href="./">← Máquina de Shorts</a> · <a href="#en">English</a></nav>
+  <nav><a href="./">← Máquina de Shorts</a> · <a href="termos.html">Termos de Uso</a> · <a href="#en">English</a></nav>
 
   <h1>Política de Privacidade</h1>
   <p class="meta">Máquina de Shorts · última atualização: 3 de outubro de 2026</p>
 
   <h2>1. O que é este aplicativo</h2>
-  <p>A Máquina de Shorts é uma ferramenta pessoal de automação. Ela é operada exclusivamente pelo seu autor, no próprio computador, para publicar vídeos no canal do YouTube do próprio autor. Ela não é oferecida a terceiros e nenhuma outra pessoa faz login nela.</p>
+  <p>A Máquina de Shorts é uma ferramenta pessoal de automação. Ela é operada exclusivamente pelo seu autor, no próprio computador, para publicar vídeos nas contas do próprio autor no YouTube, no Instagram e no TikTok. Ela não é oferecida a terceiros e nenhuma outra pessoa faz login nela.</p>
 
-  <h2>2. Dados do Google acessados</h2>
-  <p>Com a autorização do autor, via OAuth do Google, o aplicativo acessa apenas a conta do YouTube do próprio autor para:</p>
+  <h2>2. Dados acessados</h2>
+  <p>Com a autorização do autor, dada pelo login oficial de cada plataforma, o aplicativo acessa apenas as contas do próprio autor:</p>
+  <h3>YouTube (Google)</h3>
   <ul>
     <li>enviar vídeos e definir título, descrição, tags e privacidade de cada vídeo;</li>
     <li>ler informações e estatísticas do canal e dos vídeos (views, curtidas, inscritos e, quando disponível, receita), exibidas num painel local.</li>
   </ul>
+  <h3>Instagram (Meta)</h3>
+  <ul>
+    <li>ler o ID, o nome de usuário e o tipo da conta profissional do autor;</li>
+    <li>publicar Reels com legenda nessa conta;</li>
+    <li>ler estatísticas dos Reels publicados (reproduções, alcance, curtidas, comentários e salvamentos), exibidas num painel local.</li>
+  </ul>
+  <h3>TikTok</h3>
+  <ul>
+    <li>ler as informações básicas do perfil do autor;</li>
+    <li>enviar vídeos para a conta do autor (como rascunho ou publicação);</li>
+    <li>ler estatísticas dos vídeos publicados (views, curtidas, comentários e compartilhamentos), exibidas num painel local.</li>
+  </ul>
 
   <h2>3. Armazenamento</h2>
-  <p>Os tokens de acesso e os dados lidos ficam armazenados somente no computador do autor. Não existe servidor externo, banco de dados na nuvem ou cópia desses dados fora dessa máquina.</p>
+  <p>Os tokens de acesso e os dados lidos ficam armazenados somente no computador do autor. Não existe servidor externo, banco de dados na nuvem ou cópia desses dados fora dessa máquina. A página de retorno do login (<code>oauth/callback.html</code>, neste site) só repassa o código de autorização para o próprio computador do autor (127.0.0.1) e não o envia a nenhum servidor.</p>
 
   <h2>4. Compartilhamento</h2>
-  <p>Nenhum dado é vendido, compartilhado ou transferido a terceiros, nem usado para publicidade ou para treinar modelos de inteligência artificial. O uso de informações recebidas das APIs do Google segue a <a href="https://developers.google.com/terms/api-services-user-data-policy">Política de Dados do Usuário dos Serviços de API do Google</a>, incluindo os requisitos de Uso Limitado.</p>
+  <p>Nenhum dado é vendido, compartilhado ou transferido a terceiros, nem usado para publicidade ou para treinar modelos de inteligência artificial. O uso de informações recebidas das APIs do Google segue a <a href="https://developers.google.com/terms/api-services-user-data-policy">Política de Dados do Usuário dos Serviços de API do Google</a>, incluindo os requisitos de Uso Limitado. Os dados recebidos da Meta e do TikTok são usados apenas para as finalidades acima, conforme os <a href="https://developers.facebook.com/terms">Termos da Plataforma da Meta</a> e os <a href="https://www.tiktok.com/legal/page/global/tik-tok-developer-terms-of-service/en">Termos para Desenvolvedores do TikTok</a>.</p>
 
   <h2>5. Serviços utilizados</h2>
-  <p>O aplicativo usa os Serviços de API do YouTube. Ao usá-lo, aplicam-se os <a href="https://www.youtube.com/t/terms">Termos de Serviço do YouTube</a> e a <a href="https://policies.google.com/privacy">Política de Privacidade do Google</a>.</p>
+  <p>O aplicativo usa os Serviços de API do YouTube, a API do Instagram (Meta) e a API do TikTok. Ao usá-lo, aplicam-se os <a href="https://www.youtube.com/t/terms">Termos de Serviço do YouTube</a>, a <a href="https://policies.google.com/privacy">Política de Privacidade do Google</a>, a <a href="https://privacycenter.instagram.com/policy">Política de Privacidade do Instagram</a> e a <a href="https://www.tiktok.com/legal/page/row/privacy-policy/pt-BR">Política de Privacidade do TikTok</a>.</p>
 
-  <h2>6. Revogação e exclusão</h2>
-  <p>O acesso pode ser revogado a qualquer momento em <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>. Ao revogar, os tokens deixam de funcionar; os arquivos locais podem ser apagados pelo autor a qualquer momento.</p>
+  <h2 id="exclusao">6. Revogação e exclusão</h2>
+  <p>O acesso pode ser revogado a qualquer momento:</p>
+  <ul>
+    <li>Google/YouTube: em <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>;</li>
+    <li>Instagram: no app, em Configurações → Apps e sites → Ativos → Remover;</li>
+    <li>TikTok: no app, em Configurações e privacidade → Segurança → Apps e serviços → Remover acesso.</li>
+  </ul>
+  <p>Ao revogar, os tokens deixam de funcionar. Para excluir os dados, o autor apaga os arquivos locais (tokens em <code>secrets/</code> e estatísticas em <code>data/</code>) a qualquer momento; não há cópia em outro lugar.</p>
 
   <h2>7. Contato</h2>
   <p>Dúvidas sobre esta política: <a href="https://github.com/Mystic0112">github.com/Mystic0112</a>.</p>
@@ -58,26 +78,45 @@
     <p class="meta">Máquina de Shorts · last updated: October 3, 2026</p>
 
     <h2>1. What this app is</h2>
-    <p>Máquina de Shorts is a personal automation tool. It is operated solely by its author, on the author's own computer, to publish videos to the author's own YouTube channel. It is not offered to third parties and no one else signs in to it.</p>
+    <p>Máquina de Shorts is a personal automation tool. It is operated solely by its author, on the author's own computer, to publish videos to the author's own YouTube, Instagram and TikTok accounts. It is not offered to third parties and no one else signs in to it.</p>
 
-    <h2>2. Google data accessed</h2>
-    <p>With the author's authorization through Google OAuth, the app accesses only the author's own YouTube account in order to:</p>
+    <h2>2. Data accessed</h2>
+    <p>With the author's authorization through each platform's official login, the app accesses only the author's own accounts in order to:</p>
+    <h3>YouTube (Google)</h3>
     <ul>
       <li>upload videos and set each video's title, description, tags and privacy status;</li>
       <li>read channel and video information and statistics (views, likes, subscribers and, when available, revenue), shown on a local dashboard.</li>
     </ul>
+    <h3>Instagram (Meta)</h3>
+    <ul>
+      <li>read the author's professional account ID, username and account type;</li>
+      <li>publish Reels with captions to that account;</li>
+      <li>read statistics of the published Reels (plays, reach, likes, comments and saves), shown on a local dashboard.</li>
+    </ul>
+    <h3>TikTok</h3>
+    <ul>
+      <li>read the author's basic profile information;</li>
+      <li>upload videos to the author's account (as drafts or posts);</li>
+      <li>read statistics of the published videos (views, likes, comments and shares), shown on a local dashboard.</li>
+    </ul>
 
     <h2>3. Storage</h2>
-    <p>Access tokens and retrieved data are stored only on the author's computer. There is no external server, cloud database or copy of this data outside that machine.</p>
+    <p>Access tokens and retrieved data are stored only on the author's computer. There is no external server, cloud database or copy of this data outside that machine. The login return page (<code>oauth/callback.html</code>, on this site) only hands the authorization code to the author's own computer (127.0.0.1) and never sends it to any server.</p>
 
     <h2>4. Sharing</h2>
-    <p>No data is sold, shared or transferred to third parties, or used for advertising or to train artificial intelligence models. The app's use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
+    <p>No data is sold, shared or transferred to third parties, or used for advertising or to train artificial intelligence models. The app's use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements. Data received from Meta and TikTok is used only for the purposes above, in accordance with the <a href="https://developers.facebook.com/terms">Meta Platform Terms</a> and the <a href="https://www.tiktok.com/legal/page/global/tik-tok-developer-terms-of-service/en">TikTok Developer Terms of Service</a>.</p>
 
     <h2>5. Services used</h2>
-    <p>This app uses YouTube API Services. By using it, the <a href="https://www.youtube.com/t/terms">YouTube Terms of Service</a> and the <a href="https://policies.google.com/privacy">Google Privacy Policy</a> apply.</p>
+    <p>This app uses YouTube API Services, the Instagram API (Meta) and the TikTok API. By using it, the <a href="https://www.youtube.com/t/terms">YouTube Terms of Service</a>, the <a href="https://policies.google.com/privacy">Google Privacy Policy</a>, the <a href="https://privacycenter.instagram.com/policy">Instagram Privacy Policy</a> and the <a href="https://www.tiktok.com/legal/page/row/privacy-policy/en">TikTok Privacy Policy</a> apply.</p>
 
-    <h2>6. Revocation and deletion</h2>
-    <p>Access can be revoked at any time at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>. Once revoked, tokens stop working; local files can be deleted by the author at any time.</p>
+    <h2 id="deletion">6. Revocation and deletion</h2>
+    <p>Access can be revoked at any time:</p>
+    <ul>
+      <li>Google/YouTube: at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>;</li>
+      <li>Instagram: in the app, Settings → Apps and websites → Active → Remove;</li>
+      <li>TikTok: in the app, Settings and privacy → Security → Apps and services → Remove access.</li>
+    </ul>
+    <p>Once revoked, tokens stop working. To delete the data, the author deletes the local files (tokens in <code>secrets/</code> and statistics in <code>data/</code>) at any time; no copy exists anywhere else.</p>
 
     <h2>7. Contact</h2>
     <p>Questions about this policy: <a href="https://github.com/Mystic0112">github.com/Mystic0112</a>.</p>

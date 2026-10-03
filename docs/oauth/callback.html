@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-2zETe3nGJv8oDm5z29yEtnL4L7nIYMBrIGJzMsSeRNk='; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>Autorização · Máquina de Shorts</title>
+<style>
+  :root { --bg:#0f1117; --card:#171a23; --text:#e8e8ef; --muted:#a2a6b8; --accent:#8b7cf6; --line:#262a36; --bad:#f87171; }
+  @media (prefers-color-scheme: light) { :root { --bg:#f6f6fa; --card:#ffffff; --text:#14151b; --muted:#555a6e; --accent:#5b4bd6; --line:#e3e4ec; --bad:#c62828; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:640px; margin:0 auto; padding:48px 16px 64px; }
+  h1 { font-size:26px; line-height:1.2; margin:0 0 8px; }
+  p { color:var(--muted); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px 20px; margin-top:20px; }
+  .bad { color:var(--bad); }
+  code { display:block; word-break:break-all; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font-size:13px; user-select:all; }
+  a.button, button { display:inline-block; margin-top:12px; padding:9px 16px; border-radius:10px; border:0; background:var(--accent); color:#fff; font:inherit; font-weight:600; text-decoration:none; cursor:pointer; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">Autorização do Instagram</h1>
+  <p id="message">Processando…</p>
+
+  <div class="card" id="forward" hidden>
+    <p>Voltando para o terminal da Máquina de Shorts neste computador (127.0.0.1). Se nada acontecer, clique em:</p>
+    <a class="button" id="continue" href="#">Continuar no terminal</a>
+  </div>
+
+  <div class="card" id="manual" hidden>
+    <p>Se o navegador não voltar sozinho, copie o código abaixo e cole no terminal onde o <strong>npm run auth:instagram</strong> está esperando (depois tecle Enter). O código vale por 1 hora e só pode ser usado uma vez.</p>
+    <code id="code"></code>
+    <button type="button" id="copy">Copiar código</button>
+    <p id="copied" hidden>Copiado.</p>
+  </div>
+
+  <p lang="en" style="font-size:14px;margin-top:32px">Instagram authorization callback for a personal automation tool. The code above is only sent to this computer (127.0.0.1); nothing is sent to any other server.</p>
+</main>
+<script>
+(function () {
+  "use strict";
+  var STATE_PATTERN = /^([1-9][0-9]{3,4})\.([0-9a-f]{32})$/;
+  var CODE_PATTERN = /^[A-Za-z0-9_.-]{10,2048}$/;
+  var params = new URLSearchParams(window.location.search);
+  var $ = function (id) { return document.getElementById(id); };
+  var show = function (title, message, bad) {
+    $("title").textContent = title;
+    $("message").textContent = message;
+    $("message").className = bad ? "bad" : "";
+  };
+
+  // The code must not linger in the address bar or the history.
+  if (window.history && window.history.replaceState) window.history.replaceState(null, "", window.location.pathname);
+
+  var error = params.get("error");
+  if (error) {
+    var reason = (params.get("error_reason") || params.get("error_description") || error).replace(/[^\w .,+-]/g, "").slice(0, 80);
+    show("Autorização cancelada", "O Instagram respondeu: " + reason + ". Rode o comando de novo no terminal.", true);
+    return;
+  }
+
+  var state = params.get("state") || "";
+  var match = STATE_PATTERN.exec(state);
+  var port = match ? Number(match[1]) : 0;
+  if (!match || port < 1024 || port > 65535) {
+    show("Link inválido", "Este endereço não veio do npm run auth:instagram (parâmetro state ausente ou inválido). Nada foi feito.", true);
+    return;
+  }
+
+  var code = (params.get("code") || "").replace(/#_?$/, "");
+  if (!CODE_PATTERN.test(code)) {
+    show("Resposta sem código", "O Instagram não enviou um código de autorização válido. Rode o comando de novo.", true);
+    return;
+  }
+
+  // Only ever the loopback address of this computer: the port is digits validated above.
+  var target = "http://127.0.0.1:" + port + "/callback?code=" + encodeURIComponent(code) + "&state=" + encodeURIComponent(state);
+  show("Quase lá", "Autorização recebida.", false);
+  $("continue").setAttribute("href", target);
+  $("forward").hidden = false;
+  $("code").textContent = code;
+  $("manual").hidden = false;
+  $("copy").addEventListener("click", function () {
+    var done = function () { $("copied").hidden = false; };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(code).then(done, function () { window.getSelection().selectAllChildren($("code")); });
+    } else {
+      window.getSelection().selectAllChildren($("code"));
+    }
+  });
+  window.setTimeout(function () { window.location.replace(target); }, 400);
+})();
+</script>
+</body>
+</html>

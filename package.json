@@ -14,7 +14,8 @@
     "dashboard": "npm --prefix dashboard run dev",
     "test": "vitest run",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "auth:youtube": "tsx scripts/auth_youtube_setup.ts"
+    "auth:youtube": "tsx scripts/auth_youtube_setup.ts",
+    "auth:instagram": "tsx scripts/auth_instagram.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

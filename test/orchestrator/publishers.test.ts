@@ -106,11 +106,17 @@ function yt(publishedHoursAgo: number, over: Partial<UploadRecord> = {}): Upload
 }
 
 describe("registry", () => {
-  it("has only the YouTube publisher today, configured from the upload section", () => {
+  it("YouTube (from the upload section) first, then Instagram (off by default, 3/day)", () => {
     const config = { upload: { privacyStatus: "public", categoryId: "27", maxUploadsPerDay: 2, enabled: true } } as unknown as PipelineConfig;
     const publishers = createPublishers(config);
-    expect(publishers.map((p) => p.id)).toEqual(["youtube"]);
+    expect(publishers.map((p) => p.id)).toEqual(["youtube", "instagram"]);
     expect(publishers[0]?.settings).toEqual({ enabled: true, maxPostsPerDay: 2, requestedPrivacy: "public" });
+    expect(publishers[1]?.settings).toEqual({ enabled: false, maxPostsPerDay: 3, requestedPrivacy: "public" });
+  });
+
+  it("Instagram is configured from its own section", () => {
+    const config = { upload: { privacyStatus: "public", categoryId: "27", maxUploadsPerDay: 2 }, instagram: { enabled: true, maxPostsPerDay: 5 } } as unknown as PipelineConfig;
+    expect(createPublishers(config)[1]?.settings).toEqual({ enabled: true, maxPostsPerDay: 5, requestedPrivacy: "public" });
   });
 });
 

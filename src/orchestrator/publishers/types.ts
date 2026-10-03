@@ -26,6 +26,8 @@ export interface SessionHooks {
   sessionUri?: string;
   /** Persist a new session id/URI before any byte is sent. */
   onSession: (sessionUri: string) => Promise<void>;
+  /** Run logger, already prefixed with the publisher's logPrefix (optional; YouTube does not use it). */
+  log?: { info(message: string): void; warn(message: string): void };
 }
 
 /** An authenticated connection, opened only when something is actually published. */

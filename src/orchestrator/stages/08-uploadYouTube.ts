@@ -1,5 +1,5 @@
 // Stage 08 — publishing. Keeps its historical name (the dashboard parses "08-uploadYouTube" in the logs)
-// but now runs every enabled publisher from src/orchestrator/publishers/ (only YouTube exists today).
+// but now runs every enabled publisher from src/orchestrator/publishers/ (YouTube, then Instagram Reels).
 
 import { loadConfig } from "../lib/config.js";
 import { withFileLock } from "../lib/fileLock.js";

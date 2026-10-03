@@ -3,7 +3,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 import { z } from "zod";
-import { CaptionSettingsSchema, ScriptSettingsSchema, VisualSettingsSchema, VoiceExtrasSchema } from "../../shared/settings.js";
+import {
+  CaptionSettingsSchema,
+  InstagramSettingsSchema,
+  ScriptSettingsSchema,
+  VisualSettingsSchema,
+  VoiceExtrasSchema,
+} from "../../shared/settings.js";
 
 const PACKAGE_NAME = "maquina-de-fazer-dinheiro";
 
@@ -80,6 +86,8 @@ export const PipelineConfigSchema = z.object({
       allowWithoutFactCheck: z.boolean().optional(),
     })
     .loose(),
+  /** Instagram Reels publisher; absent = disabled (defaults in src/shared/settings.ts). */
+  instagram: InstagramSettingsSchema.optional(),
   render: z
     .object({
       /** Cancels a render that runs longer than this (default 600 s). */

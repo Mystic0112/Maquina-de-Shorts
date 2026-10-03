@@ -18,7 +18,7 @@ Cada execução passa por nove estágios. Depois de cada um, o estado completo �
 | 05 | `buildCaptions` | Agrupa as palavras em legendas e alinha cada cena com a fala |
 | 06 | `renderVideo` | Renderiza o vídeo com Remotion: legenda com a palavra falada em destaque, zoom e movimento lento nas imagens |
 | 07 | `generateMetadata` | Título (até 100 caracteres, com #Shorts), descrição com **créditos das imagens** (autor, licença e link de cada clipe CC BY) e tags, validados contra os limites do YouTube |
-| 08 | `uploadYouTube` | Publica o vídeo em cada plataforma ligada (hoje só o YouTube): upload retomável, confere a privacidade que a plataforma realmente aplicou e registra em `data/history.json`. Só roda com `upload.enabled: true` e respeita o limite diário de cada plataforma; se uma plataforma falhar, as outras seguem |
+| 08 | `uploadYouTube` | Publica o vídeo em cada plataforma ligada (YouTube e Instagram Reels): upload retomável, confere a privacidade que a plataforma realmente aplicou e registra em `data/history.json`. Cada plataforma só publica quando ligada (`upload.enabled` no YouTube, `instagram.enabled` no Instagram) e respeita o próprio limite diário; se uma plataforma falhar, as outras seguem |
 
 ### Travas de qualidade (sem humano no loop)
 
@@ -63,6 +63,7 @@ copy .env.example .env                                               # depois pr
 | `YOUTUBE_API_KEY` | não | Estatísticas públicas no painel (não serve para upload) |
 | `YOUTUBE_CHANNEL_ID` | não | Inscritos e views do canal no painel (o `npm run auth:youtube` mostra o ID) |
 | `YT_CLIENT_SECRET_PATH` / `YT_TOKEN_PATH` | para upload | Cliente OAuth (Desktop) e token salvo pelo `npm run auth:youtube` (padrão: `secrets/youtube.client_secret.json` e `secrets/youtube.token.json`) |
+| `INSTAGRAM_APP_ID` / `INSTAGRAM_APP_SECRET` | só para o Instagram | Instagram App ID e App Secret do app da Meta, usados uma vez pelo `npm run auth:instagram` (o token fica em `secrets/instagram.token.json`) |
 
 O `.env` e a pasta `secrets/` nunca entram no git.
 
@@ -76,6 +77,7 @@ npm run pipeline -- --fixture test/fixtures/context.script-only.json   # roteiro
 npm run stage -- 06-renderVideo --run <runId>          # reexecuta um único estágio
 npm run stage -- 08-uploadYouTube --run <runId>        # envia um vídeo já renderizado (ex.: depois do limite diário)
 npm run auth:youtube                                   # autoriza o canal (uma vez só, interativo)
+npm run auth:instagram                                 # autoriza a conta do Instagram (uma vez só, interativo)
 npm run dashboard                                      # painel em http://localhost:5180
 ```
 
@@ -88,6 +90,22 @@ npm run dashboard                                      # painel em http://localh
 O token fica em `secrets/youtube.token.json` e é renovado sozinho. Projetos de API não auditados pelo Google podem ter os vídeos travados como **privados** mesmo pedindo `unlisted`/`public`: o pipeline confere o status real depois do envio e avisa no log ("YouTube travou o vídeo como privado").
 
 A narração é uma voz sintética comum sobre imagens reais/de arquivo, que a política de conteúdo alterado do YouTube não exige declarar; por isso `upload.containsSyntheticMedia` fica `false` por padrão (configurável).
+
+### Instagram Reels
+
+O mesmo vídeo vai para o Instagram como Reel, pela "API do Instagram com login do Instagram" (sem página do Facebook). Vem **desligado**; para ligar, uma vez só:
+
+1. **Conta profissional:** no app do Instagram, Configurações → Tipo de conta e ferramentas → mude para conta profissional, tipo **Criador** (Empresa também serve).
+2. **App da Meta:** em [developers.facebook.com/apps](https://developers.facebook.com/apps), crie um app do tipo **Empresa** com o caso de uso **"Gerenciar mensagens e conteúdo no Instagram"** (produto **Instagram → API com login do Instagram**).
+3. **Testador:** em Funções do app → Funções → **Testadores do Instagram**, adicione o @ da conta. Aceite o convite no Instagram (Configurações → Apps e sites → Convites de testador; também em [instagram.com/accounts/manage_access](https://www.instagram.com/accounts/manage_access/)). Com o app em modo de desenvolvimento e a conta como testadora, não precisa de revisão da Meta.
+4. **Redirecionamento:** em Instagram → Configuração da API com login do Instagram → **3. Configurar o login comercial do Instagram** → Configurações do login comercial, cadastre exatamente esta URL em "URIs de redirecionamento do OAuth":
+   `https://mystic0112.github.io/Maquina-de-Shorts/oauth/callback.html`
+   (a página fica em `docs/oauth/callback.html`, publicada pelo GitHub Pages; ela só repassa o código para o terminal deste PC em `127.0.0.1`).
+5. **Chaves:** copie o **Instagram App ID** e o **Instagram App Secret** (na mesma tela) para o `chaves.txt`; no `.env` eles viram `INSTAGRAM_APP_ID` e `INSTAGRAM_APP_SECRET`.
+6. Rode `npm run auth:instagram`. Entre com a conta do Instagram e permita tudo (perfil, publicar conteúdo e insights). A página do GitHub Pages devolve o login para o terminal; se o navegador bloquear, ela mostra um código com o botão **Copiar código**: cole no terminal e tecle Enter. O terminal mostra `@usuário` e o tipo da conta.
+7. Ligue em **Configurações** (enquanto a seção do Instagram não chega ao painel, edite o `config/pipeline.config.json`: `"instagram": { "enabled": true, "maxPostsPerDay": 3 }`).
+
+O token vale 60 dias e é renovado sozinho quando faltam menos de 10 dias (a renovação acontece na publicação). Se vencer, o Instagram fica bloqueado com o aviso no log e o YouTube segue normal; é só rodar `npm run auth:instagram` de novo. Antes de cada post, o pipeline confere o limite de publicações da Meta (`content_publishing_limit`) além do limite diário próprio. A legenda reaproveita o título, o gancho, as hashtags e os **créditos das imagens** da descrição do YouTube, dentro dos limites do Instagram (2.200 caracteres, 30 hashtags); se os créditos CC BY não couberem, o Instagram é pulado naquele vídeo. O diário `upload.instagram.journal.json` guarda o ID do container antes do envio, então uma nova tentativa retoma o mesmo container em vez de criar um post duplicado.
 
 O vídeo final fica em `render_output/<runId>/final.mp4`, e o log em `logs/<runId>.log`.
 
@@ -141,7 +159,7 @@ A receita só aparece depois do OAuth do Marco 2 e da entrada do canal no Progra
 
 ## Configuração
 
-- `config/pipeline.config.json`: vídeo (resolução, duração alvo), voz, legendas, visual, roteiro (incluindo `script.factCheck`), footage, trava de qualidade e upload (`enabled`, `privacyStatus`, `categoryId`, `maxUploadsPerDay`, `containsSyntheticMedia`, `allowWithoutFactCheck`), render (`render.totalTimeoutSeconds`, padrão 600) e armazenamento (`storage.keepFailedRunsDays`, padrão 3: execuções rejeitadas ou interrompidas são apagadas depois disso; `storage.keepUploadedVideosDays`, padrão 14: execuções publicadas perdem o `final.mp4` e as imagens, mas mantêm `context.json` e log). Execuções renderizadas e não publicadas nunca são apagadas automaticamente; a limpeza roda no início de cada `npm run pipeline`. Validado por `PipelineConfigSchema` (`src/orchestrator/lib/config.ts`); os padrões ficam em `src/shared/settings.ts`.
+- `config/pipeline.config.json`: vídeo (resolução, duração alvo), voz, legendas, visual, roteiro (incluindo `script.factCheck`), footage, trava de qualidade, upload (`enabled`, `privacyStatus`, `categoryId`, `maxUploadsPerDay`, `containsSyntheticMedia`, `allowWithoutFactCheck`), Instagram (`instagram.enabled`, padrão `false`; `instagram.maxPostsPerDay`, padrão 3), render (`render.totalTimeoutSeconds`, padrão 600) e armazenamento (`storage.keepFailedRunsDays`, padrão 3: execuções rejeitadas ou interrompidas são apagadas depois disso; `storage.keepUploadedVideosDays`, padrão 14: execuções publicadas perdem o `final.mp4` e as imagens, mas mantêm `context.json` e log). Execuções renderizadas e não publicadas nunca são apagadas automaticamente; a limpeza roda no início de cada `npm run pipeline`. Validado por `PipelineConfigSchema` (`src/orchestrator/lib/config.ts`); os padrões ficam em `src/shared/settings.ts`.
 - `config/topics.seed.json`: categorias e ideias de tema.
 
 Os dois podem ser editados à mão ou pela aba Configurações do painel.
@@ -151,13 +169,14 @@ Os dois podem ser editados à mão ou pela aba Configurações do painel.
 ```
 config/                     configuração do pipeline e temas
 src/orchestrator/           orquestrador (runPipeline, estágios 01-08, libs de LLM, ffmpeg, relevância, YouTube)
-src/orchestrator/publishers/ publicadores por plataforma (YouTube; nova rede = um arquivo + uma linha no registro)
+src/orchestrator/publishers/ publicadores por plataforma (YouTube, Instagram; nova rede = um arquivo + uma linha no registro)
 src/remotion/               composição do vídeo (legendas, cenas, movimento)
 src/shared/                 contratos compartilhados com o painel (settings, histórico de uploads)
 python/tts/                 narração e lista de vozes (edge-tts)
 vendor/openmontage_adapter/ adaptador de footage (chamado só como subprocesso)
 dashboard/                  painel local (Express + Vite + React)
-scripts/                    utilitários (estágio isolado, autorização do YouTube, setup do vendor, preview_still)
+scripts/                    utilitários (estágio isolado, autorização do YouTube e do Instagram, setup do vendor, preview_still)
+docs/                       site do GitHub Pages (início, privacidade, termos, página de retorno do OAuth)
 test/fixtures/              roteiro de exemplo para testar sem LLM
 ```
 
