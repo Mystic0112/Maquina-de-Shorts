@@ -11,3 +11,6 @@ __pycache__/
 *.pyc
 .venv/
 vendor/openmontage/
+data/voice_samples/
+data/previews/
+config/backups/
