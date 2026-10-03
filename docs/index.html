@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Máquina de Shorts</title>
+<meta name="description" content="Ferramenta pessoal que produz e publica Shorts de curiosidades no canal do próprio autor.">
+<style>
+  :root { --bg:#0f1117; --card:#171a23; --text:#e8e8ef; --muted:#a2a6b8; --accent:#8b7cf6; --line:#262a36; }
+  @media (prefers-color-scheme: light) { :root { --bg:#f6f6fa; --card:#ffffff; --text:#14151b; --muted:#555a6e; --accent:#5b4bd6; --line:#e3e4ec; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:48px 16px 64px; }
+  .badge { display:inline-block; padding:4px 10px; border-radius:999px; background:color-mix(in srgb,var(--accent) 18%,transparent); color:var(--accent); font-size:13px; font-weight:600; }
+  h1 { font-size:34px; line-height:1.15; margin:16px 0 8px; }
+  h2 { font-size:20px; margin:32px 0 8px; }
+  p, li { color:var(--muted); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px 22px; margin-top:24px; }
+  a { color:var(--accent); }
+  footer { margin-top:40px; font-size:14px; color:var(--muted); border-top:1px solid var(--line); padding-top:16px; }
+  hr { border:0; border-top:1px solid var(--line); margin:40px 0; }
+</style>
+</head>
+<body>
+<main>
+  <span class="badge">Uso pessoal</span>
+  <h1>Máquina de Shorts</h1>
+  <p>Ferramenta pessoal de automação que produz vídeos curtos de curiosidades (história, ciência e espaço) e os publica no canal do YouTube do próprio autor.</p>
+
+  <div class="card">
+    <h2 style="margin-top:0">Como funciona</h2>
+    <ul>
+      <li>Um roteiro é gerado com inteligência artificial e narrado com voz sintética.</li>
+      <li>As imagens e vídeos usados vêm de acervos com licença livre (NASA, Wikimedia Commons e bancos de imagem gratuitos), com os créditos devidos.</li>
+      <li>O vídeo final é enviado pela YouTube Data API, apenas para o canal do autor.</li>
+    </ul>
+  </div>
+
+  <h2>Quem pode usar</h2>
+  <p>A ferramenta não é oferecida ao público. Ela é operada somente pelo seu autor, na própria máquina, com a própria conta do Google. Nenhuma outra pessoa faz login ou concede acesso a ela.</p>
+
+  <p><a href="privacidade.html">Política de Privacidade</a> · <a href="https://github.com/Mystic0112">Contato (GitHub)</a></p>
+
+  <hr>
+
+  <h2 lang="en">English</h2>
+  <p lang="en"><strong>Máquina de Shorts</strong> is a personal automation tool that produces short educational videos (history, science and space trivia) and publishes them to its author's own YouTube channel through the YouTube Data API. It is not offered to the public: only the author signs in, with their own Google account, on their own computer. Footage comes from openly licensed sources with proper attribution. See the <a href="privacidade.html#en">Privacy Policy</a>.</p>
+
+  <footer>Máquina de Shorts · ferramenta pessoal · <a href="privacidade.html">Privacidade</a></footer>
+</main>
+</body>
+</html>
