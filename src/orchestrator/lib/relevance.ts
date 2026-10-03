@@ -27,7 +27,7 @@ export function resolveRelevanceSettings(footage: PipelineConfig["footage"]): Re
     fallbackMinScore: r?.fallbackMinScore ?? 4,
     keepPerScene: r?.keepPerScene ?? 2,
     concurrency: r?.concurrency ?? 4,
-    thinking: r?.thinking ?? "minimal",
+    thinking: r?.thinking ?? "low",
   };
 }
 
@@ -247,7 +247,7 @@ export async function scoreClip(
   scene: ScriptScene,
   framesDir: string,
   title?: string,
-  thinking: ThinkingSetting = "minimal",
+  thinking: ThinkingSetting = "low",
 ): Promise<ScoredClip> {
   try {
     const duration = clip.kind === "image" ? 0 : clip.durationSeconds;

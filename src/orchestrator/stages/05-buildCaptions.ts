@@ -1,3 +1,5 @@
+import { resolveCaptions } from "../../shared/settings.js";
+import { loadConfig } from "../lib/config.js";
 import { getLogger } from "../lib/logger.js";
 import type { CaptionCue, Captions, RunContext, SceneTiming, Script, WordTiming } from "../types.js";
 
@@ -281,6 +283,21 @@ export interface CueOptions {
 
 export const DEFAULT_CUE_OPTIONS: CueOptions = { maxWords: 3, maxChars: 16, maxDurationMs: 1200, bridgeGapMs: 250 };
 
+/**
+ * Cue limits for the configured captions.maxWordsPerCue (1-4). Up to 3 words keeps the original
+ * 16-char / 1.2 s limits; 4 words gets proportionally more room (24 chars, 1.6 s) so it can actually
+ * form. Stage 06 only re-splits cues longer than maxWordsPerCue, so both stay consistent.
+ */
+export function cueOptionsFor(maxWordsPerCue: number): CueOptions {
+  const maxWords = Math.max(1, Math.round(maxWordsPerCue));
+  return {
+    ...DEFAULT_CUE_OPTIONS,
+    maxWords,
+    maxChars: maxWords <= DEFAULT_CUE_OPTIONS.maxWords ? DEFAULT_CUE_OPTIONS.maxChars : 6 * maxWords,
+    maxDurationMs: Math.max(DEFAULT_CUE_OPTIONS.maxDurationMs, 400 * maxWords),
+  };
+}
+
 /** Groups words into 1-3 word cues, breaking on punctuation/scene changes, length and duration limits. */
 export function groupWordsIntoCues(
   words: readonly WordTiming[],
@@ -364,10 +381,11 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   if (!ctx.script) throw new Error("05-buildCaptions requires ctx.script");
   if (!ctx.narration) throw new Error("05-buildCaptions requires ctx.narration (run 04-synthesizeVoice first)");
   const log = getLogger(ctx.runId);
-  const { captions, alignment } = buildCaptions(ctx.script, ctx.narration.words, ctx.narration.durationMs);
+  const cueOptions = cueOptionsFor(resolveCaptions(loadConfig().captions).maxWordsPerCue);
+  const { captions, alignment } = buildCaptions(ctx.script, ctx.narration.words, ctx.narration.durationMs, cueOptions);
   const ratio = `${Math.round(alignment.matchRatio * 100)}%`;
   if (alignment.usedFallback) log.warn(`Word alignment weak (${ratio} matched); scenes split proportionally`);
   const sceneSummary = captions.scenes.map((s) => `${s.sceneIndex}:${s.startMs}-${s.endMs}`).join(" ");
-  log.info(`Captions: ${captions.cues.length} cues, alignment ${ratio}, scenes ${sceneSummary}`);
+  log.info(`Captions: ${captions.cues.length} cues (max ${cueOptions.maxWords} words), alignment ${ratio}, scenes ${sceneSummary}`);
   return { ...ctx, captions };
 }

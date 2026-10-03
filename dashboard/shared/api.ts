@@ -1,7 +1,11 @@
 // JSON contract between the dashboard server and the React client.
 import type { LlmUsage, QualitySummary, StageName } from "../../src/orchestrator/types.js";
 
+import type { CaptionSettings, ScriptSettings, VisualSettings, VoiceExtras } from "../../src/shared/settings.js";
+
 export type { LlmUsage, QualitySummary, StageName };
+export type { CaptionSettings, ScriptSettings, VisualSettings, VoiceExtras };
+export type ResolvedScript = Required<Omit<ScriptSettings, "cta">> & Pick<ScriptSettings, "cta">;
 
 export const STAGE_NAMES: readonly StageName[] = [
   "01-pickTopic",
@@ -175,6 +179,93 @@ export interface VideoRow {
     publishedAt: string;
     stats: VideoStats | null;
   } | null;
+}
+
+/* ---------- Configurações ---------- */
+export interface FieldError {
+  /** Dotted path into the edited document, e.g. "captions.maxFontPx" or "categories.0.prompts.1". */
+  path: string;
+  message: string;
+}
+
+export interface KeyStatus {
+  name: string;
+  label: string;
+  /** Only whether it is set: secret values never leave the server. */
+  configured: boolean;
+}
+
+export interface SettingsPayload {
+  /** Content hash of the file on disk; sent back on save to detect concurrent edits. */
+  version: string;
+  /** The raw file (unknown keys included), the document the page edits. */
+  config: Record<string, unknown>;
+  valid: boolean;
+  errors: FieldError[];
+  resolved: {
+    captions: Required<CaptionSettings>;
+    visual: Required<VisualSettings>;
+    script: ResolvedScript;
+    voice: Required<VoiceExtras>;
+  };
+  defaults: {
+    captions: Required<CaptionSettings>;
+    visual: Required<VisualSettings>;
+    script: ResolvedScript;
+    voice: Required<VoiceExtras>;
+  };
+  /** Caption font id -> CSS font stack. */
+  fonts: Record<string, string>;
+  /** JSON Schema of PipelineConfigSchema (drives slider ranges and client-side validation). */
+  schema: unknown;
+  keys: KeyStatus[];
+}
+
+export interface TopicCategory {
+  id: string;
+  label: string;
+  prompts: string[];
+  [extra: string]: unknown;
+}
+
+export interface TopicsPayload {
+  version: string;
+  data: { categories: TopicCategory[]; [extra: string]: unknown };
+  errors: FieldError[];
+}
+
+export interface SaveResponse {
+  ok: boolean;
+  message: string;
+  version?: string;
+  backup?: string;
+  errors?: FieldError[];
+}
+
+export interface VoiceInfo {
+  name: string;
+  locale: string;
+  gender: string;
+  friendlyName: string;
+  personalities: string[];
+}
+
+export interface VoiceSampleResponse {
+  ok: boolean;
+  message: string;
+  url?: string;
+  cached?: boolean;
+  /** Settings the installed synthesizer could not apply (e.g. pitch before --pitch existed). */
+  ignored?: string[];
+}
+
+export interface PreviewResponse {
+  status: "ok" | "unavailable" | "superseded" | "error";
+  message?: string;
+  url?: string;
+  ms?: number;
+  cached?: boolean;
+  runId?: string;
 }
 
 export interface RefreshResponse {

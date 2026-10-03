@@ -81,7 +81,7 @@ O vídeo final fica em `render_output/<runId>/final.mp4`, e o log em `logs/<runI
 - **Vídeos:** todos os vídeos gerados, com status e links.
 - **Execuções:** linha do tempo de cada estágio, tempo de render e onde o pipeline falhou.
 - **Conteúdo:** duração da narração, fontes e licenças das imagens, notas da checagem visual, trava de qualidade, tokens e custo estimado do LLM.
-- **Configurações** (em construção): voz, estilo das legendas, visual, roteiro, temas e upload, com pré-visualização ao vivo. As mudanças valem a partir da próxima execução.
+- **Configurações:** voz (com amostra em áudio), estilo das legendas, visual, roteiro, formato, temas e upload, com pré-visualização ao vivo de um quadro real renderizado pelo Remotion. Cada gravação guarda um backup em `config/backups/`. As mudanças valem a partir da próxima execução.
 
 A receita só aparece depois do OAuth do Marco 2 e da entrada do canal no Programa de Parcerias do YouTube. O painel nunca mostra valor estimado de receita.
 
@@ -99,10 +99,10 @@ config/                     configuração do pipeline e temas
 src/orchestrator/           orquestrador (runPipeline, estágios 01-06, libs de LLM, ffmpeg, relevância)
 src/remotion/               composição do vídeo (legendas, cenas, movimento)
 src/shared/                 contratos compartilhados com o painel (settings, histórico de uploads)
-python/tts/                 narração (edge-tts)
+python/tts/                 narração e lista de vozes (edge-tts)
 vendor/openmontage_adapter/ adaptador de footage (chamado só como subprocesso)
 dashboard/                  painel local (Express + Vite + React)
-scripts/                    utilitários (estágio isolado, setup do vendor)
+scripts/                    utilitários (estágio isolado, setup do vendor, preview_still para prévias)
 test/fixtures/              roteiro de exemplo para testar sem LLM
 ```
 

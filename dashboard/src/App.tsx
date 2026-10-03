@@ -1,4 +1,4 @@
-import { Clapperboard, Film, LayoutDashboard, Moon, RefreshCw, Sparkles, Sun, TriangleAlert, Workflow, type LucideIcon } from "lucide-react";
+import { Clapperboard, Film, LayoutDashboard, Moon, RefreshCw, Settings as SettingsIcon, Sparkles, Sun, TriangleAlert, Workflow, type LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { requestYoutubeRefresh, useDashboardData } from "./api";
 import { useTheme } from "./colors";
@@ -7,6 +7,7 @@ import { fmtAgo, fmtDateTime } from "./format";
 import { Content } from "./pages/Content";
 import { Overview } from "./pages/Overview";
 import { Runs } from "./pages/Runs";
+import { Settings } from "./pages/Settings";
 import { Videos } from "./pages/Videos";
 
 const PAGES: { id: string; label: string; icon: LucideIcon; title: string; sub: string }[] = [
@@ -14,6 +15,7 @@ const PAGES: { id: string; label: string; icon: LucideIcon; title: string; sub: 
   { id: "videos", label: "Vídeos", icon: Film, title: "Vídeos", sub: "Tudo o que foi renderizado e publicado" },
   { id: "execucoes", label: "Execuções", icon: Workflow, title: "Execuções", sub: "Saúde do pipeline, etapa por etapa" },
   { id: "conteudo", label: "Conteúdo", icon: Sparkles, title: "Conteúdo e qualidade", sub: "Narração, footage, relevância e custo" },
+  { id: "configuracoes", label: "Configurações", icon: SettingsIcon, title: "Configurações", sub: "Voz, legendas, visual, roteiro e temas da máquina" },
 ];
 
 function currentPage(): string {
@@ -28,6 +30,11 @@ export function App() {
   const [refreshMsg, setRefreshMsg] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [, setTick] = useState(0);
+  // Once opened, the settings page stays mounted (hidden) so unsaved edits survive tab switches.
+  const [settingsOpened, setSettingsOpened] = useState(pageId === "configuracoes");
+  useEffect(() => {
+    if (pageId === "configuracoes") setSettingsOpened(true);
+  }, [pageId]);
 
   useEffect(() => {
     const onHash = () => {
@@ -125,7 +132,12 @@ export function App() {
           </div>
         ) : null}
 
-        {!data ? (
+        {settingsOpened && (
+          <div hidden={page.id !== "configuracoes"}>
+            <Settings runs={data?.runs ?? []} />
+          </div>
+        )}
+        {page.id === "configuracoes" ? null : !data ? (
           <Card>
             <Empty icon={error ? TriangleAlert : RefreshCw} title={error ? "Servidor indisponível" : "Carregando…"} />
           </Card>

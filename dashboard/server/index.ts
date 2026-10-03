@@ -1,12 +1,16 @@
 import { createServer } from "node:http";
+import { join } from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
-import type { RefreshResponse } from "../shared/api.js";
+import type { RefreshResponse, SaveResponse } from "../shared/api.js";
 import { buildOverview, buildVideoRows } from "./aggregate.js";
 import { config, dashboardDir, paths } from "./config.js";
 import { manualRefresh, startMetrics, youtubeStatus } from "./metrics.js";
 import { getRevenue } from "./revenue.js";
 import { isInsideRenderOutput, listRuns, RUN_ID_PATTERN } from "./runs.js";
 import { thumbPathFor } from "./thumbnails.js";
+import { PREVIEW_HASH, PREVIEWS_DIR, requestPreview } from "./preview.js";
+import { getSettings, getTopics, putSettings, putTopics, SettingsError } from "./settings.js";
+import { listVoices, SAMPLE_HASH, SAMPLES_DIR, voiceSample, type SampleRequest } from "./voices.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -72,6 +76,95 @@ app.get("/api/runs/:runId/thumb.jpg", async (req, res) => {
     return;
   }
   res.sendFile(thumb, { maxAge: "1h" }); // URL carries ?v=<mtime>, so caching is safe
+});
+
+/* ---------- Configurações ---------- */
+// Mutations require a JSON body: cross-site forms cannot send one without a CORS preflight we never allow.
+const jsonOnly = (req: Request, res: Response, next: NextFunction): void => {
+  if (req.is("application/json")) return next();
+  res.status(415).json({ ok: false, message: "Use Content-Type: application/json" });
+};
+const jsonBody = express.json({ limit: "256kb" });
+
+function sendSettingsError(res: Response, error: unknown): void {
+  if (error instanceof SettingsError) {
+    res.status(error.status).json({ ok: false, message: error.message, errors: error.errors } satisfies SaveResponse);
+    return;
+  }
+  throw error;
+}
+
+app.get("/api/settings", async (_req, res) => {
+  try {
+    res.json(await getSettings());
+  } catch (error) {
+    sendSettingsError(res, error);
+  }
+});
+
+app.put("/api/settings", jsonOnly, jsonBody, async (req, res) => {
+  try {
+    const saved = await putSettings(req.body, req.get("If-Match") ?? undefined);
+    res.json({ ok: true, message: "Configurações salvas.", ...saved } satisfies SaveResponse);
+  } catch (error) {
+    sendSettingsError(res, error);
+  }
+});
+
+app.get("/api/topics", async (_req, res) => {
+  try {
+    res.json(await getTopics());
+  } catch (error) {
+    sendSettingsError(res, error);
+  }
+});
+
+app.put("/api/topics", jsonOnly, jsonBody, async (req, res) => {
+  try {
+    const saved = await putTopics(req.body, req.get("If-Match") ?? undefined);
+    res.json({ ok: true, message: "Temas salvos.", ...saved } satisfies SaveResponse);
+  } catch (error) {
+    sendSettingsError(res, error);
+  }
+});
+
+app.get("/api/voices", async (_req, res) => {
+  try {
+    res.json(await listVoices());
+  } catch (error) {
+    res.status(503).json({ ok: false, message: error instanceof Error ? error.message : "Vozes indisponíveis." });
+  }
+});
+
+app.post("/api/voices/sample", jsonOnly, jsonBody, async (req, res) => {
+  const result = await voiceSample((req.body ?? {}) as SampleRequest);
+  res.status(result.status).json(result.body);
+});
+
+app.get("/api/voices/sample/:file", (req, res) => {
+  const hash = req.params.file.replace(/\.mp3$/, "");
+  if (!SAMPLE_HASH.test(hash)) {
+    res.status(404).end();
+    return;
+  }
+  res.sendFile(join(SAMPLES_DIR, hash, "narration.mp3"), { maxAge: "1d" }, (err) => {
+    if (err && !res.headersSent) res.status(404).end();
+  });
+});
+
+app.post("/api/preview", jsonOnly, jsonBody, async (req, res) => {
+  res.json(await requestPreview(req.body));
+});
+
+app.get("/api/preview/:file", (req, res) => {
+  const key = req.params.file.replace(/\.jpg$/, "");
+  if (!PREVIEW_HASH.test(key)) {
+    res.status(404).end();
+    return;
+  }
+  res.sendFile(join(PREVIEWS_DIR, `${key}.jpg`), { maxAge: "1d" }, (err) => {
+    if (err && !res.headersSent) res.status(404).end();
+  });
 });
 
 app.use("/api", (_req, res) => {

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { loadConfig, paths } from "../lib/config.js";
 import { getLogger } from "../lib/logger.js";
 import { runPythonJson } from "../lib/python.js";
+import { resolveVoiceExtras, type VoiceExtras } from "../../shared/settings.js";
 import type { Narration, RunContext, Script } from "../types.js";
 
 const TTS_SCRIPT = "python/tts/synthesize.py";
@@ -21,6 +22,18 @@ const NarrationSchema = z.object({
   ),
 });
 
+/** synthesize.py CLI args; the "--flag=value" form keeps negative values (-10%, -2Hz) from parsing as flags. */
+export function buildTtsArgs(textFile: string, voiceName: string, outDir: string, prosody: Required<VoiceExtras>): string[] {
+  return [
+    "--text-file", textFile,
+    "--voice", voiceName,
+    "--out-dir", outDir,
+    `--rate=${prosody.rate}`,
+    `--pitch=${prosody.pitch}`,
+    `--volume=${prosody.volume}`,
+  ];
+}
+
 /** The exact text the TTS speaks; 05-buildCaptions aligns against the same segments. */
 export function buildNarrationText(script: Pick<Script, "hook" | "scenes" | "cta">): string {
   return [script.hook, ...script.scenes.map((s) => s.narration), script.cta]
@@ -37,9 +50,9 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   const textFile = join(ctx.runDir, "narration.txt");
   await writeFile(textFile, buildNarrationText(ctx.script), "utf8");
 
-  const args = ["--text-file", textFile, "--voice", voice.name, "--out-dir", ctx.runDir];
-  if (voice.rate) args.push(`--rate=${voice.rate}`);
-  log.info(`Synthesizing narration with ${voice.name}${voice.rate ? ` (rate ${voice.rate})` : ""}`);
+  const prosody = resolveVoiceExtras(voice);
+  const args = buildTtsArgs(textFile, voice.name, ctx.runDir, prosody);
+  log.info(`Synthesizing narration with ${voice.name} (rate ${prosody.rate}, pitch ${prosody.pitch}, volume ${prosody.volume})`);
   const result = await runPythonJson({
     script: TTS_SCRIPT,
     args,

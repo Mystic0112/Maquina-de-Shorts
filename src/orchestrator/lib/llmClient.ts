@@ -233,22 +233,9 @@ class GeminiProvider implements LlmProvider {
     this.client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 120_000, retryOptions: { attempts: 4 } } });
   }
 
-  /** Thinking levels this model rejected (400); later calls go straight to the next supported level. */
-  private readonly unsupportedThinking = new Set<ThinkingSetting>();
-
   /** Sends the request at the requested level, stepping up (minimal -> low -> ... -> default) on rejection. */
-  private async generateWithThinking<T>(requested: ThinkingSetting, send: (cfg: ThinkingConfig | undefined) => Promise<T>): Promise<T> {
-    for (const level of thinkingFallbackChain(requested)) {
-      if (this.unsupportedThinking.has(level)) continue;
-      try {
-        return await send(toGeminiThinking(level));
-      } catch (error) {
-        if (level === "default" || !isThinkingRejection(error)) throw error;
-        this.unsupportedThinking.add(level);
-        console.warn(`[llm] ${this.model} rejected thinking level "${level}"; using the next level up`);
-      }
-    }
-    return send(undefined);
+  private generateWithThinking<T>(requested: ThinkingSetting, send: (cfg: ThinkingConfig | undefined) => Promise<T>): Promise<T> {
+    return thinkingLevels.run(this.model, requested, (level) => send(toGeminiThinking(level)));
   }
 
   async completeJson(
@@ -338,6 +325,67 @@ const GEMINI_THINKING_LEVELS: Record<Exclude<ThinkingSetting, "default">, Thinki
 };
 
 const THINKING_ORDER: readonly ThinkingSetting[] = ["minimal", "low", "medium", "high"];
+
+/**
+ * In-process cache of the thinking level each model accepts for each requested level. The first call
+ * for a (model, level) pair probes up the fallback chain while concurrent callers wait for it, so a
+ * rejected level costs at most one 400 per process (= per pipeline run).
+ */
+export class ThinkingLevelCache {
+  private readonly accepted = new Map<string, ThinkingSetting>();
+  private readonly probes = new Map<string, Promise<ThinkingSetting>>();
+
+  constructor(private readonly onFallback: (model: string, rejected: ThinkingSetting) => void = () => undefined) {}
+
+  acceptedLevel(model: string, requested: ThinkingSetting): ThinkingSetting | undefined {
+    return this.accepted.get(`${model}|${requested}`);
+  }
+
+  async run<T>(model: string, requested: ThinkingSetting, send: (level: ThinkingSetting) => Promise<T>): Promise<T> {
+    const key = `${model}|${requested}`;
+    const known = this.accepted.get(key);
+    if (known) return send(known);
+    const inFlight = this.probes.get(key);
+    if (inFlight) {
+      const level = await inFlight.catch(() => undefined);
+      return level ? send(level) : this.run(model, requested, send); // probe failed: probe again ourselves
+    }
+    let settle: (level: ThinkingSetting) => void = () => undefined;
+    let fail: (error: unknown) => void = () => undefined;
+    this.probes.set(key, new Promise<ThinkingSetting>((res, rej) => ((settle = res), (fail = rej))));
+    try {
+      const { result, level } = await this.probe(model, requested, send);
+      this.accepted.set(key, level);
+      settle(level);
+      return result;
+    } catch (error) {
+      fail(error); // waiters retry on their own; the next caller probes again
+      throw error;
+    } finally {
+      this.probes.delete(key);
+    }
+  }
+
+  private async probe<T>(
+    model: string,
+    requested: ThinkingSetting,
+    send: (level: ThinkingSetting) => Promise<T>,
+  ): Promise<{ result: T; level: ThinkingSetting }> {
+    for (const level of thinkingFallbackChain(requested)) {
+      try {
+        return { result: await send(level), level };
+      } catch (error) {
+        if (level === "default" || !isThinkingRejection(error)) throw error;
+        this.onFallback(model, level);
+      }
+    }
+    throw new Error("unreachable: thinking fallback chain ends with default");
+  }
+}
+
+const thinkingLevels = new ThinkingLevelCache((model, level) =>
+  console.warn(`[llm] ${model} rejected thinking level "${level}"; using the next level up`),
+);
 
 /** Requested level first, then progressively higher levels, finally the model default. */
 export function thinkingFallbackChain(requested: ThinkingSetting): ThinkingSetting[] {

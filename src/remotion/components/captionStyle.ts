@@ -5,21 +5,26 @@
 // (never per-word margins or transforms), so it is identical for first/last words and across wraps.
 
 import type { CSSProperties } from "react";
+import { CAPTION_DEFAULTS, CAPTION_FONTS, type CaptionFont, type CaptionSettings } from "../../shared/settings.js";
 import type { CaptionWordProps } from "../shared.js";
 
-export const CAPTION_CENTER_Y = 0.62; // caption block vertical center, as a fraction of frame height
+type Captions = Required<CaptionSettings>;
+
 export const CAPTION_SAFE_LEFT = 0.08;
 export const CAPTION_SAFE_RIGHT = 0.15; // Shorts action buttons live on the right edge
-export const CAPTION_MAX_FONT_PX = 96;
-export const CAPTION_HIGHLIGHT = "#FFE11A";
-export const CAPTION_TEXT = "#FFFFFF";
 
-const AVG_GLYPH_EM = 0.8; // approx. width of an uppercase Arial Black glyph, in em
+/** Approx. average glyph advance per font, in em, used to keep the longest word on one line. */
+const AVG_GLYPH_EM: Record<CaptionFont, number> = {
+  "arial-black": 0.8,
+  impact: 0.56,
+  "segoe-black": 0.74,
+  verdana: 0.72,
+};
+const LOWERCASE_WIDTH_FACTOR = 0.85;
 const STROKE_EM = 0.2; // full stroke width; paint-order hides the inner half under the fill
 const HARD_SHADOW_EM = 0.07;
 const COLUMN_GAP_EM = 0.5;
 const ROW_GAP_EM = 0.1;
-const FONT_STACK = '"Arial Black", "Segoe UI Black", "Montserrat Black", Impact, "Helvetica Neue", Arial, sans-serif';
 
 /** How far the painted outline reaches beyond the glyph edge, in em. */
 const outlineReachEm = (): number => Math.max(STROKE_EM / 2, HARD_SHADOW_EM);
@@ -29,9 +34,14 @@ export function visibleWordGapPx(fontSize: number): number {
   return (COLUMN_GAP_EM - 2 * outlineReachEm()) * fontSize;
 }
 
-export function captionFontSize(words: CaptionWordProps[], availableWidth: number): number {
+export function captionText(text: string, captions: Captions = CAPTION_DEFAULTS): string {
+  return captions.uppercase ? text.toLocaleUpperCase("pt-BR") : text;
+}
+
+export function captionFontSize(words: CaptionWordProps[], availableWidth: number, captions: Captions = CAPTION_DEFAULTS): number {
   const longest = Math.max(...words.map((w) => w.text.length), 1);
-  return Math.min(CAPTION_MAX_FONT_PX, availableWidth / (longest * AVG_GLYPH_EM));
+  const glyphEm = AVG_GLYPH_EM[captions.font] * (captions.uppercase ? 1 : LOWERCASE_WIDTH_FACTOR);
+  return Math.min(captions.maxFontPx, availableWidth / (longest * glyphEm));
 }
 
 /** The word being spoken; between words the previous one stays lit so the highlight never blinks. */
@@ -44,31 +54,43 @@ export function activeWordIndex(words: CaptionWordProps[], frame: number): numbe
 }
 
 /** Crisp 8-direction hard shadow (thick outline) plus a soft drop shadow for depth. */
-function outlineShadow(fontSize: number): string {
+function outlineShadow(fontSize: number, strokeColor: string): string {
   const r = Math.round(fontSize * HARD_SHADOW_EM);
   const d = Math.round(r * 0.7);
   const offsets = [[r, 0], [-r, 0], [0, r], [0, -r], [d, d], [-d, d], [d, -d], [-d, -d]];
-  const hard = offsets.map(([x, y]) => `${x}px ${y}px 0 #000`);
+  const hard = offsets.map(([x, y]) => `${x}px ${y}px 0 ${strokeColor}`);
   return [...hard, `0 ${Math.round(fontSize * 0.1)}px ${Math.round(fontSize * 0.2)}px rgba(0,0,0,0.85)`].join(", ");
 }
 
-export function captionWordStyle(active: boolean, fontSize: number): CSSProperties {
+export function captionWordStyle(active: boolean, fontSize: number, captions: Captions = CAPTION_DEFAULTS): CSSProperties {
+  const highlighted = active && captions.highlight === "color";
   return {
     display: "inline-block",
     whiteSpace: "nowrap",
-    color: active ? CAPTION_HIGHLIGHT : CAPTION_TEXT,
-    WebkitTextStroke: `${Math.round(fontSize * STROKE_EM)}px #000`,
+    color: highlighted ? captions.highlightColor : captions.textColor,
+    WebkitTextStroke: `${Math.round(fontSize * STROKE_EM)}px ${captions.strokeColor}`,
     paintOrder: "stroke fill",
-    textShadow: outlineShadow(fontSize),
+    textShadow: outlineShadow(fontSize, captions.strokeColor),
   };
 }
 
-export function captionContainerStyle(fontSize: number, availableWidth: number, left: number, top: number, popScale: number): CSSProperties {
+export type CaptionBox = { left: number; top: number; width: number };
+
+/** Caption block geometry: safe horizontal band, vertically centered at `verticalPosition`. */
+export function captionBox(frameWidth: number, frameHeight: number, captions: Captions = CAPTION_DEFAULTS): CaptionBox {
+  return {
+    left: frameWidth * CAPTION_SAFE_LEFT,
+    top: frameHeight * captions.verticalPosition,
+    width: frameWidth * (1 - CAPTION_SAFE_LEFT - CAPTION_SAFE_RIGHT),
+  };
+}
+
+export function captionContainerStyle(fontSize: number, box: CaptionBox, popScale: number, captions: Captions = CAPTION_DEFAULTS): CSSProperties {
   return {
     position: "absolute",
-    top,
-    left,
-    width: availableWidth,
+    top: box.top,
+    left: box.left,
+    width: box.width,
     transform: `translateY(-50%) scale(${popScale})`, // whole group pops in together; word gaps scale with it
     display: "flex",
     flexWrap: "wrap",
@@ -77,10 +99,17 @@ export function captionContainerStyle(fontSize: number, availableWidth: number, 
     columnGap: Math.round(fontSize * COLUMN_GAP_EM),
     rowGap: Math.round(fontSize * ROW_GAP_EM),
     textAlign: "center",
-    fontFamily: FONT_STACK,
+    fontFamily: CAPTION_FONTS[captions.font],
     fontWeight: 900,
     fontSize,
     lineHeight: 1.1,
     letterSpacing: "0.01em",
   };
+}
+
+/** Vertical gradient stops (in %) for the legibility backdrop, centered on the caption block. */
+export function backdropGradient(verticalPosition: number): string {
+  const c = verticalPosition * 100;
+  const stop = (offset: number): string => `${Math.min(100, Math.max(0, c + offset)).toFixed(1)}%`;
+  return `linear-gradient(to bottom, rgba(0,0,0,0) ${stop(-22)}, rgba(0,0,0,0.35) ${stop(-4)}, rgba(0,0,0,0.35) ${stop(6)}, rgba(0,0,0,0) ${stop(23)})`;
 }

@@ -33,6 +33,11 @@ function env(name: string): string | undefined {
   return value?.trim() ? value.trim() : undefined;
 }
 
+/** For the Configurações page: whether a variable is set, never its value. */
+export const envIsSet = (name: string): boolean => env(name) !== undefined;
+/** Non-secret values only (e.g. file paths like YT_TOKEN_PATH). */
+export const envValue = (name: string): string | undefined => env(name);
+
 function positiveNumber(name: string, fallback: number): number {
   const parsed = Number(env(name));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;

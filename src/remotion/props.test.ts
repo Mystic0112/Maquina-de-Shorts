@@ -1,7 +1,25 @@
 import { describe, expect, it } from "vitest";
 import type { FootageClip, RunContext, WordTiming } from "../orchestrator/types.js";
-import { buildCaptionChunks, buildRenderPlan, CROSSFADE_FRAMES, IMAGE_PAN_PCT, type ClipSegment } from "./props.js";
-import { captionContainerStyle, captionWordStyle, visibleWordGapPx } from "./components/captionStyle.js";
+import { CAPTION_DEFAULTS, VISUAL_DEFAULTS } from "../shared/settings.js";
+import {
+  buildCaptionChunks,
+  buildRenderPlan,
+  CROSSFADE_FRAMES,
+  DEFAULT_RENDER_STYLE,
+  IMAGE_PAN_PCT,
+  maxSafePanPct,
+  type ClipSegment,
+  type RenderStyle,
+} from "./props.js";
+import {
+  backdropGradient,
+  captionBox,
+  captionContainerStyle,
+  captionText,
+  captionWordStyle,
+  visibleWordGapPx,
+} from "./components/captionStyle.js";
+import { renderStyleFrom } from "./node/renderKit.js";
 
 const VIDEO = { width: 1080, height: 1920, fps: 30 };
 
@@ -120,7 +138,7 @@ describe("caption word spacing", () => {
   it("leaves a clear gap of at least a quarter em between adjacent outlines", () => {
     for (const fontSize of FONT_SIZES) {
       expect(visibleWordGapPx(fontSize)).toBeGreaterThanOrEqual(0.25 * fontSize);
-      expect(captionContainerStyle(fontSize, 800, 0, 0, 1).columnGap).toBeGreaterThan(0);
+      expect(captionContainerStyle(fontSize, { left: 0, top: 0, width: 800 }, 1).columnGap).toBeGreaterThan(0);
     }
   });
 });
@@ -177,5 +195,80 @@ describe("scenes with still images", () => {
   it("keeps videos on a plain push-in without pan", () => {
     const [segment] = scene1([clip(0, "C:/a.mp4", 20), clip(1, "C:/b.mp4", 20)]).segments;
     expect(segment!.motion).toEqual({ scaleFrom: 1, scaleTo: 1.08, panXFromPct: 0, panXToPct: 0 });
+  });
+});
+
+describe("render style (Configurações)", () => {
+  const style = (captions: Partial<RenderStyle["captions"]> = {}, visual: Partial<RenderStyle["visual"]> = {}): RenderStyle => ({
+    captions: { ...CAPTION_DEFAULTS, ...captions },
+    visual: { ...VISUAL_DEFAULTS, ...visual },
+  });
+  const twoScenes = [clip(0, "C:/a.mp4", 20), image(1, "C:/b.jpg")];
+
+  it("defaults reproduce the pre-settings look", () => {
+    expect(DEFAULT_RENDER_STYLE).toEqual(style());
+    expect(renderStyleFrom({})).toEqual(style());
+    const { props } = buildRenderPlan(ctx(twoScenes), VIDEO);
+    expect(props.style).toEqual(style());
+    expect(props.scenes[1]!.leadInFrames).toBe(CROSSFADE_FRAMES);
+    expect(props.captions.map((c) => c.words.length)).toEqual([3, 3, 2, 2]);
+    expect(backdropGradient(0.62)).toBe(
+      "linear-gradient(to bottom, rgba(0,0,0,0) 40.0%, rgba(0,0,0,0.35) 58.0%, rgba(0,0,0,0.35) 68.0%, rgba(0,0,0,0) 85.0%)",
+    );
+  });
+
+  it("merges config and override over defaults, ignoring undefined values", () => {
+    const merged = renderStyleFrom({ captions: { font: "impact", maxFontPx: 80 } }, { captions: { maxFontPx: 120, highlight: undefined } });
+    expect(merged.captions).toMatchObject({ font: "impact", maxFontPx: 120, highlight: "color" });
+  });
+
+  it("maxWordsPerCue drives the balanced re-split", () => {
+    const sizes = (n: number) =>
+      buildRenderPlan(ctx(twoScenes), VIDEO, style({ maxWordsPerCue: n })).props.captions.map((c) => c.words.length);
+    expect(sizes(1)).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    expect(sizes(2)).toEqual([2, 2, 2, 2, 2]);
+    expect(sizes(4)).toEqual([4, 3, 3]);
+  });
+
+  it("captions.enabled=false renders no caption chunks", () => {
+    expect(buildRenderPlan(ctx(twoScenes), VIDEO, style({ enabled: false })).props.captions).toEqual([]);
+  });
+
+  it("highlight 'none' makes the spoken word look exactly like the others", () => {
+    const none = style({ highlight: "none" }).captions;
+    expect(captionWordStyle(true, 96, none)).toEqual(captionWordStyle(false, 96, none));
+  });
+
+  it("applies colors, font, case and vertical position", () => {
+    const custom = style({ textColor: "#00FF00", highlightColor: "#FF00FF", strokeColor: "#112233", font: "verdana", uppercase: false, verticalPosition: 0.45 }).captions;
+    expect(captionWordStyle(false, 90, custom)).toMatchObject({ color: "#00FF00", WebkitTextStroke: "18px #112233" });
+    expect(captionWordStyle(true, 90, custom).color).toBe("#FF00FF");
+    expect(captionContainerStyle(90, captionBox(1080, 1920, custom), 1, custom).fontFamily).toMatch(/^Verdana/);
+    expect(captionBox(1080, 1920, custom).top).toBeCloseTo(864);
+    expect(captionText("água", custom)).toBe("água");
+    expect(captionText("água")).toBe("ÁGUA");
+  });
+
+  it("crossfadeFrames=0 gives hard cuts", () => {
+    const { scenes } = buildRenderPlan(ctx(twoScenes), VIDEO, style({}, { crossfadeFrames: 0 })).props;
+    expect(scenes.map((s) => s.leadInFrames)).toEqual([0, 0]);
+  });
+
+  it("zoom 1.0 disables the pan; imagePan=false keeps the zoom without pan", () => {
+    const motion = (visual: Partial<RenderStyle["visual"]>) =>
+      buildRenderPlan(ctx(twoScenes), VIDEO, style({}, visual)).props.scenes.map((s) => s.segments[0]!.motion);
+    expect(motion({ imageZoom: 1, videoZoom: 1 })).toEqual([
+      { scaleFrom: 1, scaleTo: 1, panXFromPct: 0, panXToPct: 0 },
+      { scaleFrom: 1, scaleTo: 1, panXFromPct: 0, panXToPct: 0 },
+    ]);
+    expect(motion({ imagePan: false })[1]).toEqual({ scaleFrom: 1, scaleTo: 1.12, panXFromPct: 0, panXToPct: 0 });
+  });
+
+  it("never pans beyond the edge slack of the configured zoom", () => {
+    for (const imageZoom of [1, 1.01, 1.05, 1.12, 1.2, 1.25]) {
+      const m = buildRenderPlan(ctx(twoScenes), VIDEO, style({}, { imageZoom })).props.scenes[1]!.segments[0]!.motion;
+      expect(Math.abs(m.panXToPct)).toBeLessThanOrEqual(maxSafePanPct(imageZoom));
+      expect(Math.abs(m.panXToPct)).toBeLessThanOrEqual(IMAGE_PAN_PCT);
+    }
   });
 });

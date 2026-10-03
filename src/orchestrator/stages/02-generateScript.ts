@@ -1,50 +1,91 @@
 import { z } from "zod";
+import { resolveScript, type ScriptSettings } from "../../shared/settings.js";
 import { env, loadConfig } from "../lib/config.js";
 import { generateJson, withCorrection } from "../lib/llmClient.js";
 import { getLogger } from "../lib/logger.js";
 import type { RunContext, Script, TopicPick } from "../types.js";
 
-export const WORD_RANGE = { min: 130, max: 190 } as const;
-/** After the corrective retry, accept slightly-off scripts (with a warning) instead of failing the run. */
-export const WORD_TOLERANCE = { min: 115, max: 215 } as const;
-const SCENE_RANGE = { min: 4, max: 7 } as const;
-const QUERY_WORDS = { min: 2, max: 4 } as const;
+/** Script settings after defaults (see src/shared/settings.ts). */
+export type ResolvedScriptSettings = ReturnType<typeof resolveScript>;
+export type ScriptTone = ResolvedScriptSettings["tone"];
 
-export const LlmScriptSchema = z.object({
-  title: z.string().min(5).max(95).describe("Título do Short em pt-BR, chamativo, sem clickbait enganoso"),
-  hook: z.string().min(10).describe("Primeira frase: gancho de curiosidade forte, em pt-BR"),
-  scenes: z
-    .array(
-      z.object({
-        narration: z.string().min(10).describe("Narração da cena em pt-BR (1-3 frases curtas)"),
-        footageQuery: z.string().min(3).describe("2-4 English words describing generic, filmable footage"),
-      }),
-    )
-    .min(SCENE_RANGE.min)
-    .max(SCENE_RANGE.max),
-  cta: z.string().min(3).describe("CTA curto em pt-BR pedindo para seguir o canal"),
+const QUERY_WORDS = { min: 2, max: 4 } as const;
+/**
+ * After the corrective retry, accept slightly-off scripts (with a warning) instead of failing the run.
+ * Proportional to the configured range; the defaults 130-190 give the historical 115-215.
+ */
+const TOLERANCE_FACTORS = { min: 115 / 130, max: 215 / 190 } as const;
+
+export interface WordRange {
+  min: number;
+  max: number;
+}
+
+export function wordRange(s: ResolvedScriptSettings): WordRange {
+  return { min: s.minWords, max: s.maxWords };
+}
+
+export function wordTolerance(s: ResolvedScriptSettings): WordRange {
+  return { min: Math.round(s.minWords * TOLERANCE_FACTORS.min), max: Math.round(s.maxWords * TOLERANCE_FACTORS.max) };
+}
+
+/** Fixed closing line from settings, or undefined when the model should write its own. */
+export function fixedCta(s: Pick<ScriptSettings, "cta">): string | undefined {
+  const cta = s.cta?.trim();
+  return cta ? cta : undefined;
+}
+
+const SceneSchema = z.object({
+  narration: z.string().min(10).describe("Narração da cena em pt-BR (1-3 frases curtas)"),
+  footageQuery: z.string().min(3).describe("2-4 English words describing generic, filmable footage"),
 });
 
-export type LlmScript = z.infer<typeof LlmScriptSchema>;
+/** What the model returns. `cta` is optional because a fixed CTA removes it from the schema. */
+export interface LlmScript {
+  title: string;
+  hook: string;
+  scenes: { narration: string; footageQuery: string }[];
+  cta?: string;
+}
+
+export function buildLlmScriptSchema(s: ResolvedScriptSettings): z.ZodType<LlmScript> {
+  const base = z.object({
+    title: z.string().min(5).max(95).describe("Título do Short em pt-BR, chamativo, sem clickbait enganoso"),
+    hook: z.string().min(10).describe("Primeira frase: gancho de curiosidade forte, em pt-BR"),
+    scenes: z.array(SceneSchema).min(s.minScenes).max(s.maxScenes),
+  });
+  if (fixedCta(s)) return base;
+  return base.extend({ cta: z.string().min(3).describe("CTA curto em pt-BR pedindo para seguir o canal") });
+}
+
+/** Default-settings schema, kept for callers that only need the shape. */
+export const LlmScriptSchema = buildLlmScriptSchema(resolveScript());
 
 export function countWords(text: string): number {
   return text.split(/\s+/).filter((token) => /[\p{L}\p{N}]/u.test(token)).length;
 }
 
-export function countSpokenWords(script: Pick<Script, "hook" | "scenes" | "cta">): number {
-  return countWords([script.hook, ...script.scenes.map((s) => s.narration), script.cta].join(" "));
+export function countSpokenWords(script: Pick<LlmScript, "hook" | "scenes" | "cta">): number {
+  return countWords([script.hook, ...script.scenes.map((s) => s.narration), script.cta ?? ""].join(" "));
 }
 
-/** Problems the JSON schema cannot express. Empty array = script is acceptable. */
-export function findScriptProblems(script: LlmScript): string[] {
+/** The model's output with the fixed CTA (if any) applied — the text that will actually be spoken. */
+export function withEffectiveCta(raw: LlmScript, s: ResolvedScriptSettings): LlmScript & { cta: string } {
+  return { ...raw, cta: fixedCta(s) ?? raw.cta?.trim() ?? "" };
+}
+
+/** Problems the JSON schema cannot express, checked on the spoken script (fixed CTA included). */
+export function findScriptProblems(script: LlmScript, s: ResolvedScriptSettings = resolveScript()): string[] {
   const problems: string[] = [];
+  const range = wordRange(s);
   const words = countSpokenWords(script);
-  if (words < WORD_RANGE.min || words > WORD_RANGE.max) {
+  if (words < range.min || words > range.max) {
     problems.push(
-      `O texto falado (hook + cenas + cta) tem ${words} palavras; precisa ter entre ${WORD_RANGE.min} e ${WORD_RANGE.max}.` +
-        (words < WORD_RANGE.min ? " Desenvolva mais as cenas." : " Corte frases e enxugue as cenas."),
+      `O texto falado (hook + cenas + cta) tem ${words} palavras; precisa ter entre ${range.min} e ${range.max}.` +
+        (words < range.min ? " Desenvolva mais as cenas." : " Corte frases e enxugue as cenas."),
     );
   }
+  if (!fixedCta(s) && !script.cta?.trim()) problems.push(`Falta o "cta".`);
   script.scenes.forEach((scene, i) => {
     const n = countWords(scene.footageQuery);
     if (n < QUERY_WORDS.min || n > QUERY_WORDS.max) {
@@ -54,9 +95,10 @@ export function findScriptProblems(script: LlmScript): string[] {
   return problems;
 }
 
-export function isWithinTolerance(script: LlmScript): boolean {
+export function isWithinTolerance(script: LlmScript, s: ResolvedScriptSettings = resolveScript()): boolean {
   const words = countSpokenWords(script);
-  return words >= WORD_TOLERANCE.min && words <= WORD_TOLERANCE.max;
+  const tolerance = wordTolerance(s);
+  return words >= tolerance.min && words <= tolerance.max;
 }
 
 /** Libraries the footage adapter can query; keyed stock sites only count when their key is configured. */
@@ -79,7 +121,49 @@ ilustrar com imagens reais de acervo (fenômenos naturais, planetas e missões e
 `;
 }
 
-export function buildScriptPrompt(topic: TopicPick, avoidTitles: readonly string[] = []): string {
+export const TONE_INSTRUCTIONS: Record<ScriptTone, string> = {
+  curioso:
+    "curioso e intrigante: fale como alguém que acabou de descobrir algo fascinante e quer contar a um amigo; perguntas retóricas pontuais e revelações graduais.",
+  empolgado:
+    "empolgado e enérgico: ritmo rápido, frases curtas e exclamativas na medida certa, transmitindo entusiasmo genuíno sem exagerar nem soar forçado.",
+  misterioso:
+    "misterioso e envolvente: crie suspense, revele as informações aos poucos e use pausas dramáticas (frases curtas) antes das revelações, sem inventar mistério onde não há.",
+  didatico:
+    "didático e claro: explique como um bom professor, com comparações do dia a dia e uma ideia por frase, sem jargão e sem soar infantil.",
+};
+
+/** Target for the model: middle of the configured range. */
+function targetWords(range: WordRange): number {
+  return Math.round((range.min + range.max) / 2);
+}
+
+function lengthRule(s: ResolvedScriptSettings): string {
+  const range = wordRange(s);
+  const cta = fixedCta(s);
+  if (!cta) {
+    return `- Texto falado TOTAL (hook + todas as narrações das cenas + cta) entre ${range.min} e ${range.max} palavras. Mire em ~${targetWords(range)}.`;
+  }
+  const ctaWords = countWords(cta);
+  const min = Math.max(1, range.min - ctaWords);
+  const max = Math.max(min, range.max - ctaWords);
+  return `- Hook + todas as narrações das cenas devem somar entre ${min} e ${max} palavras (o CTA fixo acrescenta mais ${ctaWords}). Mire em ~${targetWords({ min, max })}.`;
+}
+
+function ctaRule(s: ResolvedScriptSettings): string {
+  const cta = fixedCta(s);
+  if (cta) {
+    return `- NÃO escreva CTA: o vídeo sempre termina com a frase fixa "${cta}", narrada logo após a última cena. Faça a última cena conduzir naturalmente até ela.`;
+  }
+  return `- "cta": curtíssimo (até 8 palavras), pedindo para seguir o canal para mais curiosidades.`;
+}
+
+export function buildScriptPrompt(
+  topic: TopicPick,
+  avoidTitles: readonly string[] = [],
+  settings: ResolvedScriptSettings = resolveScript(),
+  libraries: string = footageLibraries(),
+): string {
+  const spoken = fixedCta(settings) ? "hook e cenas" : "hook, cenas e cta";
   return `Você é roteirista de um canal brasileiro de YouTube Shorts de curiosidades (história, ciência, espaço).
 Escreva o roteiro de um Short narrado em português do Brasil.
 
@@ -87,19 +171,21 @@ Categoria: ${topic.categoryLabel}
 Tema/ângulo: ${topic.seedPrompt}
 Escolha você um fato específico dentro desse ângulo.
 ${avoidanceInstructions(avoidTitles)}
+Tom de voz do roteiro: ${TONE_INSTRUCTIONS[settings.tone]}
+
 Regras de conteúdo:
-- Todo o texto narrado (hook, cenas e cta) em pt-BR natural, falado, frases curtas e diretas.
-- Texto falado TOTAL (hook + todas as narrações das cenas + cta) entre ${WORD_RANGE.min} e ${WORD_RANGE.max} palavras (narração de 45 a 90 segundos). Mire em ~160.
+- Todo o texto narrado (${spoken}) em pt-BR natural, falado, frases curtas e diretas.
+${lengthRule(settings)}
 - "hook": a primeira frase é um gancho de curiosidade forte que prende nos 2 primeiros segundos (pergunta intrigante ou afirmação surpreendente). Não comece com "Você sabia".
-- ${SCENE_RANGE.min} a ${SCENE_RANGE.max} cenas, cada uma com 1 a 3 frases que avançam a história; a última cena fecha com um desfecho satisfatório.
+- ${settings.minScenes} a ${settings.maxScenes} cenas, cada uma com 1 a 3 frases que avançam a história; a última cena fecha com um desfecho satisfatório.
 - Use apenas fatos bem estabelecidos e amplamente documentados. Evite números exatos, a menos que sejam consenso de livro didático; prefira aproximações ("cerca de", "mais de").
 - Nada de alegações de saúde, finanças ou política. Nada de teorias da conspiração ou especulação apresentada como fato.
 - Escreva números por extenso quando curtos e evite siglas difíceis de pronunciar.
-- "cta": curtíssimo (até 8 palavras), pedindo para seguir o canal para mais curiosidades.
+${ctaRule(settings)}
 - "title": título do Short em pt-BR, até 70 caracteres, instigante mas honesto.
 
 Regras para "footageQuery" (uma por cena, em INGLÊS):
-- O vídeo de fundo vem automaticamente de ${footageLibraries()}. Um revisor automático descarta vídeos que não mostrem o que a cena narra.
+- O vídeo de fundo vem automaticamente de ${libraries}. Um revisor automático descarta vídeos que não mostrem o que a cena narra.
 - 2 a 4 palavras nomeando COISAS CONCRETAS E VISÍVEIS que esses acervos têm, nunca conceitos abstratos (nada de "slow rotation", "time paradox", "mystery").
 - Bons exemplos: "venus planet nasa", "volcano lava flow", "ancient pyramids aerial", "spiral galaxy", "old parchment map", "ocean waves storm", "lightning storm night".
 - Para espaço, prefira termos que a NASA usa (nome do planeta/objeto + "nasa", "planet", "telescope", "rocket launch").
@@ -109,16 +195,17 @@ Regras para "footageQuery" (uma por cena, em INGLÊS):
 Responda somente com o JSON no formato pedido.`;
 }
 
-async function requestScript(prompt: string): Promise<LlmScript> {
-  return generateJson(prompt, LlmScriptSchema);
+async function requestScript(prompt: string, s: ResolvedScriptSettings): Promise<LlmScript & { cta: string }> {
+  return withEffectiveCta(await generateJson(prompt, buildLlmScriptSchema(s)), s);
 }
 
-function toScript(raw: LlmScript, language: string): Script {
+export function toScript(raw: LlmScript, s: ResolvedScriptSettings, language: string): Script {
+  const spoken = withEffectiveCta(raw, s);
   return {
-    title: raw.title.trim(),
-    hook: raw.hook.trim(),
-    scenes: raw.scenes.map((s) => ({ narration: s.narration.trim(), footageQuery: s.footageQuery.trim() })),
-    cta: raw.cta.trim(),
+    title: spoken.title.trim(),
+    hook: spoken.hook.trim(),
+    scenes: spoken.scenes.map((sc) => ({ narration: sc.narration.trim(), footageQuery: sc.footageQuery.trim() })),
+    cta: spoken.cta,
     language,
   };
 }
@@ -126,19 +213,25 @@ function toScript(raw: LlmScript, language: string): Script {
 export async function run(ctx: RunContext): Promise<RunContext> {
   if (!ctx.topic) throw new Error("02-generateScript requires ctx.topic (run 01-pickTopic first)");
   const log = getLogger(ctx.runId);
-  const prompt = buildScriptPrompt(ctx.topic, ctx.avoid?.titles ?? []);
-  let raw = await requestScript(prompt);
-  let problems = findScriptProblems(raw);
+  const config = loadConfig();
+  const settings = resolveScript(config.script);
+  const prompt = buildScriptPrompt(ctx.topic, ctx.avoid?.titles ?? [], settings);
+  let raw = await requestScript(prompt, settings);
+  let problems = findScriptProblems(raw, settings);
   if (problems.length > 0) {
     log.warn(`Script needs a corrective retry:\n- ${problems.join("\n- ")}`);
-    raw = await requestScript(withCorrection(prompt, JSON.stringify(raw, null, 2), problems.join("\n")));
-    problems = findScriptProblems(raw);
+    raw = await requestScript(withCorrection(prompt, JSON.stringify(raw, null, 2), problems.join("\n")), settings);
+    problems = findScriptProblems(raw, settings);
   }
   if (problems.length > 0) {
-    if (!isWithinTolerance(raw)) throw new Error(`Script still invalid after retry:\n- ${problems.join("\n- ")}`);
+    if (!isWithinTolerance(raw, settings)) throw new Error(`Script still invalid after retry:\n- ${problems.join("\n- ")}`);
     log.warn(`Accepting script with minor issues:\n- ${problems.join("\n- ")}`);
   }
-  const script = toScript(raw, loadConfig().voice.language);
-  log.info(`Script "${script.title}": ${script.scenes.length} scenes, ${countSpokenWords(script)} spoken words`);
+  const script = toScript(raw, settings, config.voice.language);
+  const ctaNote = fixedCta(settings) ? ", fixed CTA" : "";
+  log.info(
+    `Script "${script.title}": ${script.scenes.length} scenes, ${countSpokenWords(script)} spoken words ` +
+      `(range ${settings.minWords}-${settings.maxWords}, tone ${settings.tone}${ctaNote})`,
+  );
   return { ...ctx, script };
 }

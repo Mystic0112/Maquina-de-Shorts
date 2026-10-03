@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 import { z } from "zod";
+import { CaptionSettingsSchema, ScriptSettingsSchema, VisualSettingsSchema, VoiceExtrasSchema } from "../../shared/settings.js";
 
 const PACKAGE_NAME = "maquina-de-fazer-dinheiro";
 
@@ -47,7 +48,7 @@ export const paths = {
 
 dotenv.config({ path: join(projectRoot, ".env"), quiet: true });
 
-const PipelineConfigSchema = z.object({
+export const PipelineConfigSchema = z.object({
   video: z.object({
     width: z.number().int().positive(),
     height: z.number().int().positive(),
@@ -59,8 +60,13 @@ const PipelineConfigSchema = z.object({
     engine: z.string(),
     name: z.string().min(1),
     language: z.string().min(1),
-    rate: z.string().regex(/^[+-]\d+%$/).optional(),
+    rate: VoiceExtrasSchema.shape.rate,
+    pitch: VoiceExtrasSchema.shape.pitch,
+    volume: VoiceExtrasSchema.shape.volume,
   }),
+  captions: CaptionSettingsSchema.optional(),
+  visual: VisualSettingsSchema.optional(),
+  script: ScriptSettingsSchema.optional(),
   upload: z
     .object({
       privacyStatus: z.enum(["private", "unlisted", "public"]),
@@ -95,7 +101,7 @@ const PipelineConfigSchema = z.object({
           keepPerScene: z.number().int().positive().optional(),
           /** Parallel vision calls; default 4 (rate-limit errors back off and retry). */
           concurrency: z.number().int().positive().optional(),
-          /** Reasoning effort for scoring calls; default "minimal" (lowest Gemini level). */
+          /** Reasoning effort for scoring calls; default "low" (gemini-3.8-flash rejects "minimal"). */
           thinking: z.enum(["default", "minimal", "low", "medium", "high"]).optional(),
         })
         .optional(),

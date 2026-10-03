@@ -1,9 +1,15 @@
-// Browser-safe types and constants shared by the Remotion bundle and the Node render stage.
+// Browser-safe types and constants shared by the Remotion bundle and the Node render side.
 // Keep this file free of Node built-ins: it is compiled by webpack into the browser bundle.
 // Props use `type` aliases (not interfaces) so they satisfy Remotion's Record<string, unknown> bound.
 
+import { CAPTION_DEFAULTS, VISUAL_DEFAULTS, type RenderStyle } from "../shared/settings.js";
+
+export type { RenderStyle } from "../shared/settings.js";
+
 export const COMPOSITION_ID = "Short";
-export const CROSSFADE_FRAMES = 8;
+
+/** Today's look; used when no settings are configured and as Studio default props. */
+export const DEFAULT_RENDER_STYLE: RenderStyle = { captions: CAPTION_DEFAULTS, visual: VISUAL_DEFAULTS };
 
 /**
  * Camera move over one segment's lifetime: CSS `scale()` and a horizontal pan expressed as a
@@ -53,9 +59,9 @@ export type ShortProps = {
   fps: number;
   durationInFrames: number;
   audioSrc: string | null;
-  crossfadeFrames: number;
+  style: RenderStyle;
   scenes: SceneProps[];
-  captions: CaptionChunkProps[];
+  captions: CaptionChunkProps[]; // empty when captions are disabled
 };
 
 export const EMPTY_SHORT_PROPS: ShortProps = {
@@ -64,7 +70,7 @@ export const EMPTY_SHORT_PROPS: ShortProps = {
   fps: 30,
   durationInFrames: 90,
   audioSrc: null,
-  crossfadeFrames: CROSSFADE_FRAMES,
+  style: DEFAULT_RENDER_STYLE,
   scenes: [],
-  captions: [{ startFrame: 0, endFrame: 90, words: [{ text: "PRÉVIA", startFrame: 0, endFrame: 90 }] }],
+  captions: [{ startFrame: 0, endFrame: 90, words: [{ text: "prévia da legenda", startFrame: 0, endFrame: 90 }] }],
 };
