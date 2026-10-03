@@ -6,6 +6,8 @@ import { paths, type PipelineConfig } from "./config.js";
 import { RUN_ID_PATTERN } from "./recentTopics.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** upload.journal.json (legacy YouTube) and upload.<platform>.journal.json. */
+const JOURNAL_NAME = /^upload(\.[a-z]+)?\.journal\.json$/;
 /** Non-uploaded runs younger than this are never deleted, whatever the config says. */
 export const MIN_KEEP_UNUPLOADED_DAYS = 3;
 
@@ -78,7 +80,9 @@ export async function pruneRuns(
       const contextFile = join(dir, "context.json");
       if (!existsSync(contextFile)) continue;
       const ctx = JSON.parse(await readFile(contextFile, "utf8")) as RunContext;
-      if (!existsSync(join(dir, "upload.journal.json")) || ctx.upload?.status === "uploaded") {
+      // A publish journal without a finished upload = a publish that may still be resumed: never touch it.
+      const hasJournal = (await readdir(dir)).some((name) => JOURNAL_NAME.test(name));
+      if (!hasJournal || ctx.upload?.status === "uploaded") {
         const action = retentionAction(ctx, await latestMtime(dir), now, settings);
         if (action === "delete-run") {
           await rm(dir, { recursive: true, force: true });

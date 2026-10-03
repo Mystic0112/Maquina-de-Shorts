@@ -18,7 +18,7 @@ Cada execução passa por nove estágios. Depois de cada um, o estado completo �
 | 05 | `buildCaptions` | Agrupa as palavras em legendas e alinha cada cena com a fala |
 | 06 | `renderVideo` | Renderiza o vídeo com Remotion: legenda com a palavra falada em destaque, zoom e movimento lento nas imagens |
 | 07 | `generateMetadata` | Título (até 100 caracteres, com #Shorts), descrição com **créditos das imagens** (autor, licença e link de cada clipe CC BY) e tags, validados contra os limites do YouTube |
-| 08 | `uploadYouTube` | Envia o vídeo (upload retomável), confere a privacidade que o YouTube realmente aplicou e registra em `data/history.json`. Só roda com `upload.enabled: true` e respeita o limite diário |
+| 08 | `uploadYouTube` | Publica o vídeo em cada plataforma ligada (hoje só o YouTube): upload retomável, confere a privacidade que a plataforma realmente aplicou e registra em `data/history.json`. Só roda com `upload.enabled: true` e respeita o limite diário de cada plataforma; se uma plataforma falhar, as outras seguem |
 
 ### Travas de qualidade (sem humano no loop)
 
@@ -28,7 +28,7 @@ Cada execução passa por nove estágios. Depois de cada um, o estado completo �
 - **Título e descrição:** o título publicado é o título do roteiro já checado; a descrição só usa frases copiadas do roteiro checado, mais hashtags e créditos.
 - **Sem repetição de assunto:** o roteiro recebe os ~30 assuntos mais recentes (publicados e gerados) e é rejeitado se o título repetir um deles.
 - **Trava por vídeo:** se menos de 60% das cenas tiverem um clipe aprovado (o revisor precisa dizer que o clipe combina com a cena; clipes de reserva não contam), o vídeo não é renderizado. O pipeline troca de tema e tenta de novo (até 2 vezes). Roteiro reprovado na checagem de fatos, assunto repetido, nenhum clipe utilizável, créditos que não cabem na descrição e narração fora de `video.minSeconds`–`video.maxSeconds` também trocam de tema. Se nada passar, encerra com código de saída `3` e não produz vídeo. Uma execução rejeitada não pode ser retomada com `--resume`.
-- **Upload seguro:** nada é publicado com `upload.enabled: false` (padrão). Com ele ligado, o estágio 08 só envia execuções com trava de qualidade aprovada e checagem de fatos aprovada, nunca envia a mesma execução duas vezes (um diário `upload.journal.json` na pasta da execução guarda a sessão de upload e o ID do vídeo, então uma nova tentativa retoma em vez de reenviar) e respeita `upload.maxUploadsPerDay` (janela de 24 h, com trava entre processos). Se `data/history.json` estiver ilegível, o upload é bloqueado até o arquivo ser corrigido.
+- **Upload seguro:** nada é publicado com `upload.enabled: false` (padrão). Com ele ligado, o estágio 08 só envia execuções com trava de qualidade aprovada e checagem de fatos aprovada, nunca envia a mesma execução duas vezes (um diário por plataforma, `upload.<plataforma>.journal.json`, na pasta da execução guarda a sessão de upload e o ID do vídeo, então uma nova tentativa retoma em vez de reenviar) e respeita `upload.maxUploadsPerDay` (janela de 24 h, com trava entre processos). Se `data/history.json` estiver ilegível, o upload é bloqueado até o arquivo ser corrigido.
 - **Segredos:** chaves de API e tokens são mascarados nos logs, e os subprocessos (Python, ffmpeg) recebem só as variáveis de ambiente de que precisam.
 
 ## Requisitos
@@ -117,6 +117,7 @@ Os dois podem ser editados à mão ou pela aba Configurações do painel.
 ```
 config/                     configuração do pipeline e temas
 src/orchestrator/           orquestrador (runPipeline, estágios 01-08, libs de LLM, ffmpeg, relevância, YouTube)
+src/orchestrator/publishers/ publicadores por plataforma (YouTube; nova rede = um arquivo + uma linha no registro)
 src/remotion/               composição do vídeo (legendas, cenas, movimento)
 src/shared/                 contratos compartilhados com o painel (settings, histórico de uploads)
 python/tts/                 narração e lista de vozes (edge-tts)

@@ -7,7 +7,7 @@ import { drainLlmUsage, mergeLlmUsage } from "./lib/llmClient.js";
 import { describeError, getLogger } from "./lib/logger.js";
 import { redactSecrets } from "./lib/redact.js";
 import { pruneRuns, resolveRetention } from "./lib/retention.js";
-import { RunRejectedError } from "./lib/rejection.js";
+import { RunRejectedError, StageFailedError } from "./lib/rejection.js";
 import { createRunContext, loadRunContext, readContextFile, saveRunContext } from "./lib/runContext.js";
 import type { RunContext, Stage, StageName, TopicAvoidance } from "./types.js";
 
@@ -118,7 +118,9 @@ export async function executeStage(stage: StageDefinition, ctx: RunContext): Pro
       await saveRunContext(rejected).catch(() => undefined);
       throw new RunRejectedError(error.message, rejected);
     }
-    await saveRunContext(withStageUsage(ctx, stage.name)).catch(() => undefined);
+    // Partial results (e.g. one platform published, another failed) are kept; otherwise the input context.
+    const keep = error instanceof StageFailedError ? error.ctx : ctx;
+    await saveRunContext(withStageUsage(keep, stage.name)).catch(() => undefined);
     throw error;
   }
 }

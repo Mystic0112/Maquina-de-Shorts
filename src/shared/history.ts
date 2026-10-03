@@ -2,6 +2,7 @@
 // read by the dashboard. Dependency-free on purpose so any package (pipeline, dashboard) can import it.
 
 import { readFile } from "node:fs/promises";
+import { PLATFORMS, type Platform } from "./platforms.js";
 
 export const HISTORY_RELATIVE_PATH = "data/history.json";
 
@@ -10,7 +11,11 @@ export type PrivacyStatus = (typeof PRIVACY_STATUSES)[number];
 /** Actual status may be "unknown" when the post-upload videos.list lookup failed. */
 export type ActualPrivacyStatus = PrivacyStatus | "unknown";
 
+export { PLATFORMS, type Platform };
+
 export interface UploadRecord {
+  /** Where it was published; absent in records written before multi-platform support = "youtube". */
+  platform?: Platform;
   /** Pipeline run that produced the video (render_output/<runId>). */
   runId: string;
   /** YouTube video id returned by videos.insert. */
@@ -59,10 +64,18 @@ export function validateUploadRecord(value: unknown): string[] {
   if (!isPrivacyStatus(entry.privacyStatus) && entry.privacyStatus !== "unknown") {
     problems.push(`privacyStatus must be one of ${PRIVACY_STATUSES.join("|")}|unknown`);
   }
+  if (entry.platform !== undefined && !(PLATFORMS as readonly unknown[]).includes(entry.platform)) {
+    problems.push(`platform must be one of ${PLATFORMS.join("|")}`);
+  }
   if (!isPrivacyStatus(entry.requestedPrivacyStatus)) {
     problems.push(`requestedPrivacyStatus must be one of ${PRIVACY_STATUSES.join("|")}`);
   }
   return problems;
+}
+
+/** Platform of a record ("youtube" for records written before the field existed). */
+export function recordPlatform(record: Pick<UploadRecord, "platform">): Platform {
+  return record.platform ?? "youtube";
 }
 
 export function isUploadRecord(value: unknown): value is UploadRecord {

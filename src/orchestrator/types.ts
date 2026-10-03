@@ -1,3 +1,5 @@
+import type { Platform } from "../shared/platforms.js";
+
 // Shared contract between stages. Each stage reads RunContext, fills its own section, and the
 // orchestrator persists it to render_output/<runId>/context.json after every stage.
 
@@ -176,11 +178,12 @@ export interface VideoMetadata {
 
 export type YouTubePrivacyStatus = "public" | "unlisted" | "private";
 
-/** Written by 08-uploadYouTube. */
+/** Written by 08-uploadYouTube for YouTube (kept for the dashboard; see also RunContext.publications). */
 export interface UploadResult {
   /**
-   * uploaded; pending (an upload was started and may still be resumable: see upload.journal.json in the
-   * run dir); skipped-disabled (upload.enabled=false); skipped-cap (daily limit reached).
+   * uploaded; pending (an upload was started and may still be resumable: see upload.youtube.journal.json,
+   * formerly upload.journal.json, in the run dir); skipped-disabled (upload.enabled=false); skipped-cap
+   * (daily limit reached).
    */
   status: "uploaded" | "pending" | "skipped-disabled" | "skipped-cap";
   videoId?: string;
@@ -192,6 +195,18 @@ export interface UploadResult {
   lockedPrivate?: boolean;
   uploadedAt?: string;
   reason?: string;
+}
+
+/** Platforms a video can be published to (one publisher each, see src/orchestrator/publishers/). */
+export type PlatformId = Platform;
+
+/**
+ * Per-platform outcome of 08-uploadYouTube (the publishing stage). Same fields as UploadResult, plus
+ * "failed" (this platform's publish threw; the others still ran) with the error in `reason`.
+ */
+export interface PublicationResult extends Omit<UploadResult, "status"> {
+  platform: PlatformId;
+  status: UploadResult["status"] | "failed";
 }
 
 /** A stage rejected the run on quality grounds (e.g. fact-check); runPipeline retries with a new topic. */
@@ -219,7 +234,10 @@ export interface RunContext {
   avoid?: TopicAvoidance;
   factCheck?: FactCheckSummary;
   metadata?: VideoMetadata;
+  /** YouTube result (dashboard compatibility). */
   upload?: UploadResult;
+  /** Result per platform; YouTube's entry mirrors `upload`. */
+  publications?: Partial<Record<PlatformId, PublicationResult>>;
   rejection?: RunRejection;
 }
 

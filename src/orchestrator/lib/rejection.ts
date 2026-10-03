@@ -14,3 +14,17 @@ export class RunRejectedError extends Error {
     this.name = "RunRejectedError";
   }
 }
+
+/**
+ * A stage failed but produced results worth keeping (e.g. publishing: one platform failed, another
+ * succeeded). executeStage persists `ctx` instead of the stage's input context, then the run fails.
+ */
+export class StageFailedError extends Error {
+  constructor(
+    message: string,
+    readonly ctx: RunContext,
+  ) {
+    super(message);
+    this.name = "StageFailedError";
+  }
+}

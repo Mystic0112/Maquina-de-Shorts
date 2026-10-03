@@ -7,15 +7,15 @@ import type { Logger } from "../../src/orchestrator/lib/logger.js";
 import { appendUploadRecord, checkDailyCap } from "../../src/orchestrator/lib/uploadHistory.js";
 import { mergeTokens, parseClientSecret } from "../../src/orchestrator/lib/youtubeAuth.js";
 import { nextOffsetFromRange, resumableUpload, type FetchLike } from "../../src/orchestrator/lib/youtubeUpload.js";
+import { isLockedPrivate } from "../../src/orchestrator/publishers/runner.js";
 import {
   buildVideoResource,
-  isLockedPrivate,
   LOCKED_PRIVATE_WARNING,
   uploadRun,
   type UploadDeps,
   type UploadSettings,
   type YouTubeUploader,
-} from "../../src/orchestrator/stages/08-uploadYouTube.js";
+} from "../../src/orchestrator/publishers/youtube.js";
 import { footageHash, scriptHash } from "../../src/orchestrator/lib/contentHash.js";
 import type { RunContext, Script } from "../../src/orchestrator/types.js";
 
@@ -159,7 +159,7 @@ describe("resumableUpload", () => {
 
 const boundScript: Script = { title: "Vênus", hook: "h", scenes: [], cta: "c", language: "pt-BR" };
 
-describe("08-uploadYouTube", () => {
+describe("YouTube publisher (stage 08)", () => {
   const dir = mkdtempSync(join(tmpdir(), "stage8-"));
   const videoPath = join(dir, "final.mp4");
   writeFileSync(videoPath, "mp4");
