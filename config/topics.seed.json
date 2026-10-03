@@ -1,0 +1,28 @@
+{
+  "categories": [
+    {
+      "id": "historia",
+      "label": "História",
+      "prompts": [
+        "um fato histórico pouco conhecido que muda a forma como vemos um evento famoso",
+        "uma origem surpreendente de um costume ou objeto do dia a dia"
+      ]
+    },
+    {
+      "id": "ciencia",
+      "label": "Ciência",
+      "prompts": [
+        "um fenômeno científico contraintuitivo explicado de forma simples",
+        "um recorde ou número extremo da natureza que impressiona"
+      ]
+    },
+    {
+      "id": "espaco",
+      "label": "Espaço",
+      "prompts": [
+        "uma curiosidade sobre planetas, estrelas ou buracos negros baseada em dados reais",
+        "um fato sobre exploração espacial que poucos conhecem"
+      ]
+    }
+  ]
+}

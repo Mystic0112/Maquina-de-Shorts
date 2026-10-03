@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+secrets/
+render_output/
+logs/
+data/history.json
+data/metrics/
+dashboard/dist/
+__pycache__/
+*.pyc
+.venv/
+vendor/openmontage/

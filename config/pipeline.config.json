@@ -1,0 +1,19 @@
+{
+  "video": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "minSeconds": 45,
+    "maxSeconds": 90
+  },
+  "voice": {
+    "engine": "edge-tts",
+    "name": "pt-BR-AntonioNeural",
+    "language": "pt-BR"
+  },
+  "upload": {
+    "privacyStatus": "unlisted",
+    "categoryId": "27",
+    "maxUploadsPerDay": 3
+  }
+}

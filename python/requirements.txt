@@ -1,0 +1,6 @@
+# Runtime deps for python/ and vendor/openmontage_adapter/ (install into .venv only).
+# edge-tts is pinned: synthesize.py relies on 7.x's `boundary=` parameter and its fixed
+# 48 kbps CBR MP3 output format for exact duration math. Re-verify both before upgrading.
+edge-tts==7.2.8
+aiohttp>=3.9,<4
+requests>=2.31,<3

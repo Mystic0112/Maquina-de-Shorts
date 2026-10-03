@@ -1,0 +1,184 @@
+// JSON contract between the dashboard server and the React client.
+import type { LlmUsage, QualitySummary, StageName } from "../../src/orchestrator/types.js";
+
+export type { LlmUsage, QualitySummary, StageName };
+
+export const STAGE_NAMES: readonly StageName[] = [
+  "01-pickTopic",
+  "02-generateScript",
+  "03-fetchFootage",
+  "04-synthesizeVoice",
+  "05-buildCaptions",
+  "06-renderVideo",
+];
+
+/** complete = render exists; partial = stopped on purpose (--until) or by a single-stage run. */
+export type RunStatus = "complete" | "failed" | "running" | "interrupted" | "partial";
+export type StageStatus = "done" | "failed" | "running" | "interrupted" | "skipped" | "pending";
+
+export interface StageInfo {
+  name: StageName;
+  status: StageStatus;
+  durationMs: number | null;
+  startedAt: string | null;
+  endedAt: string | null;
+}
+
+export interface ClipInfo {
+  sceneIndex: number;
+  kind: "video" | "image";
+  source: string;
+  sourceUrl: string;
+  creator: string;
+  license: string;
+  durationSeconds: number;
+  relevanceScore: number | null;
+  relevanceReason: string | null;
+}
+
+export interface RunSummary {
+  runId: string;
+  createdAt: string;
+  lastActivityAt: string;
+  status: RunStatus;
+  lastStageReached: StageName | null;
+  failure: { stage: StageName; message: string; at: string } | null;
+  hasContext: boolean;
+  hasLog: boolean;
+  topic: { categoryId: string; categoryLabel: string } | null;
+  title: string | null;
+  sceneCount: number | null;
+  clips: ClipInfo[];
+  sources: Record<string, number>;
+  licenses: Record<string, number>;
+  avgRelevance: number | null;
+  narrationMs: number | null;
+  video: { path: string; exists: boolean; sizeBytes: number | null; durationSeconds: number } | null;
+  /** When the video finished rendering (latest 06-renderVideo "done"); null unless complete. */
+  completedAt: string | null;
+  /** Wall time of the latest successful 06-renderVideo stage. */
+  renderTimeMs: number | null;
+  stages: StageInfo[];
+  /** Served thumbnail of final.mp4 (generated lazily); null until it exists. */
+  thumbUrl: string | null;
+  /** Footage quality gate summary (context.quality), when the pipeline wrote one. */
+  quality: QualitySummary | null;
+  /** LLM calls/tokens of the run (context.llmUsage), when the pipeline wrote them. */
+  llmUsage: LlmUsage | null;
+}
+
+export interface CategoryInfo {
+  id: string;
+  label: string;
+}
+
+/** Reference prices for the LLM cost ESTIMATE (configurable; never billing data). */
+export interface LlmPricing {
+  inputUsdPerMTok: number;
+  outputUsdPerMTok: number;
+  configured: boolean;
+}
+
+export interface VideoStats {
+  views: number;
+  likes: number | null;
+  comments: number | null;
+}
+
+export interface ChannelStats {
+  title: string | null;
+  /** null when the channel hides its subscriber count. */
+  subscribers: number | null;
+  views: number;
+  videoCount: number;
+}
+
+/** One line of data/metrics/snapshots.jsonl. */
+export interface MetricsSnapshot {
+  at: string;
+  channel: ChannelStats | null;
+  videos: Record<string, VideoStats>;
+}
+
+export interface YoutubeStatus {
+  apiKeyConfigured: boolean;
+  channelConfigured: boolean;
+  trackedVideos: number;
+  refreshIntervalMinutes: number;
+  lastFetchAt: string | null;
+  lastAttemptAt: string | null;
+  lastError: string | null;
+  nextAutoRefreshAt: string | null;
+  manualAvailableAt: string | null;
+  snapshotCount: number;
+  channel: ChannelStats | null;
+}
+
+export type RevenueResult =
+  | { status: "not_connected"; message: string }
+  | { status: "not_monetized"; message: string }
+  | { status: "ok"; currency: string; periodStart: string; periodEnd: string; estimatedRevenue: number };
+
+export interface Monetization {
+  subscribers: { current: number | null; target: number };
+  shortsViews: { target: number; windowDays: number; trackedViews: number | null; note: string };
+}
+
+export interface Overview {
+  generatedAt: string;
+  kpis: {
+    videosGenerated: number;
+    videosPublished: number;
+    /** complete / (complete + failed + interrupted); null when nothing finished yet. */
+    successRate: number | null;
+    finishedRuns: number;
+    failuresLast7d: number;
+    totalViews: number | null;
+    viewsLast7d: { value: number; since: string; partial: boolean } | null;
+    subscribers: number | null;
+  };
+  generatedPerDay: { day: string; gerados: number; falhas: number }[];
+  viewsPerDay: { day: string; views: number }[];
+  subscribersOverTime: { at: string; subscribers: number }[];
+  health: {
+    lastSuccessAt: string | null;
+    avgRenderMs: number | null;
+    lastRun: { runId: string; status: RunStatus; at: string } | null;
+  };
+  history: { exists: boolean; count: number; errors: string[] };
+  youtube: YoutubeStatus;
+  revenue: RevenueResult;
+  monetization: Monetization;
+  /** Topic categories in config/topics.seed.json order (drives the fixed category colors). */
+  categories: CategoryInfo[];
+  /** Target video length from config/pipeline.config.json (video.minSeconds/maxSeconds). */
+  targetSeconds: { min: number; max: number } | null;
+  llmPricing: LlmPricing;
+}
+
+export interface VideoRow {
+  key: string;
+  runId: string | null;
+  title: string;
+  date: string;
+  status: RunStatus | "published_only";
+  videoDurationSeconds: number | null;
+  localPath: string | null;
+  /** Server URL that streams the local final.mp4, when it exists. */
+  localUrl: string | null;
+  thumbUrl: string | null;
+  categoryId: string | null;
+  youtube: {
+    videoId: string;
+    url: string;
+    privacyStatus: string;
+    publishedAt: string;
+    stats: VideoStats | null;
+  } | null;
+}
+
+export interface RefreshResponse {
+  ok: boolean;
+  message: string;
+  youtube: YoutubeStatus;
+}
