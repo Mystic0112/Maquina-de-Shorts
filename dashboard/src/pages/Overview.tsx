@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import type { Overview as OverviewData, RunSummary, VideoRow } from "../../shared/api";
+import { stageCode, type Overview as OverviewData, type RunSummary, type VideoRow } from "../../shared/api";
 import { categoryColor } from "../colors";
 import {
   axisProps,
@@ -141,7 +141,7 @@ function TopicsDonut({ runs, data }: { runs: RunSummary[]; data: OverviewData })
 }
 
 function BreakpointsChart({ runs }: { runs: RunSummary[] }) {
-  const rows = failuresByStage(runs).map((r) => ({ ...r, label: `${r.stage.slice(0, 2)} ${STAGE_LABEL[r.stage]}` }));
+  const rows = failuresByStage(runs).map((r) => ({ ...r, label: `${stageCode(r.stage)} ${STAGE_LABEL[r.stage]}` }));
   const total = rows.reduce((a, b) => a + b.falhas, 0);
   return (
     <ChartCard
@@ -155,12 +155,12 @@ function BreakpointsChart({ runs }: { runs: RunSummary[] }) {
           Ótimo sinal: todas as execuções terminaram ou pararam de propósito.
         </Empty>
       ) : (
-        <div className="chart short">
+        <div className="chart">
           <ResponsiveContainer>
             <BarChart data={rows} layout="vertical" margin={{ top: 0, right: 24, left: 8, bottom: 0 }}>
               <CartesianGrid horizontal={false} stroke="var(--grid)" />
               <XAxis type="number" allowDecimals={false} {...axisProps} />
-              <YAxis type="category" dataKey="label" width={96} {...axisProps} />
+              <YAxis type="category" dataKey="label" width={128} {...axisProps} />
               <Tooltip {...tooltipProps} />
               <Bar dataKey="falhas" name="Falhas" fill="var(--critical)" radius={[0, 4, 4, 0]} maxBarSize={16}>
                 {rows.map((r) => (

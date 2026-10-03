@@ -366,6 +366,12 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
                 onChange={(v) => set("script.tone", v)}
                 error={errorAt("script.tone")}
               />
+              <Switch
+                label="Checagem de fatos antes de produzir"
+                checked={script.factCheck !== false}
+                onChange={(v) => set("script.factCheck", v)}
+                help="O Gemini confere cada afirmação com busca no Google e corrige o roteiro (≈ 4–6 chamadas extras por vídeo). Roteiros que não puderem ser corrigidos são descartados e refeitos com outro tema."
+              />
               <TextInput
                 label="Chamada final fixa (opcional)"
                 value={script.cta ?? ""}
@@ -420,13 +426,41 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
             id="cfg-upload"
             icon={Upload}
             title="Upload"
-            description="Como os vídeos serão publicados. O envio automático chega no Marco 2."
+            description="Como e quando os vídeos são publicados no seu canal (etapa 08)."
             onReset={() => {
               set("upload.privacyStatus", "unlisted");
               set("upload.maxUploadsPerDay", 3);
+              set("upload.enabled", undefined);
+              set("upload.containsSyntheticMedia", undefined);
             }}
           >
             <div className="cfg-grid">
+              <Switch
+                label="Publicar automaticamente no YouTube"
+                checked={getPath(draft, "upload.enabled") === true}
+                onChange={(v) => {
+                  if (
+                    v &&
+                    !window.confirm(
+                      "Ligar o upload automático?\n\nA partir da próxima execução do pipeline, cada vídeo aprovado será ENVIADO AO SEU CANAL DO YOUTUBE sem revisão manual, com a visibilidade escolhida abaixo e respeitando o limite diário.",
+                    )
+                  ) {
+                    return;
+                  }
+                  set("upload.enabled", v);
+                }}
+                help={
+                  getPath(draft, "upload.enabled") === true
+                    ? "Ligado: os vídeos vão para o canal sozinhos."
+                    : "Desligado: os vídeos ficam só no disco (etapa 08 é pulada)."
+                }
+              />
+              <Switch
+                label="Declarar conteúdo sintético (IA)"
+                checked={getPath(draft, "upload.containsSyntheticMedia") === true}
+                onChange={(v) => set("upload.containsSyntheticMedia", v)}
+                help="Marca o aviso “conteúdo alterado ou sintético” do YouTube. Exigido quando o vídeo mostra pessoas, lugares ou eventos realistas que não existiram; narração com voz sintética sobre imagens reais normalmente não exige."
+              />
               <Segmented
                 label="Visibilidade ao publicar"
                 value={(getPath(draft, "upload.privacyStatus") as string) ?? "unlisted"}
@@ -470,6 +504,11 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
                 </div>
               ))}
             </div>
+            {!settings.keys.find((k) => k.name === "YT_TOKEN_PATH")?.configured && (
+              <p className="hint">
+                Para publicar, autorize o canal uma vez: rode <code>npm run auth:youtube</code> na raiz do projeto (precisa do client secret em secrets/).
+              </p>
+            )}
             <p className="hint">Para alterar, edite o arquivo .env (ou a pasta secrets/) na raiz do projeto e reinicie o painel.</p>
           </Section>
         </div>

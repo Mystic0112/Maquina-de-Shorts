@@ -204,10 +204,11 @@ function LlmCards({ runs, pricing }: { runs: RunSummary[]; pricing: Overview["ll
   const totals = withUsage.reduce(
     (acc, r) => ({
       calls: acc.calls + r.llmUsage!.calls,
+      grounded: acc.grounded + (r.llmUsage!.groundedCalls ?? 0),
       input: acc.input + r.llmUsage!.inputTokens,
       output: acc.output + r.llmUsage!.outputTokens,
     }),
-    { calls: 0, input: 0, output: 0 },
+    { calls: 0, grounded: 0, input: 0, output: 0 },
   );
   const cost = (input: number, output: number) => (input * pricing.inputUsdPerMTok + output * pricing.outputUsdPerMTok) / 1e6;
   const total = cost(totals.input, totals.output);
@@ -243,6 +244,7 @@ function LlmCards({ runs, pricing }: { runs: RunSummary[]; pricing: Overview["ll
         sub={
           <>
             {fmtUsd(total / withUsage.length)} por execução · {fmtCompact(totals.input)} tokens de entrada e {fmtCompact(totals.output)} de saída.
+            {totals.grounded > 0 && ` ${fmtInt(totals.grounded)} chamada(s) com busca do Google (checagem de fatos) são cobradas por requisição e não entram nesta conta.`}
             <br />
             ESTIMATIVA com preço de referência de {fmtUsd(pricing.inputUsdPerMTok)}/M tokens de entrada e {fmtUsd(pricing.outputUsdPerMTok)}/M de saída
             {pricing.configured ? " (configurado no .env)" : " (padrão; ajuste DASHBOARD_LLM_PRICE_* no .env)"}. Não é a fatura do Google.
@@ -250,6 +252,49 @@ function LlmCards({ runs, pricing }: { runs: RunSummary[]; pricing: Overview["ll
         }
       />
     </>
+  );
+}
+
+
+const FACT_SLICES = [
+  { key: "pass", name: "Aprovados sem mudança", color: "var(--good)" },
+  { key: "corrected", name: "Corrigidos", color: "var(--cat-1)" },
+  { key: "fail", name: "Reprovados", color: "var(--critical)" },
+  { key: "skipped", name: "Checagem desligada", color: "var(--other)" },
+] as const;
+
+function FactCheckCard({ runs }: { runs: RunSummary[] }) {
+  const checked = runs.filter((r) => r.factCheck);
+  if (!checked.length) {
+    return (
+      <Card title="Checagem de fatos" icon={ShieldCheck}>
+        <Empty icon={ShieldCheck} title="Nenhum roteiro checado ainda">
+          A etapa 02b confere cada afirmação do roteiro com busca no Google antes de gastar com footage e voz.
+        </Empty>
+      </Card>
+    );
+  }
+  const slices = FACT_SLICES.map((f) => ({ name: f.name, color: f.color, value: checked.filter((r) => r.factCheck!.verdict === f.key).length })).filter(
+    (x) => x.value > 0,
+  );
+  const claims = checked.reduce((a, r) => a + r.factCheck!.claimsChecked, 0);
+  const corrections = checked.reduce((a, r) => a + r.factCheck!.corrections.length, 0);
+  const rejections = runs.filter((r) => r.rejection?.stage === "02b-factCheck" || r.factCheck?.verdict === "fail").length;
+  return (
+    <Card title="Checagem de fatos" icon={ShieldCheck} sub="Veredito da etapa 02b por roteiro">
+      <Donut data={slices} centerLabel="roteiros" />
+      <div className="facts" style={{ marginTop: 12 }}>
+        <span className="fact">
+          Afirmações checadas <b>{fmtInt(claims)}</b>
+        </span>
+        <span className="fact">
+          Correções aplicadas <b>{fmtInt(corrections)}</b>
+        </span>
+        <span className="fact">
+          Rejeições (novo tema) <b>{fmtInt(rejections)}</b>
+        </span>
+      </div>
+    </Card>
   );
 }
 
@@ -341,6 +386,7 @@ export function Content({ runs, overview }: { runs: RunSummary[]; overview: Over
       </div>
       <div className="grid cols-2">
         <QualityCard runs={runs} />
+        <FactCheckCard runs={runs} />
         <LlmCards runs={runs} pricing={overview.llmPricing} />
       </div>
     </>

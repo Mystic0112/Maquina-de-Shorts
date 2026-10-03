@@ -32,19 +32,25 @@
   --cat-8: #e66767;
   --other: #6b6a65;
 
-  /* ordinal blue ramp for the six ordered pipeline stages */
+  /* ordinal blue ramp (palette steps 150..600) for the nine ordered pipeline stages */
   --stage-1: #b7d3f6;
-  --stage-2: #86b6ef;
-  --stage-3: #5598e7;
-  --stage-4: #2a78d6;
-  --stage-5: #256abf;
-  --stage-6: #184f95;
+  --stage-2: #9ec5f4;
+  --stage-3: #86b6ef;
+  --stage-4: #6da7ec;
+  --stage-5: #5598e7;
+  --stage-6: #3987e5;
+  --stage-7: #2a78d6;
+  --stage-8: #256abf;
+  --stage-9: #184f95;
   --stage-ink-1: #0b0b0b;
   --stage-ink-2: #0b0b0b;
   --stage-ink-3: #0b0b0b;
-  --stage-ink-4: #ffffff;
-  --stage-ink-5: #ffffff;
-  --stage-ink-6: #ffffff;
+  --stage-ink-4: #0b0b0b;
+  --stage-ink-5: #0b0b0b;
+  --stage-ink-6: #0b0b0b;
+  --stage-ink-7: #ffffff;
+  --stage-ink-8: #ffffff;
+  --stage-ink-9: #ffffff;
 
   --good: #0ca30c;
   --good-text: #3ccf3c;
@@ -90,15 +96,25 @@
   --cat-8: #e34948;
   --other: #a8a7a0;
 
+  /* light: palette steps 250..700 (nearest-surface step still clears 2:1) */
   --stage-1: #86b6ef;
-  --stage-2: #5598e7;
-  --stage-3: #2a78d6;
-  --stage-4: #1c5cab;
-  --stage-5: #104281;
-  --stage-6: #0d366b;
+  --stage-2: #6da7ec;
+  --stage-3: #5598e7;
+  --stage-4: #3987e5;
+  --stage-5: #2a78d6;
+  --stage-6: #256abf;
+  --stage-7: #1c5cab;
+  --stage-8: #104281;
+  --stage-9: #0d366b;
   --stage-ink-1: #0b0b0b;
   --stage-ink-2: #0b0b0b;
-  --stage-ink-3: #ffffff;
+  --stage-ink-3: #0b0b0b;
+  --stage-ink-4: #0b0b0b;
+  --stage-ink-5: #ffffff;
+  --stage-ink-6: #ffffff;
+  --stage-ink-7: #ffffff;
+  --stage-ink-8: #ffffff;
+  --stage-ink-9: #ffffff;
 
   --good-text: #006300;
   --critical-text: #b22a2a;
@@ -963,7 +979,7 @@ th.num {
 }
 .gantt-row {
   display: grid;
-  grid-template-columns: 110px minmax(0, 1fr);
+  grid-template-columns: 148px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   font-size: 0.8rem;
@@ -1029,7 +1045,7 @@ th.num {
 }
 .gantt-axis {
   display: grid;
-  grid-template-columns: 110px minmax(0, 1fr);
+  grid-template-columns: 148px minmax(0, 1fr);
   gap: 10px;
   font-size: 0.7rem;
   color: var(--muted);

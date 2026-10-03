@@ -153,7 +153,11 @@ function keyStatus(): KeyStatus[] {
       label: "OAuth: client secret do Google",
       configured: fileFromEnv("YT_CLIENT_SECRET_PATH", "secrets/youtube.client_secret.json"),
     },
-    { name: "YT_TOKEN_PATH", label: "OAuth: token autorizado", configured: fileFromEnv("YT_TOKEN_PATH", "secrets/youtube.token.json") },
+    {
+      name: "YT_TOKEN_PATH",
+      label: "OAuth: token do canal (npm run auth:youtube)",
+      configured: fileFromEnv("YT_TOKEN_PATH", "secrets/youtube.token.json"),
+    },
   ];
 }
 

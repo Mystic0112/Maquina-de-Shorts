@@ -72,6 +72,10 @@ export const PipelineConfigSchema = z.object({
       privacyStatus: z.enum(["private", "unlisted", "public"]),
       categoryId: z.string(),
       maxUploadsPerDay: z.number().int().nonnegative(),
+      /** Stage 08 only publishes when true. Default false so dev/test runs never upload by accident. */
+      enabled: z.boolean().optional(),
+      /** status.containsSyntheticMedia sent to YouTube; default false (see 08-uploadYouTube). */
+      containsSyntheticMedia: z.boolean().optional(),
     })
     .loose(),
   pipeline: z

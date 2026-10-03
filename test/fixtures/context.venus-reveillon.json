@@ -1,0 +1,38 @@
+{
+  "runId": "fixture-venus-reveillon",
+  "runDir": "render_output/fixture-venus-reveillon",
+  "createdAt": "2026-10-03T12:00:00.000Z",
+  "topic": {
+    "categoryId": "espaco",
+    "categoryLabel": "Espaço",
+    "seedPrompt": "uma curiosidade sobre planetas, estrelas ou buracos negros baseada em dados reais"
+  },
+  "script": {
+    "title": "O planeta onde o dia dura mais que o ano",
+    "hook": "Existe um planeta onde um único dia dura mais do que o ano inteiro.",
+    "scenes": [
+      {
+        "narration": "Esse planeta é Vênus, o nosso vizinho mais próximo. Ele leva cerca de duzentos e vinte e cinco dias terrestres para dar uma volta completa ao redor do Sol.",
+        "footageQuery": "planet venus space"
+      },
+      {
+        "narration": "Só que ele gira em torno do próprio eixo de um jeito extremamente lento. Uma única rotação leva cerca de duzentos e quarenta e três dias terrestres. Ou seja, o dia em Vênus é mais longo que o ano.",
+        "footageQuery": "rotating planet timelapse"
+      },
+      {
+        "narration": "E tem mais: Vênus gira no sentido contrário ao da maioria dos planetas. Por isso, lá o Sol nasce no oeste e, como o dia é mais longo que o ano, você comemoraria o Réveillon antes de ver o pôr do sol.",
+        "footageQuery": "sunrise over horizon"
+      },
+      {
+        "narration": "Mas ninguém conseguiria assistir a esse espetáculo. A atmosfera é densa, cheia de gás carbônico e nuvens de ácido sulfúrico.",
+        "footageQuery": "thick yellow clouds"
+      },
+      {
+        "narration": "E a superfície é tão quente que é mais quente até do que Mercúrio, que fica mais perto do Sol.",
+        "footageQuery": "volcanic lava landscape"
+      }
+    ],
+    "cta": "Segue o canal para mais curiosidades do espaço!",
+    "language": "pt-BR"
+  }
+}

@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { CategoryInfo, VideoRow } from "../../shared/api";
 import { Card, CategoryChip, Empty, PathCopy, PlayerModal, StatusBadge, toPlayable, VideoCard, type PlayableVideo } from "../components";
 import { fmtDateTime, fmtDuration, fmtInt } from "../format";
+import { UploadBadge } from "../runDetails";
 
 const PRIVACY_LABEL: Record<string, string> = { public: "público", unlisted: "não listado", private: "privado" };
 
@@ -86,6 +87,8 @@ export function Videos({ rows, historyExists, categories }: { rows: VideoRow[]; 
                           <ExternalLink size={13} /> abrir
                           <span className="muted"> ({PRIVACY_LABEL[row.youtube.privacyStatus] ?? row.youtube.privacyStatus})</span>
                         </a>
+                      ) : row.upload ? (
+                        <UploadBadge upload={row.upload} />
                       ) : (
                         <span className="muted">não publicado</span>
                       )}

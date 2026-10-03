@@ -50,6 +50,8 @@ export const ScriptSettingsSchema = z.object({
   tone: z.enum(["curioso", "empolgado", "misterioso", "didatico"]).optional(),
   /** Fixed closing line; empty/absent lets the model write a short CTA. */
   cta: z.string().max(120).optional(),
+  /** Web-grounded fact-check of the script before footage/voice (stage 02b-factCheck). Default true. */
+  factCheck: z.boolean().optional(),
 });
 
 export type CaptionSettings = z.infer<typeof CaptionSettingsSchema>;
@@ -85,6 +87,7 @@ export const SCRIPT_DEFAULTS: Required<Omit<ScriptSettings, "cta">> & Pick<Scrip
   maxScenes: 7,
   tone: "curioso",
   cta: undefined,
+  factCheck: true,
 };
 
 export const VOICE_EXTRAS_DEFAULTS: Required<VoiceExtras> = { rate: "+0%", pitch: "+0Hz", volume: "+0%" };

@@ -1,13 +1,14 @@
 import { Clock, CircleX, Gauge, History, Hourglass, Layers, Timer, Workflow } from "lucide-react";
 import type { CSSProperties } from "react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { STAGE_NAMES, type CategoryInfo, type Overview, type RunSummary } from "../../shared/api";
+import { STAGE_NAMES, stageCode, type CategoryInfo, type Overview, type RunSummary } from "../../shared/api";
 import { sourceColor, stageColor } from "../colors";
 import { axisProps, CategoryChip, Card, ChartCard, Empty, HBars, Kpi, Legend, StatusBadge, tooltipProps } from "../components";
 import { chronological, runLabel, stageDurations } from "../derive";
+import { FactCheckPanel, MetadataPreview, RejectionBox, UploadBadge, UploadDetail } from "../runDetails";
 import { fmtAgo, fmtBytes, fmtDateTime, fmtDuration, fmtInt, fmtPercent, STAGE_LABEL, STAGE_STATUS_LABEL } from "../format";
 
-const STAGE_LEGEND = STAGE_NAMES.map((s) => ({ label: `${s.slice(0, 2)} ${STAGE_LABEL[s]}`, color: stageColor(s) }));
+const STAGE_LEGEND = STAGE_NAMES.map((s) => ({ label: `${stageCode(s)} ${STAGE_LABEL[s]}`, color: stageColor(s) }));
 const fmtMin = (minutes: number): string => fmtDuration(minutes * 60_000);
 const fmtSec = (seconds: number): string => fmtDuration(seconds * 1000);
 
@@ -26,14 +27,19 @@ function Gantt({ run }: { run: RunSummary }) {
         const width = open ? 3 : total ? (s.ms / total) * 100 : 0;
         const left = Math.min(total ? (offset / total) * 100 : 0, 100 - width);
         offset += s.ms;
-        const hasBar = s.status === "done" || s.status === "failed" || open;
-        const label = s.durationMs != null ? fmtDuration(s.durationMs) : STAGE_STATUS_LABEL[s.status];
+        const hasBar = s.status === "done" || s.status === "failed" || s.status === "bypassed" || open;
+        const label =
+          s.status === "bypassed"
+            ? `${s.note ?? "pulado"}${s.durationMs != null ? ` · ${fmtDuration(s.durationMs)}` : ""}`
+            : s.durationMs != null
+              ? fmtDuration(s.durationMs)
+              : STAGE_STATUS_LABEL[s.status];
         // Label placement: inside a wide bar, else after it, else (near the right edge) before it.
-        const placement = !hasBar ? "after" : width > 22 ? "inside" : left + width < 80 ? "after" : "before";
+        const placement = !hasBar ? "after" : width > 22 && s.status !== "bypassed" ? "inside" : left + width < 80 ? "after" : "before";
         return (
           <div className="gantt-row" key={s.name}>
             <span className="gl" title={s.name}>
-              <b>{s.name.slice(0, 2)}</b>
+              <b>{stageCode(s.name)}</b>
               {STAGE_LABEL[s.name]}
             </span>
             <div className="gantt-track">
@@ -107,7 +113,10 @@ function RunCard({ run, categories }: { run: RunSummary; categories: CategoryInf
         </div>
       )}
 
+      {run.rejection && <RejectionBox rejection={run.rejection} />}
+
       <div className="facts">
+        <UploadBadge upload={run.upload} />
         <span className="fact">
           Cenas <b>{fmtInt(run.sceneCount)}</b>
         </span>
@@ -143,6 +152,10 @@ function RunCard({ run, categories }: { run: RunSummary; categories: CategoryInf
         )}
         {!run.hasContext && <span className="fact">pasta render_output removida (dados do log)</span>}
       </div>
+
+      {run.factCheck && <FactCheckPanel factCheck={run.factCheck} />}
+      {run.metadata && <MetadataPreview metadata={run.metadata} />}
+      {run.upload && (run.upload.status === "uploaded" || run.upload.reason) && <UploadDetail upload={run.upload} />}
 
       {run.clips.length > 0 && (
         <details>

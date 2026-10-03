@@ -1,6 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { HISTORY_RELATIVE_PATH, readUploadHistory, type UploadRecord } from "../../shared/history.js";
 import { paths } from "../lib/config.js";
 import { getLogger } from "../lib/logger.js";
 import type { RunContext, TopicAvoidance, TopicPick } from "../types.js";
@@ -18,13 +19,6 @@ const TopicsSeedSchema = z.object({
 });
 
 export type TopicsSeed = z.infer<typeof TopicsSeedSchema>;
-
-/** history.json is written by a later (upload) stage; accept an array or { entries: [...] }. */
-const HistoryEntrySchema = z.object({ categoryId: z.string().optional() }).loose();
-const HistorySchema = z.union([
-  z.array(HistoryEntrySchema),
-  z.object({ entries: z.array(HistoryEntrySchema) }).loose(),
-]);
 
 export type RandomFn = () => number;
 
@@ -71,23 +65,20 @@ function loadSeed(): TopicsSeed {
   return result.data;
 }
 
-/** Last used category, or undefined when there is no usable history (missing/invalid file is fine). */
-export function readLastCategoryId(historyFile: string = join(paths.data, "history.json")): string | undefined {
-  if (!existsSync(historyFile)) return undefined;
-  try {
-    const parsed = HistorySchema.safeParse(JSON.parse(readFileSync(historyFile, "utf8")));
-    if (!parsed.success) return undefined;
-    const entries = Array.isArray(parsed.data) ? parsed.data : parsed.data.entries;
-    return [...entries].reverse().find((e) => e.categoryId)?.categoryId;
-  } catch {
-    // Corrupt history must never block a run; it only steers variety.
-    return undefined;
-  }
+/** Pure: topic category of the most recent upload (data/history.json, written by 08-uploadYouTube). */
+export function lastTopicCategory(records: readonly UploadRecord[]): string | undefined {
+  const latest = [...records].sort((a, b) => Date.parse(a.publishedAt) - Date.parse(b.publishedAt)).at(-1);
+  return latest && latest.topicCategoryId !== "unknown" ? latest.topicCategoryId : undefined;
+}
+
+/** Last used topic category, or undefined without usable history (a missing/invalid file never blocks a run). */
+export async function readLastCategoryId(historyFile: string = paths.fromRoot(HISTORY_RELATIVE_PATH)): Promise<string | undefined> {
+  return lastTopicCategory((await readUploadHistory(historyFile)).records);
 }
 
 export async function run(ctx: RunContext): Promise<RunContext> {
   const log = getLogger(ctx.runId);
-  const lastCategoryId = readLastCategoryId();
+  const lastCategoryId = await readLastCategoryId();
   const avoid = ctx.avoid?.topics ?? [];
   const topic = pickTopic(loadSeed(), lastCategoryId, Math.random, avoid);
   const notes = [

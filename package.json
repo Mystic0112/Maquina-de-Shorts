@@ -13,15 +13,18 @@
     "stage": "tsx scripts/run_stage.ts",
     "dashboard": "npm --prefix dashboard run dev",
     "test": "vitest run",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "auth:youtube": "tsx scripts/auth_youtube_setup.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
     "@google/genai": "^2.27.0",
+    "@googleapis/youtube": "^40.0.0",
     "@remotion/bundler": "^4.0.532",
     "@remotion/cli": "^4.0.532",
     "@remotion/renderer": "^4.0.532",
     "dotenv": "^18.0.5",
+    "google-auth-library": "^11.1.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "remotion": "^4.0.532",

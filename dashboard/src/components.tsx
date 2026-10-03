@@ -11,6 +11,7 @@ import {
   LoaderCircle,
   Minus,
   Play,
+  ShieldX,
   Table2,
   ChartColumn,
   X,
@@ -18,7 +19,8 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-import type { CategoryInfo, RunStatus, VideoRow } from "../shared/api";
+import type { CategoryInfo, RunStatus, UploadResult, VideoMetadata, VideoRow } from "../shared/api";
+import { MetadataPreview, UploadBadge } from "./runDetails";
 import { categoryColor } from "./colors";
 import { fmtDateTime, fmtDuration, fmtInt, STATUS_LABEL } from "./format";
 
@@ -224,6 +226,7 @@ const STATUS_META: Record<RunStatus | "published_only", { icon: LucideIcon; tone
   running: { icon: LoaderCircle, tone: "info", spin: true },
   interrupted: { icon: CirclePause, tone: "serious" },
   partial: { icon: CircleDashed, tone: "warn" },
+  rejected: { icon: ShieldX, tone: "warn" },
 };
 
 export function StatusBadge({ status }: { status: RunStatus | "published_only" }) {
@@ -338,6 +341,8 @@ export interface PlayableVideo {
   localUrl: string | null;
   localPath: string | null;
   youtubeUrl: string | null;
+  metadata: VideoMetadata | null;
+  upload: UploadResult | null;
 }
 
 export function toPlayable(row: VideoRow): PlayableVideo {
@@ -351,6 +356,8 @@ export function toPlayable(row: VideoRow): PlayableVideo {
     localUrl: row.localUrl,
     localPath: row.localPath,
     youtubeUrl: row.youtube?.url ?? null,
+    metadata: row.metadata,
+    upload: row.upload,
   };
 }
 
@@ -397,6 +404,7 @@ export function PlayerModal({ video, categories, onClose }: { video: PlayableVid
             {fmtDateTime(video.date)}
             {video.durationSeconds != null && ` · ${fmtDuration(video.durationSeconds * 1000)}`}
           </span>
+          <UploadBadge upload={video.upload} />
           {video.youtubeUrl ? (
             <a className="link-btn" href={video.youtubeUrl} target="_blank" rel="noreferrer">
               <ExternalLink size={14} /> Abrir no YouTube
@@ -405,6 +413,7 @@ export function PlayerModal({ video, categories, onClose }: { video: PlayableVid
             <span className="muted">Ainda não publicado no YouTube.</span>
           )}
           {video.localPath && <PathCopy path={video.localPath} />}
+          {video.metadata && <MetadataPreview metadata={video.metadata} />}
         </div>
       </div>
     </div>

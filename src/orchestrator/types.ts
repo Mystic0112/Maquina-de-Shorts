@@ -106,6 +106,7 @@ export interface LlmUsageTotals {
   inputTokens: number; // prompt tokens incl. images (and cached input, Anthropic)
   outputTokens: number; // response tokens incl. thinking/reasoning tokens
   thinkingTokens?: number; // part of outputTokens, when the provider reports it
+  groundedCalls?: number; // calls with web search/grounding enabled (priced per request on top of tokens)
 }
 
 export interface LlmUsageByModel extends LlmUsageTotals {
@@ -117,6 +118,77 @@ export interface LlmUsageByModel extends LlmUsageTotals {
 export interface LlmUsage extends LlmUsageTotals {
   byModel: LlmUsageByModel[];
   byStage: Partial<Record<StageName, LlmUsageTotals>>;
+}
+
+export type FactCheckVerdict = "supported" | "unsupported" | "misleading";
+
+export interface FactCheckClaim {
+  /** Claim as written in the script (pt-BR). */
+  claim: string;
+  verdict: FactCheckVerdict;
+  /** Accurate statement (pt-BR) for unsupported/misleading claims. */
+  correction?: string;
+  /** 1-based fact-check round that produced this verdict (round 2 re-checks a corrected script). */
+  round: number;
+}
+
+/**
+ * Written by 02b-factCheck. pass = no changes needed; corrected = script rewritten and re-verified;
+ * fail = could not be made accurate (the run is rejected and retried with a new topic);
+ * skipped = disabled by config script.factCheck=false.
+ */
+export interface FactCheckSummary {
+  verdict: "pass" | "corrected" | "fail" | "skipped";
+  rounds: number;
+  claimsChecked: number; // claims reviewed in round 1
+  claims: FactCheckClaim[];
+  /** Human-readable list of edits applied to the script (pt-BR). */
+  corrections: string[];
+  titleBefore?: string;
+  titleAfter?: string;
+  /** Web sources the grounded check consulted (Gemini: redirect links + domain as title). */
+  sources: { uri: string; title?: string }[];
+  searchQueries: string[];
+  reason?: string;
+  /** Script as written by 02-generateScript, kept when the fact-check changed it. */
+  originalScript?: Script;
+}
+
+/** Written by 07-generateMetadata; already validated against YouTube limits. */
+export interface VideoMetadata {
+  title: string; // <= 100 chars, includes #Shorts
+  description: string; // <= 5000 chars, includes image credits
+  tags: string[]; // <= 500 chars as YouTube counts them
+  categoryId: string;
+  defaultLanguage: string;
+  defaultAudioLanguage: string;
+}
+
+export type YouTubePrivacyStatus = "public" | "unlisted" | "private";
+
+/** Written by 08-uploadYouTube. */
+export interface UploadResult {
+  /** uploaded; skipped-disabled (upload.enabled=false); skipped-cap (daily limit reached). */
+  status: "uploaded" | "skipped-disabled" | "skipped-cap";
+  videoId?: string;
+  url?: string;
+  requestedPrivacyStatus: YouTubePrivacyStatus;
+  /** What YouTube actually applied (videos.list after upload). */
+  privacyStatus?: YouTubePrivacyStatus;
+  /** True when YouTube forced "private" although public/unlisted was requested (unaudited API project). */
+  lockedPrivate?: boolean;
+  uploadedAt?: string;
+  reason?: string;
+}
+
+/** A stage rejected the run on quality grounds (e.g. fact-check); runPipeline retries with a new topic. */
+export interface RunRejection {
+  stage: StageName;
+  reason: string;
+  attempt?: number;
+  maxAttempts?: number;
+  previousRunIds?: string[];
+  retriedAs?: string;
 }
 
 export interface RunContext {
@@ -132,14 +204,22 @@ export interface RunContext {
   quality?: QualitySummary;
   llmUsage?: LlmUsage;
   avoid?: TopicAvoidance;
+  factCheck?: FactCheckSummary;
+  metadata?: VideoMetadata;
+  upload?: UploadResult;
+  rejection?: RunRejection;
 }
 
+/** Execution order: 01, 02, 02b, 03, 04, 05, 06, 07, 08 (see STAGES in runPipeline.ts). */
 export type StageName =
   | "01-pickTopic"
   | "02-generateScript"
+  | "02b-factCheck"
   | "03-fetchFootage"
   | "04-synthesizeVoice"
   | "05-buildCaptions"
-  | "06-renderVideo";
+  | "06-renderVideo"
+  | "07-generateMetadata"
+  | "08-uploadYouTube";
 
 export type Stage = (ctx: RunContext) => Promise<RunContext>;

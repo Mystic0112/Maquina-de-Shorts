@@ -166,6 +166,18 @@ export async function buildVideoRows(): Promise<VideoRow[]> {
         }
       : null;
 
+  // history.json is canonical; the run's own upload result covers the gap if the history write failed.
+  const youtubeFromRun = (run: RunSummary): VideoRow["youtube"] =>
+    run.upload?.status === "uploaded" && run.upload.videoId
+      ? {
+          videoId: run.upload.videoId,
+          url: run.upload.url ?? `https://www.youtube.com/shorts/${encodeURIComponent(run.upload.videoId)}`,
+          privacyStatus: run.upload.privacyStatus ?? run.upload.requestedPrivacyStatus,
+          publishedAt: run.upload.uploadedAt ?? run.createdAt,
+          stats: latest?.videos[run.upload.videoId] ?? null,
+        }
+      : null;
+
   const rows: VideoRow[] = runs.map((run) => {
     const upload = uploadsByRun.get(run.runId);
     return {
@@ -179,7 +191,9 @@ export async function buildVideoRows(): Promise<VideoRow[]> {
       localUrl: run.video?.exists ? `/api/runs/${encodeURIComponent(run.runId)}/video` : null,
       thumbUrl: run.thumbUrl,
       categoryId: run.topic?.categoryId ?? null,
-      youtube: youtubeOf(upload),
+      metadata: run.metadata,
+      upload: run.upload,
+      youtube: youtubeOf(upload) ?? youtubeFromRun(run),
     };
   });
   for (const record of history.records) {
@@ -195,6 +209,8 @@ export async function buildVideoRows(): Promise<VideoRow[]> {
       localUrl: null,
       thumbUrl: null,
       categoryId: record.topicCategoryId,
+      metadata: null,
+      upload: null,
       youtube: youtubeOf(record),
     });
   }

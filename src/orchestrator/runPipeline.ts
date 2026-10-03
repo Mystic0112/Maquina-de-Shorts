@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import { loadConfig, paths } from "./lib/config.js";
 import { drainLlmUsage, mergeLlmUsage } from "./lib/llmClient.js";
 import { describeError, getLogger } from "./lib/logger.js";
+import { RunRejectedError } from "./lib/rejection.js";
 import { createRunContext, loadRunContext, readContextFile, saveRunContext } from "./lib/runContext.js";
 import type { RunContext, Stage, StageName, TopicAvoidance } from "./types.js";
 
@@ -22,6 +23,12 @@ export const STAGES: readonly StageDefinition[] = [
     name: "02-generateScript",
     isDone: (c) => !!c.script,
     load: async () => (await import("./stages/02-generateScript.js")).run,
+  },
+  {
+    name: "02b-factCheck",
+    // Runs that already have footage predate this stage (or were checked): never rewrite their script.
+    isDone: (c) => !!c.factCheck || (c.footage?.length ?? 0) > 0,
+    load: async () => (await import("./stages/02b-factCheck.js")).run,
   },
   {
     name: "03-fetchFootage",
@@ -42,6 +49,17 @@ export const STAGES: readonly StageDefinition[] = [
     name: "06-renderVideo",
     isDone: (c) => !!c.render,
     load: async () => (await import("./stages/06-renderVideo.js")).run,
+  },
+  {
+    name: "07-generateMetadata",
+    isDone: (c) => !!c.metadata,
+    load: async () => (await import("./stages/07-generateMetadata.js")).run,
+  },
+  {
+    name: "08-uploadYouTube",
+    // Skipped uploads (disabled / daily cap) are retried on resume; a finished upload never repeats.
+    isDone: (c) => c.upload?.status === "uploaded",
+    load: async () => (await import("./stages/08-uploadYouTube.js")).run,
   },
 ];
 
@@ -78,6 +96,12 @@ export async function executeStage(stage: StageDefinition, ctx: RunContext): Pro
     return next;
   } catch (error) {
     log.error(`xx ${stage.name} failed after ${formatMs(performance.now() - started)}: ${describeError(error)}`);
+    if (error instanceof RunRejectedError) {
+      // Persist the stage's findings (e.g. the fact-check summary) together with its LLM usage.
+      const rejected = withStageUsage(error.ctx, stage.name);
+      await saveRunContext(rejected).catch(() => undefined);
+      throw new RunRejectedError(error.message, rejected);
+    }
     await saveRunContext(withStageUsage(ctx, stage.name)).catch(() => undefined);
     throw error;
   }
@@ -140,12 +164,24 @@ interface AttemptInfo {
 
 type AttemptResult = { ok: true; ctx: RunContext } | { ok: false; ctx: RunContext };
 
-/** Runs stages up to untilIndex; stops right after 03 when its quality verdict is "fail". */
+/**
+ * Runs stages up to untilIndex. The attempt fails (-> retry with a new topic) when a stage rejects the
+ * run (RunRejectedError, e.g. fact-check) or right after 03 when its footage quality verdict is "fail".
+ */
 async function runAttempt(ctx: RunContext, untilIndex: number, info: AttemptInfo): Promise<AttemptResult> {
   const log = getLogger(ctx.runId);
   for (const stage of STAGES.slice(0, untilIndex + 1)) {
     if (stage.isDone(ctx)) log.info(`-- ${stage.name} skipped (output already present)`);
-    else ctx = await executeStage(stage, ctx);
+    else {
+      try {
+        ctx = await executeStage(stage, ctx);
+      } catch (error) {
+        if (!(error instanceof RunRejectedError)) throw error;
+        const rejected: RunContext = { ...error.ctx, rejection: { stage: stage.name, reason: error.message, ...info } };
+        await saveRunContext(rejected);
+        return { ok: false, ctx: rejected };
+      }
+    }
     if (stage.name !== QUALITY_GATED_STAGE || !ctx.quality) continue;
     ctx = { ...ctx, quality: { ...ctx.quality, ...info } };
     await saveRunContext(ctx);
@@ -166,7 +202,11 @@ export function nextAvoidance(failed: RunContext): TopicAvoidance {
 async function startRetryAttempt(failed: RunContext): Promise<RunContext> {
   const next: RunContext = { ...(await createRunContext()), avoid: nextAvoidance(failed) };
   await saveRunContext(next);
-  if (failed.quality) await saveRunContext({ ...failed, quality: { ...failed.quality, retriedAs: next.runId } });
+  await saveRunContext({
+    ...failed,
+    ...(failed.rejection ? { rejection: { ...failed.rejection, retriedAs: next.runId } } : {}),
+    ...(failed.quality?.verdict === "fail" ? { quality: { ...failed.quality, retriedAs: next.runId } } : {}),
+  });
   return next;
 }
 
@@ -191,7 +231,7 @@ export async function runPipeline(options: PipelineOptions): Promise<RunContext>
       log.info(`Run ${result.ctx.runId} finished through ${STAGES[untilIndex]?.name} in ${total} (attempt ${attempt})`);
       return result.ctx;
     }
-    const reason = result.ctx.quality?.reason ?? "quality gate failed";
+    const reason = result.ctx.rejection?.reason ?? result.ctx.quality?.reason ?? "quality gate failed";
     previousRunIds.push(result.ctx.runId);
     if (attempt >= maxAttempts) {
       const message = `QUALITY GATE: no publishable video after ${attempt} attempt(s) (${previousRunIds.join(", ")}); last: ${reason}`;

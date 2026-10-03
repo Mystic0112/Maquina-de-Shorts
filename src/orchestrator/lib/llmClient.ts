@@ -26,11 +26,31 @@ export interface CallOptions {
   temperature?: number;
 }
 
+export interface WebSource {
+  /** Page (or provider redirect) URL. Gemini returns vertexaisearch redirect links that expire. */
+  uri: string;
+  /** Page title; for Gemini grounding this is usually the domain (e.g. "nasa.gov"). */
+  title?: string;
+}
+
+/** Free text written with live web search, plus the sources the provider attached to it. */
+export interface GroundedText {
+  text: string;
+  sources: WebSource[];
+  /** Search queries the model issued (when the provider reports them). */
+  queries: string[];
+}
+
 /** A provider turns a prompt (+ optional images) and a target schema into raw JSON text. */
 export interface LlmProvider {
   readonly name: LlmProviderName;
   readonly model: string;
   completeJson(prompt: string, schema: z.ZodType, images?: readonly LlmImage[], options?: CallOptions): Promise<string>;
+  /**
+   * Free-text answer grounded on web search. Separate from completeJson because Gemini silently skips
+   * the search when a JSON response schema is also requested.
+   */
+  completeGroundedText(prompt: string, options?: CallOptions): Promise<GroundedText>;
 }
 
 export interface GenerateJsonOptions extends CallOptions {
@@ -85,6 +105,8 @@ export interface LlmCallUsage {
   inputTokens: number;
   outputTokens: number;
   thinkingTokens?: number;
+  /** True for calls with web search/grounding enabled (billed separately by the providers). */
+  grounded?: boolean;
 }
 
 const pendingUsage: LlmCallUsage[] = [];
@@ -100,12 +122,14 @@ export function drainLlmUsage(): LlmCallUsage[] {
 
 function addTotals<T extends LlmUsageTotals>(target: T, call: LlmCallUsage): T {
   const thinking = (target.thinkingTokens ?? 0) + (call.thinkingTokens ?? 0);
+  const grounded = (target.groundedCalls ?? 0) + (call.grounded ? 1 : 0);
   return {
     ...target,
     calls: target.calls + 1,
     inputTokens: target.inputTokens + call.inputTokens,
     outputTokens: target.outputTokens + call.outputTokens,
     ...(thinking > 0 ? { thinkingTokens: thinking } : {}),
+    ...(grounded > 0 ? { groundedCalls: grounded } : {}),
   };
 }
 
@@ -135,6 +159,26 @@ export async function generateJson<T>(
   options: GenerateJsonOptions = {},
 ): Promise<T> {
   return generateJsonWithImages(prompt, [], schema, options);
+}
+
+/** Web-search-grounded free text (no JSON schema: see LlmProvider.completeGroundedText). */
+export async function generateGroundedText(
+  prompt: string,
+  options: CallOptions & { provider?: LlmProvider; rateLimitRetries?: number } = {},
+): Promise<GroundedText> {
+  const provider = options.provider ?? getDefaultProvider();
+  const callOptions: CallOptions = { thinking: options.thinking, temperature: options.temperature };
+  const result = await withRateLimitRetry(
+    () => provider.completeGroundedText(prompt, callOptions),
+    options.rateLimitRetries ?? 4,
+  );
+  if (!result.text.trim()) throw new LlmOutputError(`${provider.name}/${provider.model} returned an empty grounded answer`);
+  return { ...result, sources: dedupeSources(result.sources), queries: [...new Set(result.queries)] };
+}
+
+export function dedupeSources(sources: readonly WebSource[]): WebSource[] {
+  const seen = new Set<string>();
+  return sources.filter((s) => (seen.has(s.uri) ? false : (seen.add(s.uri), true)));
 }
 
 /** Same as generateJson, with images sent alongside the prompt in a single request. */
@@ -277,6 +321,36 @@ class GeminiProvider implements LlmProvider {
     }
     return text;
   }
+
+  async completeGroundedText(prompt: string, options: CallOptions = {}): Promise<GroundedText> {
+    const thinkingSetting = options.thinking ?? "default";
+    const request = (thinkingConfig: ThinkingConfig | undefined) =>
+      this.client.models.generateContent({
+        model: this.model,
+        contents: prompt,
+        config: {
+          tools: [{ googleSearch: {} }],
+          temperature: options.temperature ?? 0.2,
+          ...(thinkingConfig ? { thinkingConfig } : {}),
+        },
+      });
+    const response = await this.generateWithThinking(thinkingSetting, request);
+    const meta = response.usageMetadata;
+    const thinking = meta?.thoughtsTokenCount ?? 0;
+    recordLlmUsage({
+      provider: this.name,
+      model: response.modelVersion ?? this.model,
+      inputTokens: (meta?.promptTokenCount ?? 0) + (meta?.toolUsePromptTokenCount ?? 0),
+      outputTokens: (meta?.candidatesTokenCount ?? 0) + thinking,
+      ...(thinking > 0 ? { thinkingTokens: thinking } : {}),
+      grounded: true,
+    });
+    const grounding = response.candidates?.[0]?.groundingMetadata;
+    const sources = (grounding?.groundingChunks ?? []).flatMap((chunk) =>
+      chunk.web?.uri ? [{ uri: chunk.web.uri, ...(chunk.web.title ? { title: chunk.web.title } : {}) }] : [],
+    );
+    return { text: response.text ?? "", sources, queries: grounding?.webSearchQueries ?? [] };
+  }
 }
 
 class AnthropicProvider implements LlmProvider {
@@ -314,6 +388,36 @@ class AnthropicProvider implements LlmProvider {
       throw new LlmOutputError(`Anthropic stopped with "${message.stop_reason}"`);
     }
     return message.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");
+  }
+
+  /** Claude's server-side web search tool; sources come from its web_search_tool_result blocks. */
+  async completeGroundedText(prompt: string): Promise<GroundedText> {
+    const message = await this.client.messages.create({
+      model: this.model,
+      max_tokens: 4096,
+      messages: [{ role: "user", content: prompt }],
+      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 8 }],
+    });
+    const u = message.usage;
+    recordLlmUsage({
+      provider: this.name,
+      model: message.model,
+      inputTokens: u.input_tokens + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0),
+      outputTokens: u.output_tokens,
+      grounded: true,
+    });
+    const sources: WebSource[] = [];
+    const queries: string[] = [];
+    for (const block of message.content) {
+      if (block.type === "web_search_tool_result" && Array.isArray(block.content)) {
+        for (const r of block.content) sources.push({ uri: r.url, title: r.title });
+      } else if (block.type === "server_tool_use" && block.name === "web_search") {
+        const query = (block.input as { query?: unknown }).query;
+        if (typeof query === "string") queries.push(query);
+      }
+    }
+    const text = message.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");
+    return { text, sources, queries };
   }
 }
 

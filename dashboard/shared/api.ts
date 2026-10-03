@@ -1,24 +1,44 @@
 // JSON contract between the dashboard server and the React client.
-import type { LlmUsage, QualitySummary, StageName } from "../../src/orchestrator/types.js";
+import type {
+  FactCheckSummary,
+  LlmUsage,
+  QualitySummary,
+  RunRejection,
+  StageName,
+  UploadResult,
+  VideoMetadata,
+} from "../../src/orchestrator/types.js";
 
 import type { CaptionSettings, ScriptSettings, VisualSettings, VoiceExtras } from "../../src/shared/settings.js";
 
-export type { LlmUsage, QualitySummary, StageName };
+export type { FactCheckSummary, LlmUsage, QualitySummary, RunRejection, StageName, UploadResult, VideoMetadata };
 export type { CaptionSettings, ScriptSettings, VisualSettings, VoiceExtras };
 export type ResolvedScript = Required<Omit<ScriptSettings, "cta">> & Pick<ScriptSettings, "cta">;
 
+/** Execution order (see STAGES in src/orchestrator/runPipeline.ts). */
 export const STAGE_NAMES: readonly StageName[] = [
   "01-pickTopic",
   "02-generateScript",
+  "02b-factCheck",
   "03-fetchFootage",
   "04-synthesizeVoice",
   "05-buildCaptions",
   "06-renderVideo",
+  "07-generateMetadata",
+  "08-uploadYouTube",
 ];
 
-/** complete = render exists; partial = stopped on purpose (--until) or by a single-stage run. */
-export type RunStatus = "complete" | "failed" | "running" | "interrupted" | "partial";
-export type StageStatus = "done" | "failed" | "running" | "interrupted" | "skipped" | "pending";
+/** "02b-factCheck" -> "02b" */
+export const stageCode = (stage: StageName): string => stage.split("-")[0] ?? stage;
+
+/**
+ * complete = render exists; partial = stopped on purpose (--until) or by a single-stage run;
+ * rejected = a quality gate (fact-check, footage relevance) refused the run and the pipeline retried
+ * with a new topic: a deliberate decision, not a crash.
+ */
+export type RunStatus = "complete" | "failed" | "running" | "interrupted" | "partial" | "rejected";
+/** bypassed = the stage ran but intentionally did nothing (e.g. upload disabled or daily cap reached). */
+export type StageStatus = "done" | "failed" | "running" | "interrupted" | "skipped" | "pending" | "bypassed";
 
 export interface StageInfo {
   name: StageName;
@@ -26,6 +46,8 @@ export interface StageInfo {
   durationMs: number | null;
   startedAt: string | null;
   endedAt: string | null;
+  /** Short pt-BR explanation for neutral states (e.g. "upload desligado"). */
+  note?: string;
 }
 
 export interface ClipInfo {
@@ -69,6 +91,11 @@ export interface RunSummary {
   quality: QualitySummary | null;
   /** LLM calls/tokens of the run (context.llmUsage), when the pipeline wrote them. */
   llmUsage: LlmUsage | null;
+  /** 02b-factCheck findings (originalScript dropped to keep the payload small). */
+  factCheck: Omit<FactCheckSummary, "originalScript"> | null;
+  metadata: VideoMetadata | null;
+  upload: UploadResult | null;
+  rejection: RunRejection | null;
 }
 
 export interface CategoryInfo {
@@ -172,6 +199,8 @@ export interface VideoRow {
   localUrl: string | null;
   thumbUrl: string | null;
   categoryId: string | null;
+  metadata: VideoMetadata | null;
+  upload: UploadResult | null;
   youtube: {
     videoId: string;
     url: string;

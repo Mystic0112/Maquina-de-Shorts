@@ -26,7 +26,15 @@ const STAGE_OUTPUT: Record<StageName, (c: RunContext) => boolean> = {
   "03-fetchFootage": (c) => (c.footage?.length ?? 0) > 0,
   "04-synthesizeVoice": (c) => !!c.narration,
   "05-buildCaptions": (c) => !!c.captions,
+  "02b-factCheck": (c) => !!c.factCheck,
   "06-renderVideo": (c) => !!c.render,
+  "07-generateMetadata": (c) => !!c.metadata,
+  "08-uploadYouTube": (c) => c.upload?.status === "uploaded",
+};
+
+const UPLOAD_SKIP_NOTE: Record<string, string> = {
+  "skipped-disabled": "pulado: upload desligado",
+  "skipped-cap": "pulado: limite diário",
 };
 
 async function readJson<T>(file: string): Promise<T | null> {
@@ -88,6 +96,12 @@ function buildStages(events: LogEvent[], ctx: RunContext | null, logFresh: boole
     } else if (own.length > 0 || (ctx && STAGE_OUTPUT[name](ctx))) {
       info.status = "skipped"; // output came from a fixture or an earlier run
     }
+    // Upload stage that ran but deliberately did not publish: neutral, neither success nor failure.
+    const skipNote = name === "08-uploadYouTube" ? UPLOAD_SKIP_NOTE[ctx?.upload?.status ?? ""] : undefined;
+    if (skipNote && info.status !== "failed" && info.status !== "running") {
+      info.status = "bypassed";
+      info.note = skipNote;
+    }
     return info;
   });
 }
@@ -99,6 +113,8 @@ function decideStatus(ctx: RunContext | null, events: LogEvent[], logFresh: bool
   if (!ctx && events.some((e) => e.kind === "done" && e.stage === "06-renderVideo") && last?.kind !== "failed") {
     return "complete";
   }
+  // A quality gate (fact-check, footage relevance) refused the run on purpose; the pipeline retries.
+  if (ctx?.rejection || ctx?.quality?.verdict === "fail") return "rejected";
   if (last?.kind === "failed") return "failed";
   if (last?.kind === "started") {
     return logFresh ? "running" : "interrupted";
@@ -112,7 +128,9 @@ function describeFailure(
   stages: StageInfo[],
   lastLogAt: string | null,
 ): RunSummary["failure"] {
-  if (status === "failed") {
+  const lastStageEvent = events.filter((e) => e.kind !== "run-start" && e.kind !== "run-finished" && e.kind !== "skipped").at(-1);
+  // "complete" covers post-render failures too (07 metadata / 08 upload): the video exists, the step after it broke.
+  if (status === "failed" || (status === "complete" && lastStageEvent?.kind === "failed")) {
     const failed = events.filter((e) => e.kind === "failed").at(-1);
     return failed?.kind === "failed" ? { stage: failed.stage, message: failed.message, at: failed.at } : null;
   }
@@ -195,7 +213,35 @@ async function buildRun(runId: string): Promise<RunSummary> {
     thumbUrl: await thumbUrlFor(runId, ctx),
     quality: readQuality(ctx),
     llmUsage: readLlmUsage(ctx),
+    factCheck: readFactCheck(ctx),
+    metadata: readMetadata(ctx),
+    upload: readUpload(ctx),
+    rejection: ctx?.rejection && typeof ctx.rejection.reason === "string" ? ctx.rejection : null,
   };
+}
+
+function readFactCheck(ctx: RunContext | null): RunSummary["factCheck"] {
+  const f = ctx?.factCheck;
+  if (!f || !["pass", "corrected", "fail", "skipped"].includes(f.verdict)) return null;
+  const { originalScript: _dropped, ...rest } = f;
+  return {
+    ...rest,
+    claims: Array.isArray(f.claims) ? f.claims : [],
+    corrections: Array.isArray(f.corrections) ? f.corrections : [],
+    sources: Array.isArray(f.sources) ? f.sources.filter((x) => typeof x?.uri === "string" && /^https?:\/\//.test(x.uri)) : [],
+    searchQueries: Array.isArray(f.searchQueries) ? f.searchQueries : [],
+  };
+}
+
+function readMetadata(ctx: RunContext | null): RunSummary["metadata"] {
+  const m = ctx?.metadata;
+  return m && typeof m.title === "string" && typeof m.description === "string" ? { ...m, tags: Array.isArray(m.tags) ? m.tags : [] } : null;
+}
+
+function readUpload(ctx: RunContext | null): RunSummary["upload"] {
+  const u = ctx?.upload;
+  if (!u || typeof u.status !== "string") return null;
+  return { ...u, url: u.url && /^https:\/\//.test(u.url) ? u.url : undefined };
 }
 
 async function thumbUrlFor(runId: string, ctx: RunContext | null): Promise<string | null> {

@@ -55,16 +55,20 @@ export const STATUS_LABEL: Record<RunStatus | "published_only", string> = {
   running: "Em execução",
   interrupted: "Interrompido",
   partial: "Parcial",
+  rejected: "Reprovado",
   published_only: "Publicado",
 };
 
 export const STAGE_LABEL: Record<StageName, string> = {
   "01-pickTopic": "Tema",
   "02-generateScript": "Roteiro",
+  "02b-factCheck": "Checagem de fatos",
   "03-fetchFootage": "Footage",
   "04-synthesizeVoice": "Narração",
   "05-buildCaptions": "Legendas",
   "06-renderVideo": "Render",
+  "07-generateMetadata": "Metadados",
+  "08-uploadYouTube": "Upload",
 };
 
 export const STAGE_STATUS_LABEL: Record<StageStatus, string> = {
@@ -74,4 +78,5 @@ export const STAGE_STATUS_LABEL: Record<StageStatus, string> = {
   interrupted: "interrompida",
   skipped: "pré-existente",
   pending: "não executada",
+  bypassed: "pulado",
 };
