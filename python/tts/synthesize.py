@@ -3,7 +3,11 @@
 Usage:
     python python/tts/synthesize.py --text-file <path> --out-dir <dir>
         [--voice pt-BR-AntonioNeural] [--rate=+5%] [--pitch=-2Hz] [--volume=+10%]
+        [--deadline-seconds=280]
         (use the = form for negative values, e.g. --rate=-10%)
+
+--deadline-seconds bounds the WHOLE run: every attempt's timeout and the backoff between the
+(up to 3) attempts are fitted inside it, so the caller's own timeout never has to kill us.
 
 Writes <out-dir>/narration.mp3 and <out-dir>/timings.json, then prints exactly one JSON object
 to stdout matching `Narration` in src/orchestrator/types.ts:
@@ -40,6 +44,8 @@ TIMINGS_FILENAME = "timings.json"
 TICKS_PER_MS = TICKS_PER_SECOND // 1000
 MAX_ATTEMPTS = 3
 SYNTH_TIMEOUT_SECONDS = 120
+DEFAULT_DEADLINE_SECONDS = 280.0
+MIN_ATTEMPT_SECONDS = 5.0  # not worth starting an attempt with less time than this
 RATE_PATTERN = re.compile(r"^[+-]\d+%$")
 PITCH_PATTERN = re.compile(r"^[+-]\d+Hz$")
 VOLUME_PATTERN = re.compile(r"^[+-]\d+%$")
@@ -88,6 +94,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--rate", default="+0%", help="speaking rate delta, e.g. +5%% (use --rate=-10%% for negatives)")
     parser.add_argument("--pitch", default="+0Hz", help="pitch delta in Hz, e.g. +2Hz (use --pitch=-2Hz for negatives)")
     parser.add_argument("--volume", default="+0%", help="volume delta, e.g. +10%% (use --volume=-10%% for negatives)")
+    parser.add_argument(
+        "--deadline-seconds",
+        type=float,
+        default=DEFAULT_DEADLINE_SECONDS,
+        help=f"wall-clock budget for all attempts incl. backoff (default {DEFAULT_DEADLINE_SECONDS:g})",
+    )
     return parser.parse_args(argv)
 
 
@@ -144,22 +156,35 @@ def to_word_timing(text: str, offset_ticks: float, duration_ticks: float) -> Wor
     return WordTiming(word=text, startMs=start_ms, endMs=max(end_ms, start_ms))
 
 
-def synthesize_with_retries(text: str, voice: str, prosody: Prosody) -> tuple[bytes, list[WordTiming]]:
+def synthesize_with_retries(text: str, voice: str, prosody: Prosody, deadline: float) -> tuple[bytes, list[WordTiming]]:
+    """Up to MAX_ATTEMPTS tries; each attempt's timeout and every backoff fit before `deadline` (monotonic)."""
     last_error: Exception | None = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
+        remaining = deadline - time.monotonic()
+        if remaining < MIN_ATTEMPT_SECONDS:
+            raise SynthesisError(f"deadline reached before attempt {attempt}; last error: {last_error}") from last_error
         try:
-            audio, words = asyncio.run(asyncio.wait_for(stream_speech(text, voice, prosody), SYNTH_TIMEOUT_SECONDS))
+            timeout = min(SYNTH_TIMEOUT_SECONDS, remaining)
+            audio, words = asyncio.run(asyncio.wait_for(stream_speech(text, voice, prosody), timeout))
             if not audio:
                 raise SynthesisError("edge-tts returned no audio")
             if not words:
                 raise SynthesisError("edge-tts returned audio but no WordBoundary events")
             return audio, words
         except (EdgeTTSException, SynthesisError, aiohttp.ClientError, OSError, TimeoutError) as exc:
-            last_error = exc
-            log.warning("attempt %d/%d failed: %s: %s", attempt, MAX_ATTEMPTS, type(exc).__name__, exc)
-            if attempt < MAX_ATTEMPTS:
-                time.sleep(2 * attempt)
+            # asyncio.wait_for raises a message-less TimeoutError; give it one.
+            timed_out = isinstance(exc, TimeoutError)
+            last_error = SynthesisError(f"attempt timed out after {timeout:.0f}s") if timed_out else exc
+            log.warning("attempt %d/%d failed: %s: %s", attempt, MAX_ATTEMPTS, type(exc).__name__, last_error)
+            _backoff_within(attempt, deadline)
     raise SynthesisError(f"edge-tts failed after {MAX_ATTEMPTS} attempts: {last_error}") from last_error
+
+
+def _backoff_within(attempt: int, deadline: float) -> None:
+    """Sleep 2*attempt seconds before the next try, but only if a useful attempt still fits afterwards."""
+    backoff = 2 * attempt
+    if attempt < MAX_ATTEMPTS and deadline - time.monotonic() - backoff >= MIN_ATTEMPT_SECONDS:
+        time.sleep(backoff)
 
 
 def mp3_duration_ms(byte_count: int) -> int:
@@ -183,7 +208,10 @@ def build_narration(out_dir: Path, audio: bytes, words: list[WordTiming]) -> Nar
     return Narration(audioPath=str((out_dir / AUDIO_FILENAME).resolve()), durationMs=duration_ms, words=clamped)
 
 
-def run(args: argparse.Namespace) -> Narration:
+def run(args: argparse.Namespace, started: float) -> Narration:
+    if not args.deadline_seconds > 0:
+        raise InputError(f"--deadline-seconds must be > 0, got {args.deadline_seconds}")
+    deadline = started + args.deadline_seconds
     text = read_text(args.text_file)
     prosody = validate_prosody(args.rate, args.pitch, args.volume)
     out_dir: Path = args.out_dir.expanduser().resolve()
@@ -196,7 +224,7 @@ def run(args: argparse.Namespace) -> Narration:
         prosody.pitch,
         prosody.volume,
     )
-    audio, words = synthesize_with_retries(text, args.voice, prosody)
+    audio, words = synthesize_with_retries(text, args.voice, prosody, deadline)
     narration = build_narration(out_dir, audio, words)
     write_atomic(out_dir / AUDIO_FILENAME, audio)
     timings_json = json.dumps(asdict(narration), ensure_ascii=False, indent=2).encode("utf-8")
@@ -206,10 +234,11 @@ def run(args: argparse.Namespace) -> Narration:
 
 
 def main(argv: list[str] | None = None) -> int:
+    started = time.monotonic()
     logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="[synthesize] %(levelname)s %(message)s")
     args = parse_args(argv)
     try:
-        narration = run(args)
+        narration = run(args, started)
     except InputError as exc:
         log.error("%s", exc)
         return EXIT_BAD_INPUT

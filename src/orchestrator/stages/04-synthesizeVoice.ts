@@ -3,12 +3,15 @@ import { isAbsolute, join } from "node:path";
 import { z } from "zod";
 import { loadConfig, paths } from "../lib/config.js";
 import { getLogger } from "../lib/logger.js";
-import { runPythonJson } from "../lib/python.js";
+import { runPythonJson, scriptSupportsFlag } from "../lib/python.js";
+import { RunRejectedError } from "../lib/rejection.js";
 import { resolveVoiceExtras, type VoiceExtras } from "../../shared/settings.js";
 import type { Narration, RunContext, Script } from "../types.js";
 
 const TTS_SCRIPT = "python/tts/synthesize.py";
 const TTS_TIMEOUT_MS = 5 * 60 * 1000;
+/** synthesize.py stops retrying after this, leaving 20 s before the subprocess timeout. */
+export const TTS_DEADLINE_SECONDS = 280;
 
 const NarrationSchema = z.object({
   audioPath: z.string().min(1),
@@ -52,6 +55,7 @@ export async function run(ctx: RunContext): Promise<RunContext> {
 
   const prosody = resolveVoiceExtras(voice);
   const args = buildTtsArgs(textFile, voice.name, ctx.runDir, prosody);
+  if (await scriptSupportsFlag(TTS_SCRIPT, "--deadline-seconds")) args.push(`--deadline-seconds=${TTS_DEADLINE_SECONDS}`);
   log.info(`Synthesizing narration with ${voice.name} (rate ${prosody.rate}, pitch ${prosody.pitch}, volume ${prosody.volume})`);
   const result = await runPythonJson({
     script: TTS_SCRIPT,
@@ -59,6 +63,7 @@ export async function run(ctx: RunContext): Promise<RunContext> {
     timeoutMs: TTS_TIMEOUT_MS,
     schema: NarrationSchema,
     onStderrLine: (line) => log.debug(`[tts] ${line}`),
+    envKeys: [],
   });
   if (result.words.length === 0) throw new Error("TTS returned no word timings; captions cannot be built");
   const narration: Narration = {
@@ -68,8 +73,10 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   const seconds = narration.durationMs / 1000;
   log.info(`Narration: ${seconds.toFixed(1)} s, ${narration.words.length} words`);
   const { minSeconds, maxSeconds } = loadConfig().video;
+  const next: RunContext = { ...ctx, narration };
   if (seconds < minSeconds || seconds > maxSeconds) {
-    log.warn(`Narration length ${seconds.toFixed(1)} s is outside the ${minSeconds}-${maxSeconds} s target`);
+    // A Short outside the target length is not publishable: reject so the pipeline tries a new topic.
+    throw new RunRejectedError(`Narration is ${seconds.toFixed(1)} s, outside the ${minSeconds}-${maxSeconds} s target`, next);
   }
-  return { ...ctx, narration };
+  return next;
 }

@@ -165,7 +165,11 @@ describe("08-uploadYouTube", () => {
     topic: { categoryId: "espaco", categoryLabel: "Espaço", seedPrompt: "p" },
     render: { videoPath, durationSeconds: 56, width: 1080, height: 1920 },
     metadata: { title: "Vênus #Shorts", description: "d", tags: ["venus"], categoryId: "27", defaultLanguage: "pt-BR", defaultAudioLanguage: "pt-BR" },
+    factCheck: { verdict: "pass", rounds: 1, claimsChecked: 3, claims: [], corrections: [], sources: [], searchQueries: [] },
+    quality: { passingScenes: 5, totalScenes: 5, passingRatio: 1, minPassingSceneRatio: 0.6, minScore: 6, verdict: "pass" },
   };
+  /** Each upload test gets its own run dir (the upload journal lives there). */
+  const fresh = (): RunContext => ({ ...ctx, runDir: mkdtempSync(join(tmpdir(), "stage8-")) });
   const settings: UploadSettings = { enabled: true, privacyStatus: "unlisted", categoryId: "27", maxUploadsPerDay: 3, containsSyntheticMedia: false };
 
   function harness(actualPrivacy: "public" | "unlisted" | "private", history: UploadRecord[] = []) {
@@ -190,20 +194,20 @@ describe("08-uploadYouTube", () => {
   it("skips without touching YouTube when upload.enabled is false", async () => {
     const h = harness("unlisted");
     h.deps.createUploader = async () => { throw new Error("must not be called"); };
-    const out = await uploadRun(ctx, { ...settings, enabled: false }, h.deps, h.log);
+    const out = await uploadRun(fresh(), { ...settings, enabled: false }, h.deps, h.log);
     expect(out.upload).toMatchObject({ status: "skipped-disabled", requestedPrivacyStatus: "unlisted" });
   });
 
   it("skips when the daily cap is reached", async () => {
     const h = harness("unlisted", [record(hoursAgo(1)), record(hoursAgo(2)), record(hoursAgo(3))]);
-    const out = await uploadRun(ctx, settings, h.deps, h.log);
+    const out = await uploadRun(fresh(), settings, h.deps, h.log);
     expect(out.upload?.status).toBe("skipped-cap");
     expect(h.uploads).toHaveLength(0);
   });
 
   it("uploads, records history and reports the actual privacy", async () => {
     const h = harness("unlisted");
-    const out = await uploadRun(ctx, settings, h.deps, h.log);
+    const out = await uploadRun(fresh(), settings, h.deps, h.log);
     expect(out.upload).toMatchObject({ status: "uploaded", videoId: "vid42", url: "https://youtube.com/shorts/vid42", privacyStatus: "unlisted", lockedPrivate: false });
     expect(h.appended[0]).toMatchObject({ runId: ctx.runId, videoId: "vid42", privacyStatus: "unlisted", requestedPrivacyStatus: "unlisted", topicCategoryId: "espaco" });
     expect(h.uploads[0]).toMatchObject({ status: { privacyStatus: "unlisted", selfDeclaredMadeForKids: false, containsSyntheticMedia: false } });
@@ -211,7 +215,7 @@ describe("08-uploadYouTube", () => {
 
   it("warns when YouTube locks the video as private", async () => {
     const h = harness("private");
-    const out = await uploadRun(ctx, settings, h.deps, h.log);
+    const out = await uploadRun(fresh(), settings, h.deps, h.log);
     expect(out.upload).toMatchObject({ privacyStatus: "private", requestedPrivacyStatus: "unlisted", lockedPrivate: true });
     expect(h.logs.some((l) => l.startsWith("W ") && l.includes(LOCKED_PRIVATE_WARNING))).toBe(true);
     expect(h.appended[0]?.privacyStatus).toBe("private");
@@ -219,7 +223,7 @@ describe("08-uploadYouTube", () => {
 
   it("never uploads the same run twice", async () => {
     const h = harness("unlisted", [record(hoursAgo(1), { runId: ctx.runId, videoId: "old" })]);
-    const out = await uploadRun(ctx, settings, h.deps, h.log);
+    const out = await uploadRun({ ...ctx, runDir: mkdtempSync(join(tmpdir(), "stage8-")) }, settings, h.deps, h.log);
     expect(out.upload).toMatchObject({ status: "uploaded", videoId: "old" });
     expect(h.uploads).toHaveLength(0);
     const again = await uploadRun(out, settings, harness("unlisted").deps, h.log);

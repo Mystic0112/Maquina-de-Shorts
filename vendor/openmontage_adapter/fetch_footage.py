@@ -10,20 +10,27 @@ Contract (see src/orchestrator/types.ts -> FootageClip):
               "kinds": ["video" | "image"] = ["video"],   # per-query "kind" overrides it
               # optional extras:
               "maxDurationSeconds": number = 60, "minWidth": int = 640,
-              "timeoutSecondsPerQuery": number = 180}
+              "timeoutSecondsPerQuery": number = 180,
+              "deadlineSeconds": number | null}   # wall clock for the whole run; after it no new
+                                                  # search/download starts and partial results return
     stdout : exactly one JSON object {"clips": [FootageClip, ...], "errors": [ErrorEntry, ...]}
              Up to clipsPerQuery items of EACH requested kind per query. Images have
              kind "image", durationSeconds 0 and their real (downloaded) width/height.
+             Each clip may also carry "licenseUrl" (CC deed, NASA/Pexels/Pixabay terms) when known.
              ErrorEntry = {"sceneIndex": int|null, "query": str|null, "source": str|null,
                            "phase": str, "message": str}
-    stderr : all logging
+    stderr : all logging (API keys and key=/token= URL parameters are redacted everywhere,
+             including the stdout "errors")
     exit   : 0 = at least one usable clip, 1 = zero usable clips, 2 = invalid input,
              3 = OpenMontage checkout missing (run scripts/setup_vendor.ps1)
 
 Licensing (no human reviews the output before publishing): only sources on the allowlist are
 queried, and every candidate passes a per-item license gate BEFORE it is downloaded:
   - pexels / pixabay_video : their own licenses allow commercial reuse (only if API key is set)
-  - nasa                   : public domain; items whose metadata mentions copyright are dropped
+  - nasa                   : public domain only when every credit names NASA, a NASA centre or an
+                             enumerated NASA/US-government partner; the FULL search metadata and
+                             the asset's metadata.json (EXIF/IPTC/XMP credit fields) are checked,
+                             and any other credit (SpaceX, ESA, Getty...) or copyright text rejects
   - wikimedia              : only Public domain / CC0 / CC BY (any version); SA, NC, ND, GFDL
                              and anything unrecognised are dropped
 Archive sources (wikimedia, nasa) also need lexical overlap between the query and the item's
@@ -45,9 +52,13 @@ because OpenMontage only has a standalone tool for them, not a stock-source adap
   - maps, diagrams, charts, logos, coats of arms, flags etc. are skipped (title/category text);
     Commons only JPEG/PNG/TIFF sources (no SVG/GIF/PDF)
   - long side must be >= 1080 px and aspect ratio <= 2.5:1; Commons downloads a scaled
-    thumbnail that fits 1920x1920 (Commons only serves standard thumbnail widths: asking for
-    2160 silently returns 3840 px / ~4 MB, while 1920 is served as-is at ~1 MB),
+    thumbnail that fits COMMONS_IMAGE_BOX (Commons only serves standard thumbnail widths such as
+    1920 and 3840; other requests are rounded up),
     NASA the first of ~large/~medium/~orig that is >= 1080 px (probed remotely); 15 MB cap
+
+Downloads go to "<file>.part" and are renamed atomically; leftovers are deleted at start and
+existing files are never reused (skip_existing is off), so a crashed run cannot leave a
+truncated clip that a later run would pick up.
 """
 
 from __future__ import annotations
@@ -60,6 +71,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -87,7 +99,9 @@ IMAGE_SOURCES = ("pexels", "wikimedia", "nasa")
 MAX_IMAGE_BYTES = 15 * 1024 * 1024
 MIN_IMAGE_LONG_SIDE = 1080
 MAX_IMAGE_ASPECT = 2.5  # long/short; wider panoramas cannot fill a 9:16 frame
-COMMONS_IMAGE_BOX = 3840  # standard Commons thumbnail width; 1920 forces ~1.3x upscaling when cropping landscape to 9:16
+COMMONS_IMAGE_BOX = (
+    3840  # standard Commons thumbnail width; 1920 forces ~1.3x upscaling when cropping landscape to 9:16
+)
 _THUMB_WIDTH_RE = re.compile(r"/(\d+)px-[^/]*$")
 COMMONS_IMAGE_MIMES = frozenset({"image/jpeg", "image/png", "image/tiff"})
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")
@@ -142,6 +156,7 @@ class FetchRequest:
     sources: list[str] | None
     min_width: int
     timeout_per_query: float
+    deadline_seconds: float | None = None
 
 
 def parse_request(raw: str) -> FetchRequest:
@@ -164,6 +179,7 @@ def parse_request(raw: str) -> FetchRequest:
         min_width=_positive_int(data.get("minWidth"), "minWidth", DEFAULT_MIN_WIDTH, 8000),
         timeout_per_query=_optional_number(data.get("timeoutSecondsPerQuery"), "timeoutSecondsPerQuery")
         or DEFAULT_TIMEOUT_PER_QUERY,
+        deadline_seconds=_optional_number(data.get("deadlineSeconds"), "deadlineSeconds"),
     )
 
 
@@ -218,6 +234,40 @@ def _optional_str_list(value: Any, name: str) -> list[str] | None:
 
 
 # ---------------------------------------------------------------------------
+# Secret redaction (pixabay puts its key in the query string; requests errors echo the URL)
+# ---------------------------------------------------------------------------
+
+_SECRET_PARAM_RE = re.compile(r"([?&](?:key|api_key|apikey|token|access_token)=)[^&\s\"']+", re.IGNORECASE)
+SECRET_ENV_VARS = ("PEXELS_API_KEY", "PIXABAY_API_KEY")
+
+
+def redact(text: str) -> str:
+    """Mask key=/token= URL parameters and the literal values of the footage API keys."""
+    text = _SECRET_PARAM_RE.sub(r"\1[REDACTED]", text)
+    for var in SECRET_ENV_VARS:
+        secret = os.environ.get(var) or ""
+        if len(secret) >= 4:
+            text = text.replace(secret, "[REDACTED]")
+    return text
+
+
+class RedactingStream:
+    """Text stream wrapper that redacts everything written through it (used for stderr)."""
+
+    def __init__(self, stream: Any) -> None:
+        self._stream = stream
+
+    def write(self, text: str) -> int:
+        return self._stream.write(redact(text))
+
+    def flush(self) -> None:
+        self._stream.flush()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._stream, name)
+
+
+# ---------------------------------------------------------------------------
 # Error collection
 # ---------------------------------------------------------------------------
 
@@ -240,7 +290,7 @@ class ErrorLog:
             "query": query if query is not None else (scene.query if scene else None),
             "source": source,
             "phase": phase,
-            "message": message,
+            "message": redact(message),
         }
         self.entries.append(entry)
         log.warning("[%s] scene=%s source=%s: %s", phase, entry["sceneIndex"], source, message)
@@ -292,19 +342,56 @@ _LICENSE_NORMALISATION = (
     (re.compile(r"no\s*deriv\w*"), "nd"),
     (re.compile(r"[\s_\-,/]+"), " "),
 )
-_PUBLIC_DOMAIN_RE = re.compile(r"(public domain( mark)?( \d\.\d)?|pd( [a-z0-9.]+)*|cc0( \d\.\d)?( universal)?|cc zero)")
-_CC_BY_RE = re.compile(r"cc by( \d(\.\d)?)?( [a-z]{2,3})?")
+# Commons PD templates are only accepted with a known qualifier (PD-USGov-*, PD-old-70, PD-Art...);
+# "pd <anything>" is not blindly trusted.
+_PUBLIC_DOMAIN_RE = re.compile(
+    r"public domain( mark)?( \d\.\d)?|pd|pd (usgov|us|old|art|scan|self|author|ineligible|gov|1923|1996)"
+    r"( [a-z0-9.]+){0,4}|cc0( \d\.\d)?( universal)?|cc zero"
+)
+_PD_DENY_TOKENS = frozenset({"copyrighted", "copyright", "nonfree", "fair", "restricted", "trademarked", "because"})
+_CC_BY_RE = re.compile(
+    r"cc by(?: (?P<version>\d(?:\.\d)?))?(?: (?P<port>international|unported|generic|[a-z]{2,3}))?(?: licen[cs]e)?"
+)
+NASA_TERMS_URL = "https://www.nasa.gov/nasa-brand-center/images-and-media/"
+STOCK_LICENSE_URLS = {
+    "pexels": "https://www.pexels.com/license/",
+    "pixabay_video": "https://pixabay.com/service/license-summary/",
+    "nasa": NASA_TERMS_URL,
+}
+
+
+def _normalise_license(license_name: str) -> str:
+    text = license_name.lower().strip()
+    for pattern, replacement in _LICENSE_NORMALISATION:
+        text = pattern.sub(replacement, text)
+    return text.strip()
 
 
 def is_wikimedia_license_allowed(license_name: str) -> bool:
     """Public domain, CC0 and CC BY (any version/port) only. Everything else is rejected."""
-    text = license_name.lower().strip()
-    for pattern, replacement in _LICENSE_NORMALISATION:
-        text = pattern.sub(replacement, text)
-    text = text.strip()
-    if not text or {"sa", "nc", "nd"} & set(text.split()):
+    text = _normalise_license(license_name)
+    tokens = set(text.split())
+    if not text or {"sa", "nc", "nd"} & tokens or _PD_DENY_TOKENS & tokens:
         return False
     return bool(_PUBLIC_DOMAIN_RE.fullmatch(text) or _CC_BY_RE.fullmatch(text))
+
+
+def license_url_for(source: str, license_name: str) -> str | None:
+    """Canonical terms URL for an accepted license string (CC deeds match version and port)."""
+    if source in STOCK_LICENSE_URLS:
+        return STOCK_LICENSE_URLS[source]
+    text = _normalise_license(license_name)
+    if text.startswith(("cc0", "cc zero")):
+        return "https://creativecommons.org/publicdomain/zero/1.0/"
+    if text.startswith("public domain mark"):
+        return "https://creativecommons.org/publicdomain/mark/1.0/"
+    match = _CC_BY_RE.fullmatch(text)
+    if not match or not match.group("version"):
+        return None
+    version = match.group("version") if "." in match.group("version") else f"{match.group('version')}.0"
+    port = match.group("port") or ""
+    port_path = f"{port}/" if len(port) <= 3 and port and version != "4.0" else ""
+    return f"https://creativecommons.org/licenses/by/{version}/{port_path}"
 
 
 def license_rejection(source: str, license_name: str, provenance_text: str) -> str | None:
@@ -312,9 +399,7 @@ def license_rejection(source: str, license_name: str, provenance_text: str) -> s
     if source in KEYED_SOURCES:
         return None
     if source == "nasa":
-        if COPYRIGHT_MARKERS.search(provenance_text):
-            return "NASA item mentions third-party copyright"
-        return None
+        return nasa_provenance_rejection(provenance_text)
     if source == "wikimedia":
         if is_wikimedia_license_allowed(license_name):
             return None
@@ -322,10 +407,258 @@ def license_rejection(source: str, license_name: str, provenance_text: str) -> s
     return f"source '{source}' is not on the allowlist"
 
 
+# --- NASA provenance (H4): images.nasa.gov also hosts SpaceX (CC BY-NC), ESA (CC BY), wire photos --
+
+NASA_COPYRIGHT_BOILERPLATE = re.compile(
+    r"for copyright and restrictions,?\s*(?:refer|see)\s*(?:to)?\s*[:-]?\s*\S*", re.IGNORECASE
+)
+_FULL_AGENCY_NAME_RE = re.compile(r"national aeronautics (?:and|&) space administration", re.IGNORECASE)
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_BARE_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+# Empty or purely technical values (XMP/EXIF "Source" often names the capture medium, not a party).
+_EMPTY_CREDIT_VALUES = frozenset(
+    {"", "none", "null", "n/a", "na", "-", "digital moving image", "digital camera", "digital still camera"}
+)
+# Role labels in video credit blocks ("NASA Producers: ...", "Music: ..."): neutral on their own,
+# NASA-attributed when prefixed with NASA.
+_ROLE_ONLY_RE = re.compile(
+    r"((lead|senior|executive|associate|science|video|technical) )?(producers?|editors?|videographers?|animators?|"
+    r"visuali[sz]ers?|writers?|narrators?|directors?|photographers?|camera( operators?)?|crew|staff|scientists?|"
+    r"engineers?|technicians?|graphics?|music|interviewees?|support|production)"
+)
+_CREDIT_MARKER_RE = re.compile(
+    r"\b(?:credits?\s*:|(?:music|soundtrack|song)\s*:|courtesy(?:\s+of)?\b|(?:image|photo|photograph|video|footage|"
+    r"animation|illustration|artwork|visualization|rendering|processing|processed|enhanced|music)\s+by\b)\s*:?",
+    re.IGNORECASE,
+)
+_CREDIT_END_RE = re.compile(r"[\n;]|(?<=[A-Za-z]{2})\.(?:\s+(?=[A-Z][a-z])|\s*$)")
+_ENTITY_SPLIT_RE = re.compile(r"\s*(?:/|,|&|\+|;|:|\band\b|\bor\b|\bwith\b)\s*", re.IGNORECASE)
+_PERSON_RE = re.compile(r"(?:[A-Z]\.?\s+|[A-Z]\.)+[A-Z][\w'-]+|[A-Z][\w'-]+(?:\s+(?:[A-Z]\.?\s+)?[A-Z][\w'-]+){1,3}")
+_ORG_WORDS = frozenset(
+    {
+        "images",
+        "image",
+        "photo",
+        "photos",
+        "pictures",
+        "press",
+        "news",
+        "agency",
+        "inc",
+        "llc",
+        "ltd",
+        "corp",
+        "corporation",
+        "company",
+        "co",
+        "group",
+        "systems",
+        "space",
+        "aerospace",
+        "media",
+        "studio",
+        "studios",
+        "foundation",
+        "university",
+        "institute",
+        "observatory",
+        "laboratory",
+        "lab",
+        "center",
+        "centre",
+        "society",
+        "museum",
+        "archive",
+        "archives",
+        "library",
+        "getty",
+        "reuters",
+        "associated",
+        "alamy",
+        "shutterstock",
+        "spacex",
+        "esa",
+        "jaxa",
+        "roscosmos",
+        "boeing",
+        "lockheed",
+        "northrop",
+        "blue",
+        "origin",
+        "rocket",
+        "virgin",
+        "galactic",
+        "ula",
+        "airbus",
+        "telescope",
+        "hubble",
+        "webb",
+        "team",
+        "mission",
+        "public",
+        "domain",
+    }
+)
+# Normalised (lower-case, hyphens as spaces, leading "NASA"/"NASA's" removed) entity names that may
+# appear in a NASA credit line. Everything else, including unknown names, rejects the item.
+NASA_ALLOWED_ENTITIES = frozenset({
+    "", "public domain", "naca", "hq", "headquarters", "jpl", "jpl caltech", "caltech", "jet propulsion laboratory",
+    "gsfc", "goddard", "goddard space flight center", "svs", "scientific visualization studio", "goddard svs",
+    "gsfc svs", "conceptual image lab", "jsc", "johnson", "johnson space center", "ksc", "kennedy",
+    "kennedy space center", "msfc", "marshall", "marshall space flight center", "arc", "ames", "ames research center",
+    "grc", "glenn", "glenn research center", "larc", "langley", "langley research center", "afrc", "armstrong",
+    "armstrong flight research center", "dryden", "dfrc", "dryden flight research center", "ssc", "stennis",
+    "stennis space center", "wff", "wallops", "wallops flight facility", "wstf", "white sands test facility", "maf",
+    "michoud", "michoud assembly facility", "earth observatory", "iss", "iss crew", "iss crew earth observations",
+    # US-government co-authors (public domain) and NASA mission contractors whose mission imagery NASA
+    # releases without restriction:
+    "usgs", "noaa", "space science institute", "ssi", "msss", "malin space science systems", "swri",
+    "southwest research institute", "jhuapl", "jhu apl", "johns hopkins apl", "apl",
+    "johns hopkins university applied physics laboratory",
+})  # fmt: skip
+_NASA_ENTITY_PATTERNS = re.compile(r"(expedition|sts|apollo|gemini|skylab|artemis) \d+( crew)?")
+_GENERIC_SUFFIX_RE = re.compile(r" (image|images|photo|photos|video|graphic|illustration|animation)$")
+
+
+def _normalise_entity(entity: str) -> str:
+    text = entity.lower().replace("\u2019", "'")
+    text = re.sub(r"[-_.]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip(" '\":")
+    text = re.sub(r"^the ", "", text)
+    text = re.sub(r"^nasa('s)?( |$)", "", text).strip()
+    return _GENERIC_SUFFIX_RE.sub("", text)
+
+
+def _credit_entities(credit: str) -> list[str]:
+    flattened = re.sub(r"[()\[\]]", ",", _FULL_AGENCY_NAME_RE.sub("NASA", credit))
+    entities = (e.strip(" .:-'\"") for e in _ENTITY_SPLIT_RE.split(flattened))
+    return [e for e in entities if e.lower() not in _EMPTY_CREDIT_VALUES]
+
+
+def _looks_like_person(entity: str) -> bool:
+    return bool(_PERSON_RE.fullmatch(entity)) and not (_ORG_WORDS & set(entity.lower().replace(".", " ").split()))
+
+
+def credit_rejection(credit: str) -> str | None:
+    """A credit passes only if every party is NASA/an allowed partner, or a person credited after one."""
+    seen_agency = False
+    for entity in _credit_entities(credit):
+        norm = _normalise_entity(entity)
+        if norm in NASA_ALLOWED_ENTITIES or _NASA_ENTITY_PATTERNS.fullmatch(norm):
+            seen_agency = True
+        elif _ROLE_ONLY_RE.fullmatch(norm):
+            seen_agency = seen_agency or entity.lower().startswith("nasa")
+        elif not (seen_agency and _looks_like_person(entity)):
+            return f"credits non-NASA party {entity[:60]!r}"
+    return None
+
+
+def extract_credits(text: str) -> list[str]:
+    credits: list[str] = []
+    for match in _CREDIT_MARKER_RE.finditer(text):
+        rest = text[match.end() : match.end() + 200]
+        end = _CREDIT_END_RE.search(rest)
+        credit = (rest[: end.start()] if end else rest).strip()
+        if credit:
+            credits.append(credit)
+    return credits
+
+
+def _clean_provenance_text(text: str) -> str:
+    """Drop NASA's own usage boilerplate and bare URLs; HTML tags end a credit line (they wrap policy links)."""
+    import html
+
+    text = NASA_COPYRIGHT_BOILERPLATE.sub(" ", html.unescape(_HTML_TAG_RE.sub("\n", text)))
+    return _BARE_URL_RE.sub("\n", text)
+
+
+def nasa_provenance_rejection(text: str) -> str | None:
+    """Reject on copyright text or any credit line naming a party outside the NASA allowlist."""
+    cleaned = _clean_provenance_text(text)
+    if COPYRIGHT_MARKERS.search(cleaned):
+        return "NASA item mentions third-party copyright"
+    for credit in extract_credits(cleaned):
+        if reason := credit_rejection(credit):
+            return reason
+    return None
+
+
 def _candidate_provenance(cand: Any) -> str:
     extra = getattr(cand, "extra", None) or {}
-    parts = (cand.creator, cand.source_tags, str(extra.get("secondary_creator") or ""))
-    return " ".join(p for p in parts if p)
+    if cand.source != "nasa":
+        return " ".join(p for p in (cand.creator, cand.source_tags) if p)
+    meta = extra.get("nasa_meta") or {}
+    if not meta:  # adapter metadata only (source_tags is truncated to 500 chars)
+        fields = [cand.creator, str(extra.get("secondary_creator") or "")]
+        return " ".join([*(f"Credit: {f}." for f in fields if f), cand.source_tags])
+    prose = [str(meta.get(k) or "") for k in ("title", "description", "description_508")]
+    return "\n".join([*prose, *nasa_structured_credits(meta)])
+
+
+def nasa_structured_credits(meta: dict[str, Any]) -> list[str]:
+    """NASA's catalogue fields as credit lines. A bare name in photographer/secondary_creator is
+    attributed to the item's NASA centre (center/name), so staff producers pass while organisations
+    (SpaceX, Rocket Lab, Getty Images...) still fail the person check and reject the item."""
+    center = str(meta.get("center") or "").strip()
+    lines = [f"Credit: {center}." if center else ""]
+    for key in ("photographer", "secondary_creator"):
+        value = str(meta.get(key) or "").strip()
+        if value.lower() not in _EMPTY_CREDIT_VALUES:
+            lines.append(f"Credit: {center}/{value}." if center else f"Credit: {value}.")
+    return [line for line in lines if line]
+
+
+def capture_full_nasa_metadata() -> None:
+    """Keep NASA's full (untruncated) search metadata on each candidate for the provenance gate."""
+    from tools.video.stock_sources.nasa import NasaSource
+
+    original = NasaSource._hydrate_candidate
+
+    def hydrate(self: Any, item: dict, filters: Any) -> Any:
+        cand = original(self, item, filters)
+        if cand is not None:
+            cand.extra["nasa_meta"] = dict((item.get("data") or [{}])[0])
+        return cand
+
+    NasaSource._hydrate_candidate = hydrate  # type: ignore[method-assign]
+
+
+_META_CREDIT_KEY_RE = re.compile(
+    r"^(?!ICC_Profile|File|Composite|System)\w+:(Artist|Copyright|CopyrightNotice|Credit|Rights|Creator|By-?line|"
+    r"Photographer|SecondaryCreator|Source|Author)$"
+)
+
+
+def nasa_asset_metadata_rejection(manifest: list[str], timeout: float = 20, center: str = "") -> str | None:
+    """Check the EXIF/IPTC/XMP credit fields of the asset's metadata.json; no metadata = reject.
+
+    AVAIL:* fields mirror NASA's catalogue (attributed to `center` like nasa_structured_credits);
+    credits embedded in the file itself (EXIF/IPTC/XMP/QuickTime) get no such benefit of the doubt.
+    """
+    import requests
+
+    meta_url = next((u for u in manifest if u.lower().endswith("/metadata.json")), None)
+    if not meta_url:
+        return "no metadata.json to verify provenance"
+    try:
+        resp = requests.get(meta_url.replace("http://", "https://", 1), timeout=timeout)
+        resp.raise_for_status()
+        meta = resp.json()
+    except (requests.RequestException, ValueError) as exc:
+        return f"could not verify provenance ({type(exc).__name__})"
+    for key, value in meta.items() if isinstance(meta, dict) else []:
+        if not _META_CREDIT_KEY_RE.match(str(key)):
+            continue
+        for item in value if isinstance(value, list) else [value]:
+            text = _clean_provenance_text(str(item if item is not None else "")).strip()
+            if text.lower() in _EMPTY_CREDIT_VALUES:
+                continue
+            if COPYRIGHT_MARKERS.search(text):
+                return f"{key} says {text[:60]!r}"
+            credited = f"{center}/{text}" if center and str(key).startswith("AVAIL:") else text
+            if reason := credit_rejection(credited):
+                return f"{key}: {reason}"
+    return None
 
 
 @dataclass
@@ -339,16 +672,60 @@ class GateConfig:
     max_image_bytes: int
     ffprobe: str | None
     nasa_probe_budget: int
+    deadline: float | None = None  # time.monotonic() value
+
+
+def seconds_left(deadline: float | None) -> float | None:
+    return None if deadline is None else deadline - time.monotonic()
+
+
+def deadline_passed(deadline: float | None) -> bool:
+    left = seconds_left(deadline)
+    return left is not None and left <= 0
+
+
+def _bounded(timeout: float, deadline: float | None) -> float:
+    left = seconds_left(deadline)
+    return timeout if left is None else max(1.0, min(timeout, left))
 
 
 def install_candidate_gate(source_names: list[str], cfg: GateConfig) -> None:
-    """Wrap each adapter's search() so only licensed, relevant, size-safe candidates reach download."""
+    """Wrap each adapter's search() (gate) and download() (atomic .part + rename)."""
     from tools.video.stock_sources import all_sources
 
     for src in all_sources():
         if src.name in source_names:
             cls = type(src)
             cls.search = _gated_search(cls.search, cfg)  # type: ignore[method-assign]
+            cls.download = _atomic_download(cls.download)  # type: ignore[method-assign]
+
+
+PART_SUFFIX = ".part"
+
+
+def _atomic_download(original: Callable[..., Any]) -> Callable[..., Any]:
+    """Vendor adapters stream straight into the final path; route them through '<name>.part'."""
+
+    def download(self: Any, candidate: Any, out_path: Any) -> Path:
+        final = Path(out_path)
+        partial = final.with_name(final.name + PART_SUFFIX)
+        try:
+            original(self, candidate, partial)
+            os.replace(partial, final)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                partial.unlink()
+            raise
+        return final
+
+    return download
+
+
+def remove_stale_partials(clips_dir: Path) -> None:
+    for leftover in clips_dir.glob(f"*{PART_SUFFIX}"):
+        with contextlib.suppress(OSError):
+            leftover.unlink()
+            log.info("removed leftover partial download %s", leftover.name)
 
 
 def _gated_search(original: Callable[..., list[Any]], cfg: GateConfig) -> Callable[..., list[Any]]:
@@ -406,14 +783,24 @@ def refine_renditions(cands: list[Any], cfg: GateConfig) -> list[Any]:
     kept: list[Any] = []
     nasa_probes = 0
     for cand in cands:
+        if deadline_passed(cfg.deadline):
+            log.info("deadline reached while vetting candidates; %d kept", len(kept))
+            break
         info = commons_info.get(_candidate_title(cand))
         if cand.source == "wikimedia":
             reason = refine_wikimedia_image(cand, info, cfg) if images else refine_wikimedia(cand, info, cfg)
+            _remember_commons_license_url(cand.clip_id, info)
         elif cand.source == "nasa":
             if nasa_probes >= cfg.nasa_probe_budget:
                 continue
             nasa_probes += 1
-            reason = refine_nasa_image(cand, cfg) if images else refine_nasa(cand, cfg)
+            manifest = _NASA_MANIFESTS.get(cand.download_url, [])
+            center = str(((cand.extra or {}).get("nasa_meta") or {}).get("center") or "")
+            reason = nasa_asset_metadata_rejection(manifest, _bounded(20, cfg.deadline), center)
+            if reason:
+                reason = f"license: {reason}"
+            else:
+                reason = refine_nasa_image(cand, cfg) if images else refine_nasa(cand, cfg)
         else:
             reason = None
         reason = reason or _size_rejection(cand, cfg)
@@ -447,13 +834,31 @@ COMMONS_TRANSCODE_PREFERENCE = ("1080p.vp9.webm", "1080p.webm", "720p.vp9.webm",
 
 def fetch_commons_videoinfo(titles: list[str]) -> dict[str, dict[str, Any]]:
     """Map File: title -> videoinfo (size, width, height, derivatives). Empty dict on failure."""
-    return _commons_file_info(titles, "videoinfo", {"viprop": "size|derivatives"})
+    return _commons_file_info(
+        titles, "videoinfo", {"viprop": "size|derivatives|extmetadata", "viextmetadatafilter": "LicenseUrl"}
+    )
 
 
 def fetch_commons_imageinfo(titles: list[str]) -> dict[str, dict[str, Any]]:
     """Map File: title -> imageinfo incl. a thumbnail URL scaled to fit COMMONS_IMAGE_BOX."""
     box = str(COMMONS_IMAGE_BOX)
-    return _commons_file_info(titles, "imageinfo", {"iiprop": "url|size|mime", "iiurlwidth": box, "iiurlheight": box})
+    return _commons_file_info(
+        titles,
+        "imageinfo",
+        {"iiprop": "url|size|mime|extmetadata", "iiextmetadatafilter": "LicenseUrl", "iiurlwidth": box,
+         "iiurlheight": box},
+    )  # fmt: skip
+
+
+_COMMONS_LICENSE_URLS: dict[str, str] = {}
+
+
+def _remember_commons_license_url(clip_id: str, info: dict[str, Any] | None) -> None:
+    raw = str((((info or {}).get("extmetadata") or {}).get("LicenseUrl") or {}).get("value") or "").strip()
+    if raw.startswith("//"):
+        raw = "https:" + raw
+    if raw.startswith(("http://", "https://")):
+        _COMMONS_LICENSE_URLS[clip_id] = raw
 
 
 def _commons_file_info(titles: list[str], prop: str, extra: dict[str, str]) -> dict[str, dict[str, Any]]:
@@ -589,7 +994,7 @@ def refine_nasa(cand: Any, cfg: GateConfig) -> str | None:
         return None  # cannot measure before download; streaming size cap still applies
     best: tuple[str, ProbeResult] | None = None
     for tag, url in ladder.items():
-        probe = probe_media(cfg.ffprobe, nasa._encode_url_path(url), timeout=25)
+        probe = probe_media(cfg.ffprobe, nasa._encode_url_path(url), timeout=_bounded(25, cfg.deadline))
         if probe is None or probe.width > MAX_SOURCE_WIDTH:
             continue
         if best is None or probe.width > best[1].width:
@@ -631,7 +1036,7 @@ def refine_nasa_image(cand: Any, cfg: GateConfig) -> str | None:
         if not cfg.ffprobe:
             cand.download_url, cand.extra["rendition"] = url, tag
             return None  # dimensions are measured after download
-        probe = probe_media(cfg.ffprobe, url, timeout=25, still=True)
+        probe = probe_media(cfg.ffprobe, url, timeout=_bounded(25, cfg.deadline), still=True)
         if probe and image_shape_problem(probe.width, probe.height) is None:
             cand.download_url, cand.width, cand.height = url, probe.width, probe.height
             cand.extra["rendition"] = tag
@@ -814,7 +1219,7 @@ def simplify_query(query: str) -> str | None:
 
 
 def run_direct_clip_search(
-    req: FetchRequest, query: str, sources: list[str], kind: str
+    req: FetchRequest, query: str, sources: list[str], kind: str, deadline: float | None = None
 ) -> tuple[list[dict], list[dict], str]:
     """Return (clip records, tool errors, fatal error message or '')."""
     from tools.video.direct_clip_search import DirectClipSearch
@@ -832,8 +1237,9 @@ def run_direct_clip_search(
         "clips_per_query": req.clips_per_query,
         "filters": filters,
         "extract_thumbnails": False,
-        "skip_existing": True,
-        "timeout_seconds": req.timeout_per_query,
+        # Never trust an existing file: it may be a leftover from an older, non-atomic run.
+        "skip_existing": False,
+        "timeout_seconds": _bounded(req.timeout_per_query, deadline),
     }
     result = DirectClipSearch().execute(inputs)
     data = result.data or {}
@@ -869,6 +1275,7 @@ class FetchContext:
     ffprobe: str | None
     errors: ErrorLog
     used_clip_ids: set[str]
+    deadline: float | None = None
 
 
 def sources_for_kind(sources: list[str], kind: str) -> list[str]:
@@ -884,7 +1291,7 @@ def fetch_scene(ctx: FetchContext, scene: SceneQuery, kind: str) -> list[dict[st
     if clips:
         return clips
     fallback = simplify_query(scene.query)
-    if fallback and fallback.lower() != scene.query.lower():
+    if fallback and fallback.lower() != scene.query.lower() and not deadline_passed(ctx.deadline):
         log.info("scene %d: no %ss for %r, retrying with %r", scene.scene_index, kind, scene.query, fallback)
         clips = _fetch_and_validate(ctx, scene, fallback, kind, sources)
     if not clips:
@@ -896,7 +1303,7 @@ def _fetch_and_validate(
     ctx: FetchContext, scene: SceneQuery, query: str, kind: str, sources: list[str]
 ) -> list[dict[str, Any]]:
     log.info("scene %d: searching %s %r on %s", scene.scene_index, kind, query, ", ".join(sources))
-    records, tool_errors, fatal = run_direct_clip_search(ctx.req, query, sources, kind)
+    records, tool_errors, fatal = run_direct_clip_search(ctx.req, query, sources, kind, ctx.deadline)
     for err in tool_errors:
         ctx.errors.add(str(err.get("phase") or "openmontage"), str(err.get("error") or err),
                        scene=scene, query=query, source=err.get("source"))  # fmt: skip
@@ -908,7 +1315,10 @@ def _fetch_and_validate(
 
 def _to_footage_clip(ctx: FetchContext, scene: SceneQuery, rec: dict[str, Any]) -> dict[str, Any] | None:
     source, license_name = str(rec.get("source") or ""), str(rec.get("license") or "")
-    reason = license_rejection(source, license_name, f"{rec.get('creator') or ''} {rec.get('source_tags') or ''}")
+    creator = str(rec.get("creator") or "")
+    # Provenance was vetted before download on the FULL metadata (with centre context); this record
+    # only carries truncated tags, so the re-check covers the source allowlist and license string.
+    reason = license_rejection(source, license_name, "")
     path = Path(str(rec.get("path") or "")).resolve()
     if reason or not path.is_file():
         ctx.errors.add(
@@ -924,8 +1334,9 @@ def _to_footage_clip(ctx: FetchContext, scene: SceneQuery, rec: dict[str, Any]) 
             path.unlink()
         return None
     assert dims is not None
-    ctx.used_clip_ids.add(str(rec.get("clip_id") or ""))
-    return {
+    clip_id = str(rec.get("clip_id") or "")
+    ctx.used_clip_ids.add(clip_id)
+    clip: dict[str, Any] = {
         "sceneIndex": scene.scene_index,
         "path": str(path),
         "kind": kind,
@@ -934,9 +1345,13 @@ def _to_footage_clip(ctx: FetchContext, scene: SceneQuery, rec: dict[str, Any]) 
         "height": dims.height,
         "source": source,
         "sourceUrl": str(rec.get("source_url") or ""),
-        "creator": _clean_creator(str(rec.get("creator") or "")),
+        "creator": _clean_creator(creator),
         "license": license_name,
     }
+    license_url = license_url_for(source, license_name) or _COMMONS_LICENSE_URLS.get(clip_id)
+    if license_url:
+        clip["licenseUrl"] = license_url
+    return clip
 
 
 def _measure(ctx: FetchContext, path: Path, rec: dict[str, Any], *, still: bool) -> ProbeResult | None:
@@ -977,7 +1392,9 @@ def _apply_min_duration(ctx: FetchContext, scene: SceneQuery, clips: list[dict[s
 # ---------------------------------------------------------------------------
 
 
-def fetch_all(req: FetchRequest, errors: ErrorLog) -> list[dict[str, Any]]:
+def fetch_all(req: FetchRequest, errors: ErrorLog, started: float | None = None) -> list[dict[str, Any]]:
+    started = time.monotonic() if started is None else started
+    deadline = started + req.deadline_seconds if req.deadline_seconds is not None else None
     sources = resolve_sources(req.sources, errors)
     if not sources:
         errors.add("sources", "no allowlisted sources left to query")
@@ -986,26 +1403,36 @@ def fetch_all(req: FetchRequest, errors: ErrorLog) -> list[dict[str, Any]]:
     ffprobe = find_ffprobe()
     if not ffprobe:
         log.warning("ffprobe not found; falling back to adapter metadata (NASA clips will be dropped)")
-    ctx = FetchContext(req, sources, ffprobe, errors, used_clip_ids=set())
+    ctx = FetchContext(req, sources, ffprobe, errors, used_clip_ids=set(), deadline=deadline)
     gate = GateConfig(ctx.used_clip_ids, req.max_duration, req.min_width, MAX_DOWNLOAD_BYTES, MAX_IMAGE_BYTES,
-                      ffprobe, nasa_probe_budget=req.clips_per_query * 2)  # fmt: skip
+                      ffprobe, nasa_probe_budget=req.clips_per_query * 2, deadline=deadline)  # fmt: skip
     install_candidate_gate(sources, gate)
+    capture_full_nasa_metadata()
     remember_nasa_manifests()
     cap_download_size(MAX_DOWNLOAD_BYTES)
+    remove_stale_partials(req.output_dir / "clips")
     clips: list[dict[str, Any]] = []
-    for scene in req.queries:
-        for kind in scene.kinds:
-            clips.extend(fetch_scene(ctx, scene, kind))
+    jobs = [(scene, kind) for scene in req.queries for kind in scene.kinds]
+    for done, (scene, kind) in enumerate(jobs):
+        if deadline_passed(deadline):
+            skipped = len(jobs) - done
+            errors.add("deadline", f"deadlineSeconds={req.deadline_seconds:g} reached; {skipped} search(es) skipped")
+            return clips
+        clips.extend(fetch_scene(ctx, scene, kind))
+    if deadline_passed(deadline):  # it may also expire inside the last search (partial results)
+        errors.add("deadline", f"deadlineSeconds={req.deadline_seconds:g} reached during the last search")
     return clips
 
 
 def emit(stdout: Any, clips: list[dict[str, Any]], errors: ErrorLog) -> None:
-    stdout.write(json.dumps({"clips": clips, "errors": errors.entries}, ensure_ascii=True))
+    stdout.write(redact(json.dumps({"clips": clips, "errors": errors.entries}, ensure_ascii=True)))
     stdout.write("\n")
     stdout.flush()
 
 
 def main() -> int:
+    started = time.monotonic()
+    sys.stderr = RedactingStream(sys.stderr)
     logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="[fetch_footage] %(levelname)s %(message)s")
     real_stdout = sys.stdout
     errors = ErrorLog()
@@ -1015,7 +1442,7 @@ def main() -> int:
         load_footage_keys_from_dotenv(PROJECT_ROOT / ".env")
         # Third-party code must never write to our stdout (it carries the JSON contract).
         with contextlib.redirect_stdout(sys.stderr):
-            clips = fetch_all(req, errors)
+            clips = fetch_all(req, errors, started)
     except InputError as exc:
         errors.add("input", str(exc))
         log.error("invalid input: %s", exc)

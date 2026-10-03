@@ -57,7 +57,7 @@ describe.skipIf(!hasVenv)("NASA provenance gate (license_rejection('nasa', ...))
 
   // images.nasa.gov hosts third-party material that is NOT public domain: SpaceX photos (CC BY-NC 2.0),
   // ESA/Hubble (CC BY 4.0, attribution required), agency/wire photos. Only ©/"copyright" text is caught.
-  it.fails("BUG: NASA-hosted third-party credits (SpaceX, ESA, Getty) pass as public domain", () => {
+  it("NASA-hosted third-party credits (SpaceX, ESA, Getty) are rejected (H4)", () => {
     const provenance = ["Falcon 9 launch. Photo Credit: SpaceX", "Credit: ESA/Hubble & NASA, J. Doe", "Photo Credit: Getty Images"];
     expect(py("f.license_rejection('nasa', 'NASA Media Usage Guidelines (public domain with caveats)', x) is not None", provenance)).toEqual([
       true, true, true,

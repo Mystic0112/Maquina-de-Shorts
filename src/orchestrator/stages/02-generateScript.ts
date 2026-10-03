@@ -3,6 +3,8 @@ import { resolveScript, type ScriptSettings } from "../../shared/settings.js";
 import { env, loadConfig } from "../lib/config.js";
 import { generateJson, withCorrection } from "../lib/llmClient.js";
 import { getLogger } from "../lib/logger.js";
+import { findSimilarSubject, loadRecentSubjects } from "../lib/recentTopics.js";
+import { RunRejectedError } from "../lib/rejection.js";
 import type { RunContext, Script, TopicPick } from "../types.js";
 
 /** Script settings after defaults (see src/shared/settings.ts). */
@@ -157,11 +159,23 @@ function ctaRule(s: ResolvedScriptSettings): string {
   return `- "cta": curtíssimo (até 8 palavras), pedindo para seguir o canal para mais curiosidades.`;
 }
 
+/** Subjects already used: the model must pick something else (topic repetition guard). */
+export function recentSubjectsInstructions(recentTitles: readonly string[]): string {
+  if (recentTitles.length === 0) return "";
+  return [
+    "",
+    "Assuntos JÁ USADOS recentemente no canal (escolha outro assunto; não repita o mesmo fato, objeto ou episódio, nem com outras palavras):",
+    ...recentTitles.map((t) => `- ${t}`),
+    "",
+  ].join("\n");
+}
+
 export function buildScriptPrompt(
   topic: TopicPick,
   avoidTitles: readonly string[] = [],
   settings: ResolvedScriptSettings = resolveScript(),
   libraries: string = footageLibraries(),
+  recentTitles: readonly string[] = [],
 ): string {
   const spoken = fixedCta(settings) ? "hook e cenas" : "hook, cenas e cta";
   return `Você é roteirista de um canal brasileiro de YouTube Shorts de curiosidades (história, ciência, espaço).
@@ -170,7 +184,7 @@ Escreva o roteiro de um Short narrado em português do Brasil.
 Categoria: ${topic.categoryLabel}
 Tema/ângulo: ${topic.seedPrompt}
 Escolha você um fato específico dentro desse ângulo.
-${avoidanceInstructions(avoidTitles)}
+${avoidanceInstructions(avoidTitles)}${recentSubjectsInstructions(recentTitles)}
 Tom de voz do roteiro: ${TONE_INSTRUCTIONS[settings.tone]}
 
 Regras de conteúdo:
@@ -215,8 +229,21 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   const log = getLogger(ctx.runId);
   const config = loadConfig();
   const settings = resolveScript(config.script);
-  const prompt = buildScriptPrompt(ctx.topic, ctx.avoid?.titles ?? [], settings);
+  const recent = await loadRecentSubjects(ctx.runId);
+  const prompt = buildScriptPrompt(ctx.topic, ctx.avoid?.titles ?? [], settings, footageLibraries(), recent.map((r) => r.title));
   let raw = await requestScript(prompt, settings);
+  const repeated = findSimilarSubject(raw.title, recent);
+  if (repeated) {
+    log.warn(`Script "${raw.title}" repeats a recent subject ("${repeated.title}", shared: ${repeated.shared.join(", ")}); asking for another subject`);
+    raw = await requestScript(
+      withCorrection(prompt, JSON.stringify(raw, null, 2), `O assunto repete um vídeo recente ("${repeated.title}"). Escolha um assunto completamente diferente.`),
+      settings,
+    );
+    const again = findSimilarSubject(raw.title, recent);
+    if (again) {
+      throw new RunRejectedError(`Script repeats a recent subject twice ("${raw.title}" ~ "${again.title}")`, ctx);
+    }
+  }
   let problems = findScriptProblems(raw, settings);
   if (problems.length > 0) {
     log.warn(`Script needs a corrective retry:\n- ${problems.join("\n- ")}`);

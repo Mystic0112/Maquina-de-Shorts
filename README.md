@@ -24,9 +24,12 @@ Cada execução passa por nove estágios. Depois de cada um, o estado completo �
 
 - **Licença:** só entram NASA, Wikimedia Commons (apenas domínio público, CC0 ou CC BY) e Pexels/Pixabay, quando as chaves estão configuradas. Archive.org e afins ficam de fora, porque a licença é incerta.
 - **Checagem visual:** cada clipe recebe nota de 0 a 10 do Gemini contra a narração da cena. Clipes com texto, marca d'água ou pessoas identificáveis são rejeitados.
-- **Checagem de fatos:** até 3 rodadas de checagem com busca na web. Se a premissa do vídeo for falsa ou o roteiro continuar com afirmações sem respaldo, a execução é rejeitada. Fontes, afirmações e correções ficam em `factCheck` no `context.json`. Pode ser desligada com `script.factCheck: false` (não recomendado).
-- **Trava por vídeo:** se menos de 60% das cenas tiverem um clipe aprovado, o vídeo não é renderizado. O pipeline troca de tema e tenta de novo (até 2 vezes). A checagem de fatos usa a mesma trava: roteiro rejeitado também troca de tema. Se nada passar, encerra com código de saída `3` e não produz vídeo.
-- **Upload seguro:** nada é publicado com `upload.enabled: false` (padrão). Com ele ligado, o pipeline nunca envia a mesma execução duas vezes e respeita `upload.maxUploadsPerDay` (janela de 24 h).
+- **Checagem de fatos:** até 3 rodadas de checagem com busca na web; todo texto publicado passa por uma checagem com busca (inclusive a última correção). Checagem sem fontes da web ou sem afirmações extraídas é rejeitada. Se a premissa do vídeo for falsa ou o roteiro continuar com afirmações sem respaldo, a execução é rejeitada. Fontes, afirmações e correções ficam em `factCheck` no `context.json`. Pode ser desligada com `script.factCheck: false` (não recomendado; aí o upload também exige `upload.allowWithoutFactCheck: true`).
+- **Título e descrição:** o título publicado é o título do roteiro já checado; a descrição só usa frases copiadas do roteiro checado, mais hashtags e créditos.
+- **Sem repetição de assunto:** o roteiro recebe os ~30 assuntos mais recentes (publicados e gerados) e é rejeitado se o título repetir um deles.
+- **Trava por vídeo:** se menos de 60% das cenas tiverem um clipe aprovado (o revisor precisa dizer que o clipe combina com a cena; clipes de reserva não contam), o vídeo não é renderizado. O pipeline troca de tema e tenta de novo (até 2 vezes). Roteiro reprovado na checagem de fatos, assunto repetido, nenhum clipe utilizável, créditos que não cabem na descrição e narração fora de `video.minSeconds`–`video.maxSeconds` também trocam de tema. Se nada passar, encerra com código de saída `3` e não produz vídeo. Uma execução rejeitada não pode ser retomada com `--resume`.
+- **Upload seguro:** nada é publicado com `upload.enabled: false` (padrão). Com ele ligado, o estágio 08 só envia execuções com trava de qualidade aprovada e checagem de fatos aprovada, nunca envia a mesma execução duas vezes (um diário `upload.journal.json` na pasta da execução guarda a sessão de upload e o ID do vídeo, então uma nova tentativa retoma em vez de reenviar) e respeita `upload.maxUploadsPerDay` (janela de 24 h, com trava entre processos). Se `data/history.json` estiver ilegível, o upload é bloqueado até o arquivo ser corrigido.
+- **Segredos:** chaves de API e tokens são mascarados nos logs, e os subprocessos (Python, ffmpeg) recebem só as variáveis de ambiente de que precisam.
 
 ## Requisitos
 
@@ -104,7 +107,7 @@ A receita só aparece depois do OAuth do Marco 2 e da entrada do canal no Progra
 
 ## Configuração
 
-- `config/pipeline.config.json`: vídeo (resolução, duração alvo), voz, legendas, visual, roteiro (incluindo `script.factCheck`), footage, trava de qualidade e upload (`enabled`, `privacyStatus`, `categoryId`, `maxUploadsPerDay`, `containsSyntheticMedia`). Validado por `PipelineConfigSchema` (`src/orchestrator/lib/config.ts`); os padrões ficam em `src/shared/settings.ts`.
+- `config/pipeline.config.json`: vídeo (resolução, duração alvo), voz, legendas, visual, roteiro (incluindo `script.factCheck`), footage, trava de qualidade e upload (`enabled`, `privacyStatus`, `categoryId`, `maxUploadsPerDay`, `containsSyntheticMedia`, `allowWithoutFactCheck`), render (`render.totalTimeoutSeconds`, padrão 600) e armazenamento (`storage.keepFailedRunsDays`, padrão 3: execuções rejeitadas ou interrompidas são apagadas depois disso; `storage.keepUploadedVideosDays`, padrão 14: execuções publicadas perdem o `final.mp4` e as imagens, mas mantêm `context.json` e log). Execuções renderizadas e não publicadas nunca são apagadas automaticamente; a limpeza roda no início de cada `npm run pipeline`. Validado por `PipelineConfigSchema` (`src/orchestrator/lib/config.ts`); os padrões ficam em `src/shared/settings.ts`.
 - `config/topics.seed.json`: categorias e ideias de tema.
 
 Os dois podem ser editados à mão ou pela aba Configurações do painel.

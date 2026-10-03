@@ -49,15 +49,21 @@ export function uniqueClips(footage: readonly FootageClip[]): FootageClip[] {
  * (required by the license); stock-site clips get a short creator line; public-domain/CC0 material is
  * summarised per source. NASA material carries the usual no-endorsement note.
  */
-export function buildCredits(footage: readonly FootageClip[]): string {
+export function buildCredits(footage: readonly FootageClip[], compact = false): string {
   const clips = uniqueClips(footage);
   if (clips.length === 0) return "";
   const lines = ["Créditos das imagens:"];
-  for (const c of clips.filter((x) => licenseKind(x) === "attribution")) {
-    lines.push(`• ${c.creator.trim() || "Autor desconhecido"} — ${c.license.trim()} — ${c.sourceUrl || sourceLabel(c.source)}`);
-  }
-  for (const c of clips.filter((x) => licenseKind(x) === "stock")) {
-    lines.push(`• ${c.creator.trim() || "Autor desconhecido"} via ${sourceLabel(c.source)} (${c.license.trim() || "licença do site"})`);
+  const attribution = clips.filter((x) => licenseKind(x) === "attribution");
+  if (compact) lines.push(...compactAttributionLines(attribution));
+  else for (const c of attribution) lines.push(attributionLine(c));
+  const stock = clips.filter((x) => licenseKind(x) === "stock");
+  if (compact && stock.length > 0) {
+    const bySite = countBy(stock, (c) => sourceLabel(c.source));
+    lines.push(`• ${[...bySite].map(([site, n]) => `${site} (${n})`).join(", ")}`);
+  } else {
+    for (const c of stock) {
+      lines.push(`• ${c.creator.trim() || "Autor desconhecido"} via ${sourceLabel(c.source)} (${c.license.trim() || "licença do site"})`);
+    }
   }
   const publicBySource = countBy(clips.filter((x) => licenseKind(x) === "public"), (c) => sourceLabel(c.source));
   if (publicBySource.size > 0) {
@@ -68,6 +74,28 @@ export function buildCredits(footage: readonly FootageClip[]): string {
     lines.push("Imagens da NASA usadas conforme as diretrizes de mídia da NASA; não implicam endosso.");
   }
   return lines.join("\n");
+}
+
+function licenseLabel(c: Pick<FootageClip, "license" | "licenseUrl">): string {
+  return c.licenseUrl ? `${c.license.trim()} (${c.licenseUrl})` : c.license.trim();
+}
+
+function attributionLine(c: FootageClip): string {
+  return `• ${c.creator.trim() || "Autor desconhecido"} — ${licenseLabel(c)} — ${c.sourceUrl || sourceLabel(c.source)}`;
+}
+
+/** Same creator + license on several files: one line listing every file link (no credit is dropped). */
+function compactAttributionLines(clips: readonly FootageClip[]): string[] {
+  const groups = new Map<string, FootageClip[]>();
+  for (const c of clips) {
+    const key = `${c.creator.trim()}|${c.license.trim()}|${c.licenseUrl ?? ""}`;
+    groups.set(key, [...(groups.get(key) ?? []), c]);
+  }
+  return [...groups.values()].map((group) => {
+    const first = group[0] as FootageClip;
+    const links = group.map((c) => c.sourceUrl || sourceLabel(c.source)).join(" ");
+    return `• ${first.creator.trim() || "Autor desconhecido"} — ${licenseLabel(first)} — ${links}`;
+  });
 }
 
 function countBy<T>(items: readonly T[], key: (item: T) => string): Map<string, number> {
@@ -136,6 +164,40 @@ export interface DescriptionParts {
   credits: string;
 }
 
+export class DescriptionTooLongError extends Error {}
+
+/**
+ * Description within YouTube's 5000 chars: drops the context lines first, then compacts the credits
+ * (merged CC BY lines, stock/public summaries). CC BY credits are never dropped: if even the compact
+ * form does not fit, it throws.
+ */
+export function fitDescription(parts: Omit<DescriptionParts, "credits">, footage: readonly FootageClip[]): string {
+  const attempts: DescriptionParts[] = [
+    { ...parts, credits: buildCredits(footage) },
+    { ...parts, context: "", credits: buildCredits(footage) },
+    { ...parts, context: "", credits: buildCredits(footage, true) },
+    { ...parts, context: "", hashtags: [], credits: buildCredits(footage, true) },
+  ];
+  for (const attempt of attempts) {
+    const description = buildDescription(attempt);
+    if (description.length <= DESCRIPTION_MAX) return description;
+  }
+  throw new DescriptionTooLongError(
+    `Image credits alone exceed YouTube's ${DESCRIPTION_MAX}-char description limit (${buildCredits(footage, true).length} chars)`,
+  );
+}
+
+/** Pre-render check: can this footage be credited within the description limit? */
+export function creditsFitDescription(script: Pick<Script, "hook">, footage: readonly FootageClip[]): boolean {
+  try {
+    fitDescription({ hook: script.hook, context: "", hashtags: ["#Shorts", "#curiosidades", "#ciência"] }, footage);
+    return true;
+  } catch (error) {
+    if (error instanceof DescriptionTooLongError) return false;
+    throw error;
+  }
+}
+
 export function buildDescription(parts: DescriptionParts): string {
   const hashtags = [...new Set(parts.hashtags.map(normalizeHashtag).filter((h): h is string => !!h))];
   if (!hashtags.some((h) => h.toLowerCase() === "#shorts")) hashtags.unshift(SHORTS_TAG);
@@ -164,28 +226,51 @@ export function validateMetadata(meta: Pick<VideoMetadata, "title" | "descriptio
 // LLM draft
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * What the LLM may contribute. The title is NOT among them: the published title is the fact-checked
+ * script title. Context lines must be copied verbatim from the fact-checked narration (validated).
+ */
 export const MetadataDraftSchema = z.object({
-  title: z.string().min(5).max(90).describe("Título pt-BR, curioso mas fiel ao roteiro, sem #Shorts"),
-  context: z.string().min(10).max(400).describe("1-2 frases de contexto em pt-BR"),
+  context: z.array(z.string()).max(2).describe("Até 2 frases COPIADAS exatamente da narração"),
   hashtags: z.array(z.string()).min(2).max(5),
   tags: z.array(z.string()).min(5).max(20),
 });
 
-export type MetadataDraft = z.infer<typeof MetadataDraftSchema>;
+export interface MetadataDraft {
+  /** Ignored: kept only so older callers/tests that still pass a draft title type-check. */
+  title?: string;
+  context: string | readonly string[];
+  hashtags: readonly string[];
+  tags: readonly string[];
+}
+
+function normalizeSentence(text: string): string {
+  return text.normalize("NFC").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function splitSentences(text: string): string[] {
+  return text.split(/(?<=[.!?…])\s+/).map((s) => s.trim()).filter(Boolean);
+}
+
+/** Keeps only context sentences that appear verbatim in the fact-checked script (hook + narration). */
+export function verbatimContext(context: string | readonly string[], script: Pick<Script, "hook" | "scenes">): string {
+  const source = normalizeSentence([script.hook, ...script.scenes.map((s) => s.narration)].join(" "));
+  const candidates = (typeof context === "string" ? [context] : context).flatMap(splitSentences);
+  return candidates.filter((sentence) => sentence.length >= 10 && source.includes(normalizeSentence(sentence))).slice(0, 2).join(" ");
+}
 
 export function buildMetadataPrompt(script: Script, categoryLabel: string): string {
-  return `Crie os metadados de um YouTube Short em português do Brasil para o roteiro abaixo, que já passou por
-checagem de fatos. Não acrescente nenhum fato que não esteja no roteiro.
+  return `Crie metadados de busca para um YouTube Short em português do Brasil. O roteiro abaixo já passou por
+checagem de fatos; o título publicado será o título do roteiro (não crie outro).
 
-Título do roteiro: ${script.title}
+Título: ${script.title}
 Gancho: ${script.hook}
 Narração: ${script.scenes.map((s) => s.narration).join(" ")}
 Categoria: ${categoryLabel}
 
 Regras:
-- "title": até 90 caracteres, desperta curiosidade mas é PRECISO: sem exagero, sem causa/efeito falso, sem caixa alta
-  excessiva, sem emojis em excesso. Não inclua #Shorts (será adicionado).
-- "context": 1 a 2 frases que contextualizam o fato, sem repetir o gancho.
+- "context": 1 a 2 frases COPIADAS EXATAMENTE da narração acima (palavra por palavra, sem editar), que contextualizem
+  o fato sem repetir o gancho. Não escreva frases novas.
 - "hashtags": 2 a 5 hashtags curtas em pt-BR relacionadas ao tema (sem #Shorts).
 - "tags": 8 a 15 palavras-chave de busca (pt-BR, algumas em inglês se fizer sentido), sem "#".`;
 }
@@ -193,8 +278,7 @@ Regras:
 /** Deterministic fallback when the LLM is unavailable: the (fact-checked) script title and category. */
 export function fallbackDraft(script: Script, categoryLabel: string): MetadataDraft {
   return {
-    title: script.title,
-    context: script.scenes[0]?.narration ?? script.hook,
+    context: splitSentences(script.scenes[0]?.narration ?? "").slice(0, 1),
     hashtags: ["#curiosidades", `#${categoryLabel}`],
     tags: ["curiosidades", categoryLabel, "shorts", "você sabia", "fatos curiosos"],
   };
@@ -211,8 +295,9 @@ export interface MetadataInput {
 export function assembleMetadata(input: MetadataInput): VideoMetadata {
   const { script, footage, draft } = input;
   const metadata: VideoMetadata = {
-    title: buildTitle(draft.title),
-    description: buildDescription({ hook: script.hook, context: draft.context, hashtags: draft.hashtags, credits: buildCredits(footage) }),
+    // Published title = the fact-checked script title (never a fresh LLM draft).
+    title: buildTitle(script.title),
+    description: fitDescription({ hook: script.hook, context: verbatimContext(draft.context, script), hashtags: draft.hashtags }, footage),
     tags: buildTags(draft.tags),
     categoryId: input.categoryId,
     defaultLanguage: input.language,
@@ -230,7 +315,7 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   const categoryLabel = ctx.topic?.categoryLabel ?? "curiosidades";
   let draft: MetadataDraft;
   try {
-    draft = await generateJson(buildMetadataPrompt(ctx.script, categoryLabel), MetadataDraftSchema, { thinking: "low", temperature: 0.7 });
+    draft = await generateJson(buildMetadataPrompt(ctx.script, categoryLabel), MetadataDraftSchema, { thinking: "low", temperature: 0.3 });
   } catch (error) {
     log.warn(`Metadata LLM call failed, using the script title: ${error instanceof Error ? error.message : String(error)}`);
     draft = fallbackDraft(ctx.script, categoryLabel);

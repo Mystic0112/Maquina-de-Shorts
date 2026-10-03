@@ -76,8 +76,24 @@ export const PipelineConfigSchema = z.object({
       enabled: z.boolean().optional(),
       /** status.containsSyntheticMedia sent to YouTube; default false (see 08-uploadYouTube). */
       containsSyntheticMedia: z.boolean().optional(),
+      /** Needed to publish when script.factCheck=false (unverified scripts). Default false. */
+      allowWithoutFactCheck: z.boolean().optional(),
     })
     .loose(),
+  render: z
+    .object({
+      /** Cancels a render that runs longer than this (default 600 s). */
+      totalTimeoutSeconds: z.number().int().positive().optional(),
+    })
+    .optional(),
+  storage: z
+    .object({
+      /** Rejected/failed runs older than this are deleted at pipeline start (default 3 days). */
+      keepFailedRunsDays: z.number().nonnegative().optional(),
+      /** Uploaded runs older than this lose final.mp4 + footage (context/log kept). Default 14 days. */
+      keepUploadedVideosDays: z.number().nonnegative().optional(),
+    })
+    .optional(),
   pipeline: z
     .object({
       /** Extra topic/script attempts after a quality-gate failure; default 2. */

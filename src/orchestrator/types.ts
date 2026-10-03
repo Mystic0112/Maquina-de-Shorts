@@ -33,7 +33,11 @@ export interface FootageClip {
   license: string;
   relevanceScore?: number; // 0-10 from the visual relevance gate (03-fetchFootage), when enabled
   relevanceReason?: string;
+  /** Reviewer said the clip fits the narration (verdict.matches). A scene only "passes" with matches + score. */
+  relevanceMatches?: boolean;
   borrowedFromScene?: number; // set when this scene had no usable clip and reuses another scene's clip
+  /** License deed URL from the adapter (e.g. https://creativecommons.org/licenses/by/4.0/), when known. */
+  licenseUrl?: string;
 }
 
 export interface WordTiming {
@@ -168,13 +172,16 @@ export type YouTubePrivacyStatus = "public" | "unlisted" | "private";
 
 /** Written by 08-uploadYouTube. */
 export interface UploadResult {
-  /** uploaded; skipped-disabled (upload.enabled=false); skipped-cap (daily limit reached). */
-  status: "uploaded" | "skipped-disabled" | "skipped-cap";
+  /**
+   * uploaded; pending (an upload was started and may still be resumable: see upload.journal.json in the
+   * run dir); skipped-disabled (upload.enabled=false); skipped-cap (daily limit reached).
+   */
+  status: "uploaded" | "pending" | "skipped-disabled" | "skipped-cap";
   videoId?: string;
   url?: string;
   requestedPrivacyStatus: YouTubePrivacyStatus;
-  /** What YouTube actually applied (videos.list after upload). */
-  privacyStatus?: YouTubePrivacyStatus;
+  /** What YouTube actually applied (videos.list after upload); "unknown" when that lookup failed. */
+  privacyStatus?: YouTubePrivacyStatus | "unknown";
   /** True when YouTube forced "private" although public/unlisted was requested (unaudited API project). */
   lockedPrivate?: boolean;
   uploadedAt?: string;

@@ -101,7 +101,12 @@ export function selectSceneClips(
 /** Kept clip with the gate's verdict recorded on it. */
 export function annotateClip(scored: ScoredClip): FootageClip {
   if (!scored.verdict) return { ...scored.clip, relevanceReason: `unscored: ${scored.error ?? "unknown error"}` };
-  return { ...scored.clip, relevanceScore: scored.verdict.score, relevanceReason: scored.verdict.reason };
+  return {
+    ...scored.clip,
+    relevanceScore: scored.verdict.score,
+    relevanceReason: scored.verdict.reason,
+    relevanceMatches: scored.verdict.matches && !scored.verdict.hasTextOrLogo && !scored.verdict.hasIdentifiablePeople,
+  };
 }
 
 export function describeScored(scored: ScoredClip, minScore: number): string {
@@ -116,12 +121,15 @@ export function describeScored(scored: ScoredClip, minScore: number): string {
 // Run-level quality gate
 // ---------------------------------------------------------------------------------------------
 
-/** A scene passes when one of its own (not borrowed) clips scores >= minScore. */
+/**
+ * A scene passes only with one of its own (not borrowed) clips that truly passed review: the reviewer
+ * said it matches the narration AND scored it >= minScore. Weak fallbacks never count.
+ */
 export function countPassingScenes(footage: readonly FootageClip[], sceneCount: number, minScore: number): number {
   const passing = new Set<number>();
   for (const clip of footage) {
     if (clip.borrowedFromScene !== undefined || clip.sceneIndex >= sceneCount) continue;
-    if ((clip.relevanceScore ?? -1) >= minScore) passing.add(clip.sceneIndex);
+    if (clip.relevanceMatches === true && (clip.relevanceScore ?? -1) >= minScore) passing.add(clip.sceneIndex);
   }
   return passing.size;
 }

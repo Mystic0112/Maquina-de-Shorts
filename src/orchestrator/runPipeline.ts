@@ -5,6 +5,8 @@ import { parseArgs } from "node:util";
 import { loadConfig, paths } from "./lib/config.js";
 import { drainLlmUsage, mergeLlmUsage } from "./lib/llmClient.js";
 import { describeError, getLogger } from "./lib/logger.js";
+import { redactSecrets } from "./lib/redact.js";
+import { pruneRuns, resolveRetention } from "./lib/retention.js";
 import { RunRejectedError } from "./lib/rejection.js";
 import { createRunContext, loadRunContext, readContextFile, saveRunContext } from "./lib/runContext.js";
 import type { RunContext, Stage, StageName, TopicAvoidance } from "./types.js";
@@ -26,8 +28,9 @@ export const STAGES: readonly StageDefinition[] = [
   },
   {
     name: "02b-factCheck",
-    // Runs that already have footage predate this stage (or were checked): never rewrite their script.
-    isDone: (c) => !!c.factCheck || (c.footage?.length ?? 0) > 0,
+    // A failed check is never "done". Runs with footage but no factCheck predate this stage: never
+    // rewrite their script (they can't be published anyway: 08 requires a fact-check verdict).
+    isDone: (c) => (c.factCheck ? c.factCheck.verdict !== "fail" : (c.footage?.length ?? 0) > 0),
     load: async () => (await import("./stages/02b-factCheck.js")).run,
   },
   {
@@ -80,8 +83,21 @@ function withStageUsage(ctx: RunContext, stage: StageName): RunContext {
   return llmUsage ? { ...ctx, llmUsage } : ctx;
 }
 
+export class RejectedRunError extends Error {}
+
+/** A rejected run (fact-check / quality) must never be continued: it would publish what was rejected. */
+export function assertNotRejected(ctx: RunContext): void {
+  if (ctx.rejection) {
+    throw new RejectedRunError(
+      `Run ${ctx.runId} was rejected by ${ctx.rejection.stage} (${ctx.rejection.reason})` +
+        `${ctx.rejection.retriedAs ? ` and retried as ${ctx.rejection.retriedAs}` : ""}; it cannot be resumed. Start a new run.`,
+    );
+  }
+}
+
 /** Runs one stage, logs its timing and LLM usage, and persists the context it returns. */
 export async function executeStage(stage: StageDefinition, ctx: RunContext): Promise<RunContext> {
+  assertNotRejected(ctx);
   const log = getLogger(ctx.runId);
   const started = performance.now();
   log.info(`>> ${stage.name} started`);
@@ -122,7 +138,8 @@ export async function prepareContext(options: PipelineOptions): Promise<RunConte
   if (options.resume) return loadRunContext(options.resume);
   const fresh = await createRunContext();
   if (!options.fixture) return fresh;
-  const fixture = await readContextFile(resolveUserPath(options.fixture));
+  // A fixture copy is a new run: it never inherits another run's upload state, rejection or LLM spend.
+  const { upload: _upload, rejection: _rejection, llmUsage: _usage, ...fixture } = await readContextFile(resolveUserPath(options.fixture));
   const ctx: RunContext = { ...fixture, runId: fresh.runId, runDir: fresh.runDir, createdAt: fresh.createdAt };
   await saveRunContext(ctx);
   return ctx;
@@ -169,6 +186,7 @@ type AttemptResult = { ok: true; ctx: RunContext } | { ok: false; ctx: RunContex
  * run (RunRejectedError, e.g. fact-check) or right after 03 when its footage quality verdict is "fail".
  */
 async function runAttempt(ctx: RunContext, untilIndex: number, info: AttemptInfo): Promise<AttemptResult> {
+  assertNotRejected(ctx);
   const log = getLogger(ctx.runId);
   for (const stage of STAGES.slice(0, untilIndex + 1)) {
     if (stage.isDone(ctx)) log.info(`-- ${stage.name} skipped (output already present)`);
@@ -214,12 +232,27 @@ export function maxAttemptsFromConfig(): number {
   return 1 + (loadConfig().pipeline?.maxScriptAttempts ?? 2);
 }
 
+/** Disk retention (config.storage) at pipeline start; never fails the run. */
+async function pruneOldRuns(ctx: RunContext): Promise<void> {
+  const log = getLogger(ctx.runId);
+  try {
+    const summary = await pruneRuns(resolveRetention(loadConfig().storage), { exclude: [ctx.runId] });
+    if (summary.deletedRuns.length || summary.trimmedRuns.length) {
+      log.info(`Retention: deleted ${summary.deletedRuns.length} old failed run(s), trimmed ${summary.trimmedRuns.length} uploaded run(s)`);
+    }
+    for (const e of summary.errors) log.warn(`Retention: ${e}`);
+  } catch (error) {
+    log.warn(`Retention skipped: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 export async function runPipeline(options: PipelineOptions): Promise<RunContext> {
   const untilIndex = options.until ? STAGES.indexOf(findStage(options.until)) : STAGES.length - 1;
   const maxAttempts = maxAttemptsFromConfig();
   const started = performance.now();
   const mode = options.resume ? "resume" : options.fixture ? `fixture ${options.fixture}` : "new run";
   let ctx = await prepareContext(options);
+  await pruneOldRuns(ctx);
   const previousRunIds: string[] = [];
   for (let attempt = 1; ; attempt++) {
     const log = getLogger(ctx.runId);
@@ -260,7 +293,7 @@ async function main(): Promise<void> {
   try {
     await runPipeline(parseCliOptions(process.argv.slice(2)));
   } catch (error) {
-    console.error(`Pipeline failed: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`Pipeline failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
     process.exitCode = error instanceof QualityGateError ? EXIT_QUALITY_GATE : 1;
   }
 }

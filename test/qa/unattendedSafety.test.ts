@@ -1,9 +1,8 @@
 // QA (Quinn): regression tests for unattended-publishing hazards found in review.
 //
-// Tests marked `it.fails` DEMONSTRATE A CURRENT BUG: the assertion describes the correct behaviour and
-// currently fails, so vitest reports them as passing ("expected fail"). When the bug is fixed, vitest
-// flags them, and the `.fails` marker must be removed. Everything runs on fakes: no YouTube, no LLM,
-// no network, no writes outside the OS temp dir.
+// Tests named "FIXED: ..." were `it.fails` bug demonstrations; the bugs are fixed and they now run as
+// normal regression tests. Everything runs on fakes: no YouTube, no LLM, no network, no writes outside
+// the OS temp dir.
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -82,7 +81,7 @@ function fakeWorld(opts: { privacyFails?: boolean; appendFails?: boolean; histor
 // ---------------------------------------------------------------------------------------------
 
 describe("08-uploadYouTube: a video that reached YouTube must always be recorded", () => {
-  it.fails("BUG: privacy lookup failing after a successful upload leads to a duplicate upload on retry", async () => {
+  it("FIXED: privacy lookup failing after a successful upload leads to a duplicate upload on retry", async () => {
     const world = fakeWorld({ privacyFails: true });
     const ctx = renderedRun();
     await uploadRun(ctx, SETTINGS, world.deps, silentLog).catch(() => undefined); // video yt1 is live now
@@ -90,7 +89,7 @@ describe("08-uploadYouTube: a video that reached YouTube must always be recorded
     expect(world.uploads).toEqual(["yt1"]);
   });
 
-  it.fails("BUG: history write failing after a successful upload leads to a duplicate upload on retry", async () => {
+  it("FIXED: history write failing after a successful upload leads to a duplicate upload on retry", async () => {
     const world = fakeWorld({ appendFails: true });
     const ctx = renderedRun();
     await uploadRun(ctx, SETTINGS, world.deps, silentLog).catch(() => undefined);
@@ -106,7 +105,7 @@ describe("08-uploadYouTube: the upload stage must enforce the run's own quality 
     expect(out.upload?.status).toBe("uploaded");
   });
 
-  it.fails("BUG: uploads a run whose fact-check FAILED (reachable via --resume, see STAGES test below)", async () => {
+  it("FIXED: uploads a run whose fact-check FAILED (reachable via --resume, see STAGES test below)", async () => {
     const world = fakeWorld();
     const ctx = renderedRun({
       factCheck: { verdict: "fail", rounds: 3, claimsChecked: 4, claims: [], corrections: [], sources: [], searchQueries: [], reason: "premissa falsa" },
@@ -116,7 +115,7 @@ describe("08-uploadYouTube: the upload stage must enforce the run's own quality 
     expect(world.uploads).toHaveLength(0);
   });
 
-  it.fails("BUG: uploads a run whose footage quality gate FAILED (reachable via npm run stage 06 + 08)", async () => {
+  it("FIXED: uploads a run whose footage quality gate FAILED (reachable via npm run stage 06 + 08)", async () => {
     const world = fakeWorld();
     const ctx = renderedRun({
       quality: { passingScenes: 1, totalScenes: 6, passingRatio: 0.167, minPassingSceneRatio: 0.6, minScore: 6, verdict: "fail" },
@@ -125,7 +124,7 @@ describe("08-uploadYouTube: the upload stage must enforce the run's own quality 
     expect(world.uploads).toHaveLength(0);
   });
 
-  it.fails("BUG: uploads a run whose footage was never vision-checked (relevance gate disabled -> verdict skipped)", async () => {
+  it("FIXED: uploads a run whose footage was never vision-checked (relevance gate disabled -> verdict skipped)", async () => {
     const world = fakeWorld();
     const ctx = renderedRun({
       quality: { passingScenes: 0, totalScenes: 6, passingRatio: 0, minPassingSceneRatio: 0.6, minScore: 6, verdict: "skipped" },
@@ -136,7 +135,7 @@ describe("08-uploadYouTube: the upload stage must enforce the run's own quality 
 });
 
 describe("daily cap and upload history", () => {
-  it.fails("BUG: an unreadable data/history.json disables the daily cap and the duplicate check (fail-open)", async () => {
+  it("FIXED: an unreadable data/history.json disables the daily cap and the duplicate check (fail-open)", async () => {
     const file = join(mkdtempSync(join(tmpdir(), "qa-hist-")), "history.json");
     const full = JSON.stringify([record("a", 1), record("b", 2), record("c", 3)], null, 2);
     writeFileSync(file, full.slice(0, full.length - 40)); // truncated (crash mid-write, AV/OneDrive, manual edit)
@@ -146,7 +145,7 @@ describe("daily cap and upload history", () => {
     expect(world.uploads).toHaveLength(0); // 3 uploads in the last 24 h, cap is 1
   });
 
-  it.fails("BUG: two concurrent appendUploadRecord calls lose a record (read-modify-write race, shared .tmp name)", async () => {
+  it("FIXED: two concurrent appendUploadRecord calls lose a record (read-modify-write race, shared .tmp name)", async () => {
     for (let n = 0; n < 5; n++) {
       const file = join(mkdtempSync(join(tmpdir(), "qa-hist-")), "history.json");
       await Promise.allSettled([appendUploadRecord(record(`a${n}`, 1), file), appendUploadRecord(record(`b${n}`, 1), file)]);
@@ -156,7 +155,7 @@ describe("daily cap and upload history", () => {
 });
 
 describe("resumableUpload retry budget", () => {
-  it.fails("BUG: a session that keeps answering 308 without progress is re-uploaded forever (retries reset on every 308)", async () => {
+  it("FIXED: a session that keeps answering 308 without progress is re-uploaded forever (retries reset on every 308)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "qa-up-"));
     const file = join(dir, "final.mp4");
     writeFileSync(file, Buffer.alloc(1000, 1));
@@ -190,7 +189,7 @@ const script: Script = {
 };
 
 describe("02b-factCheck bypasses", () => {
-  it.fails("BUG: --resume of a run REJECTED by the fact-check skips 02b (isDone only checks presence of ctx.factCheck)", () => {
+  it("FIXED: --resume of a run REJECTED by the fact-check skips 02b (isDone only checks presence of ctx.factCheck)", () => {
     const stage = STAGES.find((s) => s.name === "02b-factCheck");
     const rejected = renderedRun({
       render: undefined, metadata: undefined, quality: undefined, script,
@@ -199,7 +198,7 @@ describe("02b-factCheck bypasses", () => {
     expect(stage?.isDone(rejected)).toBe(false);
   });
 
-  it.fails("BUG: a structured result with ZERO claims is accepted as a verified 'pass'", async () => {
+  it("FIXED: a structured result with ZERO claims is accepted as a verified 'pass'", async () => {
     const deps: FactCheckDeps = {
       grounded: async () => ({ text: "(busca falhou / resposta vazia de conteúdo)", sources: [], queries: [] }),
       structured: async () =>
@@ -233,7 +232,7 @@ describe("02b-factCheck bypasses", () => {
     expect(summary).toMatchObject({ verdict: "corrected", rounds: 3 });
   });
 
-  it.fails("BUG: the round-3 rewrite is published without ever going through the grounded (web) check", async () => {
+  it("FIXED: the round-3 rewrite is published without ever going through the grounded (web) check", async () => {
     const { deps, reviewed } = rewritingDeps();
     const { script: published } = await factCheckScript(script, resolveScript(), deps);
     expect(reviewed.some((prompt) => prompt.includes(published.hook))).toBe(true);
@@ -241,7 +240,7 @@ describe("02b-factCheck bypasses", () => {
 });
 
 describe("07-generateMetadata: published text is not fact-checked", () => {
-  it.fails("BUG: the published title comes from a fresh LLM draft (temperature 0.7), not the fact-checked title", () => {
+  it("FIXED: the published title comes from a fresh LLM draft (temperature 0.7), not the fact-checked title", () => {
     const meta = assembleMetadata({
       script,
       footage: [],
@@ -276,7 +275,7 @@ describe("03 quality gate: run-level pass count", () => {
     expect(selections.map((s) => s.mode)).toEqual(["weak", "weak", "weak", "weak", "weak"]);
   });
 
-  it.fails("BUG: a fallback clip the reviewer said does NOT match (matches=false, score 8) counts as a passing scene", () => {
+  it("FIXED: a fallback clip the reviewer said does NOT match (matches=false, score 8) counts as a passing scene", () => {
     const footage = selections.map((s) => annotateClip(s.kept[0] as ScoredClip));
     const quality = assessQuality(footage, 5, { enabled: true, minScore: 6 }, 0.6);
     expect(quality.verdict).toBe("fail"); // currently "pass": 5/5 "passing" scenes, none of which match
@@ -288,7 +287,7 @@ describe("03 quality gate: run-level pass count", () => {
 // ---------------------------------------------------------------------------------------------
 
 describe("secrets never reach logs", () => {
-  it.fails("BUG: footage adapter errors are logged verbatim, including the Pixabay API key from the request URL", () => {
+  it("FIXED: footage adapter errors are logged verbatim, including the Pixabay API key from the request URL", () => {
     // Shape produced by OpenMontage DirectClipSearch for a Pixabay HTTP error (pixabay_video.py puts
     // the key in the query string; requests' HTTPError message embeds the full URL).
     const line = formatAdapterError({

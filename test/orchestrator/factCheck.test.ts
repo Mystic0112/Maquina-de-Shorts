@@ -138,18 +138,49 @@ describe("factCheckScript with a fake LLM", () => {
     expect(summary.reason).toMatch(/ainda incorretas/);
   });
 
-  it("last round with only 'misleading' nuance: applies the correction instead of failing", async () => {
-    const nuance = result({
-      claims: [{ claim: "O planeta onde o dia dura mais que o ano", verdict: "misleading", correction: "a rotação, não o dia solar" }],
-      title: "O planeta cuja rotação dura mais que o ano",
-      scenes: fixedScenes,
-    });
-    const deps = fakeDeps([reveillonFlagged, reveillonFlagged, nuance]);
+  const nuance = result({
+    claims: [{ claim: "O planeta onde o dia dura mais que o ano", verdict: "misleading", correction: "a rotação, não o dia solar" }],
+    title: "O planeta cuja rotação dura mais que o ano",
+    scenes: fixedScenes,
+  });
+
+  it("last round with only 'misleading' nuance: the rewrite is verified by a 4th grounded pass, then published", async () => {
+    const deps = fakeDeps([reveillonFlagged, reveillonFlagged, nuance, result({ scenes: fixedScenes, title: nuance.title })]);
     const { script, summary } = await factCheckScript(venus, settings, deps);
     expect(summary.verdict).toBe("corrected");
     expect(summary.rounds).toBe(MAX_FACT_CHECK_ROUNDS);
     expect(script.title).toBe("O planeta cuja rotação dura mais que o ano");
-    expect(summary.corrections.at(-1)).toMatch(/sem nova verificação/);
+    expect(summary.corrections.at(-1)).toMatch(/verificadas com nova busca/);
+    expect(deps.groundedCalls).toBe(MAX_FACT_CHECK_ROUNDS + 1);
+  });
+
+  it("last round rewrite whose verification finds a false claim fails", async () => {
+    const deps = fakeDeps([reveillonFlagged, reveillonFlagged, nuance, reveillonFlagged]);
+    const { summary } = await factCheckScript(venus, settings, deps);
+    expect(summary.verdict).toBe("fail");
+    expect(summary.reason).toMatch(/sem respaldo/);
+  });
+
+  it("no web sources: retries the grounded pass once, then rejects", async () => {
+    const deps = fakeDeps([result()]);
+    deps.grounded = async () => (deps.groundedCalls++, { text: "sem busca", sources: [], queries: [] });
+    const { summary } = await factCheckScript(venus, settings, deps);
+    expect(summary.verdict).toBe("fail");
+    expect(deps.groundedCalls).toBe(2);
+    expect(deps.structuredCalls).toBe(0);
+  });
+
+  it("zero claims: retries the structured pass once, then rejects", async () => {
+    const deps = fakeDeps([result({ claims: [] }), result({ claims: [] })]);
+    const { summary } = await factCheckScript(venus, settings, deps);
+    expect(summary).toMatchObject({ verdict: "fail", reason: expect.stringMatching(/nenhuma afirmação/) });
+    expect(deps.structuredCalls).toBe(2);
+  });
+
+  it("zero claims on the first try but claims on the retry: proceeds", async () => {
+    const deps = fakeDeps([result({ claims: [] }), result()]);
+    const { summary } = await factCheckScript(venus, settings, deps);
+    expect(summary.verdict).toBe("pass");
   });
 
   it("fail: premise rejected in round 1", async () => {

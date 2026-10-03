@@ -31,7 +31,18 @@ export interface ResumableUploadOptions {
   onProgress?: (uploadedBytes: number, totalBytes: number) => void;
   sleep?: (ms: number) => Promise<void>;
   mimeType?: string;
+  /** Resume this existing session instead of starting a new upload. */
+  sessionUri?: string;
+  /** Called (and awaited) with the new session URI before any byte is sent. */
+  onSession?: (sessionUri: string) => void | Promise<void>;
+  /** Consecutive 308 responses without progress before giving up. Default 5. */
+  maxStalls?: number;
+  /** Total wall-clock budget for the upload. Default 45 min. */
+  timeBudgetMs?: number;
+  now?: () => number;
 }
+
+export const DEFAULT_TIME_BUDGET_MS = 45 * 60 * 1000;
 
 export class UploadError extends Error {
   constructor(
@@ -87,7 +98,20 @@ async function readChunk(filePath: string, offset: number, length: number): Prom
 }
 
 /** Uploads the file and returns the created video resource (parsed JSON). */
-export async function resumableUpload(options: ResumableUploadOptions): Promise<{ id: string } & Record<string, unknown>> {
+export class UploadSessionLostError extends UploadError {}
+
+type Video = { id: string } & Record<string, unknown>;
+type UploadState = { offset: number } | { video: Video } | { lost: number };
+
+/**
+ * Uploads the file and returns the created video resource (parsed JSON).
+ * - `sessionUri` resumes an earlier session (crash/retry) instead of opening a new upload; a session the
+ *   server no longer knows (404/410) throws UploadSessionLostError: the caller must NOT blindly re-upload.
+ * - `onSession` is awaited before the first byte is sent, so the URI can be persisted first.
+ * - Gives up after `maxStalls` consecutive responses without progress, `maxRetries` transient errors in a
+ *   row, or when `timeBudgetMs` is exceeded.
+ */
+export async function resumableUpload(options: ResumableUploadOptions): Promise<Video> {
   const o = {
     ...options,
     fetch: options.fetch ?? (globalThis.fetch as unknown as FetchLike),
@@ -95,12 +119,29 @@ export async function resumableUpload(options: ResumableUploadOptions): Promise<
   };
   const chunkBytes = o.chunkBytes ?? DEFAULT_CHUNK_BYTES;
   const maxRetries = o.maxRetries ?? 8;
+  const maxStalls = o.maxStalls ?? 5;
+  const now = o.now ?? (() => Date.now());
+  const deadline = now() + (o.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS);
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const size = (await stat(o.filePath)).size;
-  const session = await startSession(o, size);
+
+  let session: string;
   let offset = 0;
+  if (o.sessionUri) {
+    session = o.sessionUri;
+    const state = await queryUploadState(o, session, size);
+    if ("video" in state) return finish(o, size, state.video);
+    if ("lost" in state) throw new UploadSessionLostError(`Previous upload session is gone (HTTP ${state.lost}); check YouTube Studio before uploading again`, state.lost);
+    offset = state.offset;
+  } else {
+    session = await startSession(o, size);
+    await o.onSession?.(session);
+  }
+
   let retries = 0;
+  let stalls = 0;
   for (;;) {
+    if (now() > deadline) throw new UploadError(`Upload exceeded its time budget (${Math.round((o.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS) / 60000)} min) at ${offset}/${size} bytes`);
     let status: number;
     let response: Awaited<ReturnType<FetchLike>> | undefined;
     try {
@@ -120,31 +161,34 @@ export async function resumableUpload(options: ResumableUploadOptions): Promise<
       status = -1; // network error: treat like a retryable 5xx
       if (retries >= maxRetries) throw new UploadError(`Upload failed after ${retries} retries: ${error instanceof Error ? error.message : String(error)}`);
     }
-    if (response && (status === 200 || status === 201)) {
-      o.onProgress?.(size, size);
-      return JSON.parse(await response.text()) as { id: string } & Record<string, unknown>;
-    }
+    if (response && (status === 200 || status === 201)) return finish(o, size, JSON.parse(await response.text()) as Video);
     if (response && status === 308) {
-      offset = nextOffsetFromRange(response.headers.get("range"));
+      const next = nextOffsetFromRange(response.headers.get("range"));
+      stalls = next > offset ? 0 : stalls + 1;
+      if (stalls >= maxStalls) throw new UploadError(`Upload made no progress after ${stalls} attempts at ${offset}/${size} bytes`, 308);
+      offset = next;
       retries = 0;
       o.onProgress?.(offset, size);
       continue;
     }
+    if (status === 404 || status === 410) throw new UploadSessionLostError(`Upload session expired (HTTP ${status})`, status);
     if (status !== -1 && !RETRYABLE.has(status)) {
       throw new UploadError(`Upload rejected (HTTP ${status}): ${(await response?.text())?.slice(0, 500) ?? ""}`, status);
     }
     if (retries >= maxRetries) throw new UploadError(`Upload failed after ${retries} retries (last HTTP ${status})`, status);
     await sleep(backoffMs(retries++));
     const state = await queryUploadState(o, session, size);
-    if ("video" in state) {
-      o.onProgress?.(size, size);
-      return state.video;
-    }
+    if ("video" in state) return finish(o, size, state.video);
+    if ("lost" in state) throw new UploadSessionLostError(`Upload session expired (HTTP ${state.lost})`, state.lost);
     offset = state.offset;
   }
 }
 
-type UploadState = { offset: number } | { video: { id: string } & Record<string, unknown> };
+function finish(o: ResumableUploadOptions, size: number, video: Video): Video {
+  if (!video || typeof video.id !== "string" || !video.id) throw new UploadError("Upload finished but YouTube returned no video id");
+  o.onProgress?.(size, size);
+  return video;
+}
 
 /** Asks the session how much it already has (empty PUT with "bytes * /size"); 200/201 = already complete. */
 async function queryUploadState(o: ResumableUploadOptions & { fetch: FetchLike }, session: string, size: number): Promise<UploadState> {
@@ -153,9 +197,8 @@ async function queryUploadState(o: ResumableUploadOptions & { fetch: FetchLike }
       method: "PUT",
       headers: { Authorization: `Bearer ${await o.getAccessToken()}`, "Content-Length": "0", "Content-Range": `bytes */${size}` },
     });
-    if (response.status === 200 || response.status === 201) {
-      return { video: JSON.parse(await response.text()) as { id: string } & Record<string, unknown> };
-    }
+    if (response.status === 200 || response.status === 201) return { video: JSON.parse(await response.text()) as Video };
+    if (response.status === 404 || response.status === 410) return { lost: response.status };
     return { offset: response.status === 308 ? nextOffsetFromRange(response.headers.get("range")) : 0 };
   } catch {
     return { offset: 0 }; // unknown: resend from the start; Content-Range lets the server reconcile

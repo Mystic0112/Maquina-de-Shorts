@@ -1,6 +1,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { paths } from "./config.js";
+import { redactSecrets } from "./redact.js";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -34,7 +35,7 @@ function createLogger(runId: string): Logger {
   mkdirSync(paths.logs, { recursive: true });
   const filePath = join(paths.logs, `${runId}.log`);
   const write = (level: LogLevel, message: string): void => {
-    const line = `${new Date().toISOString()} [${level.toUpperCase()}] ${message}`;
+    const line = `${new Date().toISOString()} [${level.toUpperCase()}] ${redactSecrets(message)}`;
     appendFileSync(filePath, `${line}\n`, "utf8");
     if (!consoleLevels.has(level)) return;
     const stream = level === "error" || level === "warn" ? process.stderr : process.stdout;
@@ -50,6 +51,6 @@ function createLogger(runId: string): Logger {
 }
 
 export function describeError(error: unknown): string {
-  if (error instanceof Error) return error.stack ?? `${error.name}: ${error.message}`;
-  return String(error);
+  if (error instanceof Error) return redactSecrets(error.stack ?? `${error.name}: ${error.message}`);
+  return redactSecrets(String(error));
 }

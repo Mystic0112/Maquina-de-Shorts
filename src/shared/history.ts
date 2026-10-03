@@ -7,6 +7,8 @@ export const HISTORY_RELATIVE_PATH = "data/history.json";
 
 export const PRIVACY_STATUSES = ["public", "unlisted", "private"] as const;
 export type PrivacyStatus = (typeof PRIVACY_STATUSES)[number];
+/** Actual status may be "unknown" when the post-upload videos.list lookup failed. */
+export type ActualPrivacyStatus = PrivacyStatus | "unknown";
 
 export interface UploadRecord {
   /** Pipeline run that produced the video (render_output/<runId>). */
@@ -16,8 +18,8 @@ export interface UploadRecord {
   title: string;
   /** ISO 8601 timestamp of the upload. */
   publishedAt: string;
-  /** Status YouTube actually applied (unverified API projects force "private"). */
-  privacyStatus: PrivacyStatus;
+  /** Status YouTube actually applied (unverified API projects force "private"); "unknown" if not read. */
+  privacyStatus: ActualPrivacyStatus;
   /** Status the pipeline asked for. */
   requestedPrivacyStatus: PrivacyStatus;
   /** YouTube category id, e.g. "27" (Education). */
@@ -54,7 +56,9 @@ export function validateUploadRecord(value: unknown): string[] {
   if (typeof entry.publishedAt === "string" && Number.isNaN(Date.parse(entry.publishedAt))) {
     problems.push("publishedAt must be an ISO date");
   }
-  if (!isPrivacyStatus(entry.privacyStatus)) problems.push(`privacyStatus must be one of ${PRIVACY_STATUSES.join("|")}`);
+  if (!isPrivacyStatus(entry.privacyStatus) && entry.privacyStatus !== "unknown") {
+    problems.push(`privacyStatus must be one of ${PRIVACY_STATUSES.join("|")}|unknown`);
+  }
   if (!isPrivacyStatus(entry.requestedPrivacyStatus)) {
     problems.push(`requestedPrivacyStatus must be one of ${PRIVACY_STATUSES.join("|")}`);
   }

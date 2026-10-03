@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { z } from "zod";
+import { minimalChildEnv } from "./childEnv.js";
 import { paths } from "./config.js";
+import { redactDeep, redactSecrets } from "./redact.js";
 
 export interface PythonJsonOptions<T> {
   /** Project-relative or absolute path to the .py script. */
@@ -12,12 +14,54 @@ export interface PythonJsonOptions<T> {
   timeoutMs?: number;
   /** Validates the parsed stdout object. */
   schema: z.ZodType<T>;
-  /** Receives each stderr line as it arrives (the script's logs). */
+  /** Receives each stderr line as it arrives (the script's logs). Already redacted. */
   onStderrLine?: (line: string) => void;
+  /** Secret env vars this script needs; everything else is withheld (see childEnv.ts). */
+  envKeys?: readonly string[];
 }
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const STDERR_TAIL_CHARS = 4000;
+
+/** Non-zero exit; `exitCode` lets callers map documented exit codes (e.g. adapter 1 = zero clips). */
+export class PythonExitError extends Error {
+  constructor(
+    message: string,
+    readonly exitCode: number | null,
+  ) {
+    super(message);
+    this.name = "PythonExitError";
+  }
+}
+
+const helpCache = new Map<string, Promise<string>>();
+
+/** True when `<script> --help` mentions the flag (lets callers use options a newer script version added). */
+export async function scriptSupportsFlag(script: string, flag: string): Promise<boolean> {
+  const scriptPath = paths.fromRoot(script);
+  if (!helpCache.has(scriptPath)) {
+    helpCache.set(
+      scriptPath,
+      new Promise((resolveHelp) => {
+        const child = spawn(resolvePythonExecutable(), ["-X", "utf8", scriptPath, "--help"], {
+          cwd: paths.root,
+          shell: false,
+          windowsHide: true,
+          env: minimalChildEnv(),
+        });
+        let out = "";
+        const timer = setTimeout(() => child.kill(), 20_000);
+        child.stdout.setEncoding("utf8").on("data", (c: string) => (out += c));
+        child.on("error", () => resolveHelp(""));
+        child.on("close", () => {
+          clearTimeout(timer);
+          resolveHelp(out);
+        });
+      }),
+    );
+  }
+  return (await (helpCache.get(scriptPath) as Promise<string>)).includes(flag);
+}
 
 export function resolvePythonExecutable(): string {
   const venvPython =
@@ -51,7 +95,7 @@ function spawnPython<T>(scriptPath: string, options: PythonJsonOptions<T>): Prom
       cwd: paths.root,
       shell: false,
       windowsHide: true,
-      env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1", PYTHONUNBUFFERED: "1" },
+      env: minimalChildEnv(options.envKeys ?? []),
     });
     let stdout = "";
     let stderr = "";
@@ -68,7 +112,7 @@ function spawnPython<T>(scriptPath: string, options: PythonJsonOptions<T>): Prom
       stderrPartial += chunk;
       const lines = stderrPartial.split(/\r?\n/);
       stderrPartial = lines.pop() ?? "";
-      for (const line of lines) if (line.trim()) options.onStderrLine?.(line);
+      for (const line of lines) if (line.trim()) options.onStderrLine?.(redactSecrets(line));
     });
     child.on("error", (error) => {
       clearTimeout(timer);
@@ -76,11 +120,11 @@ function spawnPython<T>(scriptPath: string, options: PythonJsonOptions<T>): Prom
     });
     child.on("close", (code, signal) => {
       clearTimeout(timer);
-      if (stderrPartial.trim()) options.onStderrLine?.(stderrPartial);
+      if (stderrPartial.trim()) options.onStderrLine?.(redactSecrets(stderrPartial));
       const label = `${scriptPath} (${exe})`;
       if (timedOut) return reject(new Error(`Python timed out after ${timeoutMs} ms: ${label}${stderrTail(stderr)}`));
       if (code !== 0) {
-        return reject(new Error(`Python exited with ${code ?? signal}: ${label}${stderrTail(stderr)}`));
+        return reject(new PythonExitError(`Python exited with ${code ?? signal}: ${label}${stderrTail(stderr)}`, code));
       }
       resolvePromise({ stdout, stderr });
     });
@@ -96,10 +140,10 @@ function parseJsonOutput<T>(output: ProcessOutput, scriptPath: string, schema: z
   const parsed = extractJsonObject(output.stdout);
   if (parsed === undefined) {
     throw new Error(
-      `Python script did not print a JSON object on stdout: ${scriptPath}\nstdout: ${output.stdout.slice(0, 1000)}${stderrTail(output.stderr)}`,
+      `Python script did not print a JSON object on stdout: ${scriptPath}\nstdout: ${redactSecrets(output.stdout.slice(0, 1000))}${stderrTail(output.stderr)}`,
     );
   }
-  const result = schema.safeParse(parsed);
+  const result = schema.safeParse(redactDeep(parsed));
   if (!result.success) {
     throw new Error(`Unexpected JSON shape from ${scriptPath}:\n${z.prettifyError(result.error)}`);
   }
@@ -122,7 +166,7 @@ export function extractJsonObject(stdout: string): unknown {
 }
 
 function stderrTail(stderr: string): string {
-  const trimmed = stderr.trim();
+  const trimmed = redactSecrets(stderr).trim();
   if (!trimmed) return "";
   const tail = trimmed.length > STDERR_TAIL_CHARS ? `...${trimmed.slice(-STDERR_TAIL_CHARS)}` : trimmed;
   return `\n--- stderr ---\n${tail}`;

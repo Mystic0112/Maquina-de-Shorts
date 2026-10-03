@@ -4,6 +4,7 @@ import { mkdir, readFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { z } from "zod";
+import { minimalChildEnv } from "./childEnv.js";
 
 export interface FfmpegBinaries {
   ffmpeg: string;
@@ -57,7 +58,7 @@ export interface BinaryOutput {
 export function runBinary(exe: string, args: readonly string[], timeoutMs = DEFAULT_TIMEOUT_MS): Promise<BinaryOutput> {
   const { dir } = resolveFfmpegBinaries();
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(exe, [...args], { cwd: dir, shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(exe, [...args], { cwd: dir, shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: minimalChildEnv() });
     let stdout = "";
     let stderr = "";
     let timedOut = false;

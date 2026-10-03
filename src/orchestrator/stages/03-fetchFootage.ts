@@ -26,7 +26,10 @@ import {
   type SceneSelection,
   type ScoredClip,
 } from "../lib/relevance.js";
-import { runPythonJson } from "../lib/python.js";
+import { PythonExitError, runPythonJson } from "../lib/python.js";
+import { RunRejectedError } from "../lib/rejection.js";
+import { creditsFitDescription } from "./07-generateMetadata.js";
+import { redactSecrets } from "../lib/redact.js";
 import type { FootageClip, RunContext, Script, ScriptScene } from "../types.js";
 
 const FOOTAGE_SCRIPT = "vendor/openmontage_adapter/fetch_footage.py";
@@ -43,6 +46,7 @@ const FootageClipSchema = z.object({
   sourceUrl: z.string(),
   creator: z.string(),
   license: z.string(),
+  licenseUrl: z.string().optional(),
 });
 
 const FootageResponseSchema = z.object({
@@ -59,7 +63,12 @@ export interface FootageRequest {
   sources: string[] | null;
   /** Media kinds wanted (adapter extension; older adapters ignore it and return videos). */
   kinds?: FootageClip["kind"][];
+  /** Wall-clock budget: the adapter starts no new search after it and returns partial results. */
+  deadlineSeconds?: number;
 }
+
+/** Leaves the adapter 60 s to wrap up and print its JSON before the subprocess timeout kills it. */
+export const ADAPTER_DEADLINE_SECONDS = FOOTAGE_TIMEOUT_MS / 1000 - 60;
 
 /**
  * Guarantees at least one clip per scene by borrowing from the nearest scene that has footage
@@ -117,10 +126,10 @@ const AdapterErrorSchema = z
 
 export function formatAdapterError(error: unknown): string {
   const parsed = AdapterErrorSchema.safeParse(error);
-  if (!parsed.success) return typeof error === "string" ? error : JSON.stringify(error);
+  if (!parsed.success) return redactSecrets(typeof error === "string" ? error : JSON.stringify(error));
   const e = parsed.data;
   const where = [e.phase, e.sceneIndex != null ? `scene ${e.sceneIndex}` : null, e.source].filter(Boolean).join(" ");
-  return `${where ? `[${where}] ` : ""}${e.message}`;
+  return redactSecrets(`${where ? `[${where}] ` : ""}${e.message}`);
 }
 
 function logAdapterErrors(log: Logger, errors: unknown[]): void {
@@ -260,18 +269,30 @@ async function requestFootage(
     minDurationSeconds: footageConfig?.minDurationSeconds ?? 4,
     sources: footageConfig?.sources ?? null,
     kinds: footageConfig?.kinds ?? ["video", "image"],
+    deadlineSeconds: ADAPTER_DEADLINE_SECONDS,
   };
   const sourceLabel = request.sources ? `[${request.sources.join(", ")}]` : "all allowlisted sources";
   log.info(
     `Fetching ${clipsPerQuery} clip(s) per query (${request.kinds?.join("+") ?? "video"}) for ${queries.length} queries from ${sourceLabel}`,
   );
-  const response = await runPythonJson({
-    script: FOOTAGE_SCRIPT,
-    stdin: request,
-    timeoutMs: FOOTAGE_TIMEOUT_MS,
-    schema: FootageResponseSchema,
-    onStderrLine: (line) => log.debug(`[footage] ${line}`),
-  });
+  let response: z.infer<typeof FootageResponseSchema>;
+  try {
+    response = await runPythonJson({
+      script: FOOTAGE_SCRIPT,
+      stdin: request,
+      timeoutMs: FOOTAGE_TIMEOUT_MS,
+      schema: FootageResponseSchema,
+      onStderrLine: (line) => log.debug(`[footage] ${line}`),
+      envKeys: ["PEXELS_API_KEY", "PIXABAY_API_KEY"],
+    });
+  } catch (error) {
+    // Documented adapter exit code 1 = "zero usable clips": a content problem, not a crash.
+    if (error instanceof PythonExitError && error.exitCode === 1) {
+      log.warn(`Footage adapter found zero usable clips for ${queries.length} queries`);
+      return [];
+    }
+    throw error;
+  }
   logAdapterErrors(log, response.errors);
   return response.clips.map(absolutize);
 }
@@ -468,7 +489,7 @@ export async function run(ctx: RunContext): Promise<RunContext> {
     gate.stats,
     log,
   );
-  if (firstRound.length === 0) throw new Error("No usable footage: every clip failed download or normalization");
+  if (firstRound.length === 0) throw new RunRejectedError("No usable footage for this script (every query empty or failed)", ctx);
 
   let kept: FootageClip[];
   let rejected = 0;
@@ -485,8 +506,11 @@ export async function run(ctx: RunContext): Promise<RunContext> {
       `kept ${kept.length}, rejected for text/logo/people ${rejected}, ` +
       `LLM calls ${stats.visionCalls} vision + ${stats.textCalls} text`,
   );
-  if (kept.length === 0) throw new Error("No clip survived the relevance gate for any scene");
+  if (kept.length === 0) throw new RunRejectedError("No clip survived the relevance gate for any scene", ctx);
   const { clips, borrowed } = fillMissingScenes(kept, script.scenes.length);
+  if (!creditsFitDescription(script, clips)) {
+    throw new RunRejectedError("Image credits would not fit in YouTube's 5000-char description (CC BY credits are mandatory)", ctx);
+  }
   for (const b of borrowed) log.warn(`Scene ${b.sceneIndex} got no usable footage; reusing a clip from scene ${b.fromScene}`);
   const quality = assessQuality(clips, script.scenes.length, settings, footageConfig?.minPassingSceneRatio ?? 0.6);
   const kinds = clips.filter((c) => c.borrowedFromScene === undefined).map((c) => c.kind);

@@ -196,10 +196,22 @@ async function reviewRound(
   deps: FactCheckDeps,
   previousCorrections: readonly string[],
 ): Promise<ReviewRound> {
-  const review = await deps.grounded(buildGroundedReviewPrompt(script));
+  const reviewPrompt = buildGroundedReviewPrompt(script);
+  let review = await deps.grounded(reviewPrompt);
+  if (review.sources.length === 0) {
+    // A "review" with no web sources is the model answering from memory: not a fact-check.
+    deps.log?.(`Fact-check round ${round}: grounded review returned no web sources; retrying once`);
+    review = await deps.grounded(reviewPrompt);
+    if (review.sources.length === 0) return { outcome: { kind: "reject", reason: "checagem sem fontes da web (busca indisponível)", claims: [] }, review };
+  }
   const schema = buildFactCheckResultSchema(settings);
   const prompt = buildRevisionPrompt(script, review, settings, previousCorrections);
   let result = await deps.structured(prompt, schema);
+  if (result.claims.length === 0) {
+    deps.log?.(`Fact-check round ${round}: no claims extracted; retrying once`);
+    result = await deps.structured(withCorrection(prompt, JSON.stringify(result, null, 2), "Nenhuma afirmação foi listada em \"claims\"; liste cada afirmação factual checada."), schema);
+    if (result.claims.length === 0) return { outcome: { kind: "reject", reason: "nenhuma afirmação extraída da checagem", claims: [] }, review };
+  }
   let outcome = applyFactCheckRound(script, result, round, settings);
   if (outcome.kind === "reject" && result.publishable) {
     deps.log?.(`Fact-check round ${round}: ${outcome.reason}; asking for a corrected rewrite`);
@@ -251,11 +263,22 @@ export async function factCheckScript(
     if (outcome.script.title !== script.title) corrections.push(`Título: "${script.title}" -> "${outcome.script.title}"`);
     script = outcome.script;
     if (round === MAX_FACT_CHECK_ROUNDS && outcome.claims.every((c) => c.verdict !== "unsupported")) {
-      // Last round only found nuance ("misleading", e.g. a title wording): the grounded correction is
-      // applied without another round. Anything "unsupported" (false) still fails below.
-      corrections.push("Última rodada: ajustes de precisão aplicados sem nova verificação (nenhuma afirmação falsa).");
+      // Last round only found nuance ("misleading"): its rewrite still gets a grounded verification pass.
+      // Published text is always text the web-grounded check has seen; anything false there fails.
+      const verification = await reviewRound(script, round, settings, deps, corrections);
+      sources.push(...verification.review.sources);
+      queries.push(...verification.review.queries);
+      claims.push(...verification.outcome.claims);
+      const verified = verification.outcome;
+      const ok = verified.kind === "clean" || (verified.kind === "revised" && verified.claims.every((c) => c.verdict !== "unsupported"));
+      const verifiedBase = { ...base, claims, sources: uniqueSources(sources), searchQueries: [...new Set(queries)] };
+      if (!ok) {
+        const reason = verified.kind === "reject" ? verified.reason : "a verificação final ainda encontrou afirmações sem respaldo";
+        return { script, summary: { ...verifiedBase, verdict: "fail", corrections, reason } };
+      }
+      corrections.push("Última rodada: correções de precisão verificadas com nova busca (sem afirmações falsas).");
       const summary: FactCheckSummary = {
-        ...base,
+        ...verifiedBase,
         verdict: "corrected",
         corrections,
         titleBefore: original.title,
