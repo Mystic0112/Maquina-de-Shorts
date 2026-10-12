@@ -71,6 +71,7 @@ Códigos de saída do pipeline: `0` ok, `1` erro, `3` nenhum vídeo publicável 
   4. Decisão do dono: TikTok/Instagram (ver `planejamento/marco-4-tiktok-instagram.md`; pesquisa recomendou testar Zernio grátis ou Upload-Post pago para o TikTok, que pela API direta só posta privado; o Instagram direto precisa de vídeo em URL pública ou de um intermediário).
   5. Configurar o app na Meta (conta Instagram Profissional, Instagram Tester, URI `https://mystic0112.github.io/Maquina-de-Shorts/oauth/callback.html`).
   6. Lote 2 de conteúdo (trilha e efeitos com licença verificada, gráficos próprios) — só com aprovação do dono.
+  8. **Marco 5 (prioridade do dono):** 15 contas independentes e teste do Antigravity CLI como motor de IA — ver `planejamento/marco-5-multicontas-e-antigravity.md`. Começar pela Parte A (teste do CLI). Alternativa de custo: triagem local de imagens com SigLIP/CLIP na RTX 3050, medindo concordância com as notas antigas do Gemini antes de trocar.
   7. Para religar: `upload.enabled: true` em Configurações e `scheduler\register_task.ps1` (09:00/18:00). A auditoria sugeriu 11:45 e 18:45 para o público brasileiro.
 
 ## Pasta `.claude/`
