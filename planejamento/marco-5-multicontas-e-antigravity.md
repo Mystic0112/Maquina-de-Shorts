@@ -7,7 +7,7 @@ Decisões do dono (2026-10-12):
 
 ## Parte A — teste de viabilidade do Antigravity CLI (fazer primeiro)
 
-Estado em 2026-10-12: o comando `antigravity` instalado (`D:\Antigravity\Antigravity\bin\antigravity.cmd`, v1.107.0) é o **editor**; não aceita prompt não-interativo. É preciso instalar o **Antigravity CLI** (agente de terminal) e verificar:
+Estado em 2026-10-12: o comando `antigravity` (`D:\Antigravity\...`) é o **editor**. O **Antigravity CLI** está instalado: `C:\Users\c9hes\AppData\Local\agy\bin\agy.exe` (v1.3.3; pode não estar no PATH de terminais antigos). Já verificado: `agy -p "<prompt>" --output-format json --print-timeout 90s < /dev/null` roda sem interação com o login em cache e devolve `{"status":"SUCCESS","response":"…","usage":{…}}`. Uma chamada trivial levou **13 s** e consumiu **~13.100 tokens de entrada** (instruções internas do agente) — a 1.350 chamadas/dia isso é ~5 h em série e muita cota; medir paralelismo e os limites reais do AI Pro. Ainda falta verificar:
 
 1. Modo não-interativo: recebe um prompt por argumento ou stdin e sai com código de saída (sem pedir confirmação).
 2. Entrada de imagens (até 3 quadros por chamada) e saída em JSON validável.
