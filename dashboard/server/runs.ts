@@ -201,8 +201,10 @@ async function buildRun(runId: string): Promise<RunSummary> {
     failure: describeFailure(status, events, stages, log?.parsed.lastAt ?? null),
     hasContext: ctx !== null,
     hasLog: log !== null,
-    topic: ctx?.topic ? { categoryId: ctx.topic.categoryId, categoryLabel: ctx.topic.categoryLabel } : null,
+    topic: ctx?.topic ? { categoryId: ctx.topic.categoryId, categoryLabel: ctx.topic.categoryLabel, format: textOrNull(ctx.topic.format) } : null,
     title: ctx?.script?.title ?? null,
+    overlayText: textOrNull(ctx?.script?.overlayText),
+    captionKeywords: (ctx?.captions?.cues ?? []).some((c) => Array.isArray(c.words) && c.words.some((w) => typeof w.emphasis === "boolean")),
     sceneCount: ctx?.script?.scenes?.length ?? null,
     ...summarizeClips(ctx),
     narrationMs: ctx?.narration?.durationMs ?? null,
@@ -252,6 +254,7 @@ async function thumbUrlFor(runId: string, ctx: RunContext | null): Promise<strin
 }
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const textOrNull = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
 
 /** context.json is written by another process: only pass the sections through when they look sane. */
 function readQuality(ctx: RunContext | null): RunSummary["quality"] {

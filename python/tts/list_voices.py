@@ -15,7 +15,9 @@ import asyncio
 import json
 import sys
 
+import aiohttp
 import edge_tts
+from edge_tts.exceptions import EdgeTTSException
 
 
 async def _list() -> list[dict[str, object]]:
@@ -38,7 +40,7 @@ async def _list() -> list[dict[str, object]]:
 def main() -> int:
     try:
         voices = asyncio.run(_list())
-    except Exception as error:  # network/DNS problems surface here
+    except (aiohttp.ClientError, EdgeTTSException, OSError, TimeoutError) as error:  # network/DNS/endpoint
         print(f"list_voices failed: {error}", file=sys.stderr)
         return 1
     sys.stdout.reconfigure(encoding="utf-8")

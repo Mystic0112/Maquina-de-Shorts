@@ -234,7 +234,8 @@ describe("02b-factCheck bypasses", () => {
 
   it("control: three rounds of 'misleading' end as 'corrected' (accepted for publishing)", async () => {
     const { deps } = rewritingDeps();
-    const { summary } = await factCheckScript(script, resolveScript(), deps);
+    // Pinned to the historical 130-190 range the fixture script was written for (defaults are now 160-195).
+    const { summary } = await factCheckScript(script, resolveScript({ minWords: 130, maxWords: 190 }), deps);
     expect(summary).toMatchObject({ verdict: "corrected", rounds: 3 });
   });
 

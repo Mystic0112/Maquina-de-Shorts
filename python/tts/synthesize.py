@@ -3,11 +3,17 @@
 Usage:
     python python/tts/synthesize.py --text-file <path> --out-dir <dir>
         [--voice pt-BR-AntonioNeural] [--rate=+5%] [--pitch=-2Hz] [--volume=+10%]
-        [--deadline-seconds=280]
+        [--deadline-seconds=280] [--max-pause-ms=250]
         (use the = form for negative values, e.g. --rate=-10%)
 
 --deadline-seconds bounds the WHOLE run: every attempt's timeout and the backoff between the
 (up to 3) attempts are fitted inside it, so the caller's own timeout never has to kill us.
+
+--max-pause-ms shortens every pause between consecutive words to at most that many ms (0 disables),
+leading silence to ~50 ms and trailing to ~100 ms, by dropping whole 24 ms MP3 frames (see
+mp3_pauses.py). Only quiet frames (peak <= -55 dBFS, measured by decoding with the ffmpeg bundled
+in node_modules/@remotion/compositor-*; without it, a side-info gain proxy) are dropped, so a pause
+filled with audible sound (a breath) can stay longer. Word timings shift by exactly the removed frames.
 
 Writes <out-dir>/narration.mp3 and <out-dir>/timings.json, then prints exactly one JSON object
 to stdout matching `Narration` in src/orchestrator/types.ts:
@@ -16,27 +22,40 @@ All logging goes to stderr. Exit codes: 0 ok, 1 synthesis failed, 2 invalid argu
 
 Duration: edge-tts 7.x always requests "audio-24khz-48kbitrate-mono-mp3" (constant 48 kbps;
 see edge_tts.constants.MP3_BITRATE_BPS), so duration = bytes * 8 / 48000 exactly, the same
-arithmetic edge-tts itself uses to stitch word offsets across text chunks.
+arithmetic edge-tts itself uses to stitch word offsets across text chunks. Pause trimming removes
+whole frames, so the formula stays exact.
 """
 
 from __future__ import annotations
 
 import argparse
+import array
 import asyncio
 import json
 import logging
 import os
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import time
 from dataclasses import asdict, dataclass
+from itertools import pairwise
 from pathlib import Path
 
 import aiohttp
 import edge_tts
 from edge_tts.constants import MP3_BITRATE_BPS, TICKS_PER_SECOND
 from edge_tts.exceptions import EdgeTTSException
+from mp3_pauses import (
+    SAMPLES_PER_FRAME,
+    RepackError,
+    UnsupportedMp3Error,
+    frame_peaks_dbfs,
+    parse_frames,
+    trim_pauses,
+)
 
 DEFAULT_VOICE = "pt-BR-AntonioNeural"
 AUDIO_FILENAME = "narration.mp3"
@@ -45,6 +64,10 @@ TICKS_PER_MS = TICKS_PER_SECOND // 1000
 MAX_ATTEMPTS = 3
 SYNTH_TIMEOUT_SECONDS = 120
 DEFAULT_DEADLINE_SECONDS = 280.0
+DEFAULT_MAX_PAUSE_MS = 250
+# Remotion's compositor package ships ffmpeg; the target machine has no system ffmpeg.
+REMOTION_PACKAGES_DIR = Path(__file__).resolve().parents[2] / "node_modules" / "@remotion"
+DECODE_TIMEOUT_SECONDS = 30.0
 MIN_ATTEMPT_SECONDS = 5.0  # not worth starting an attempt with less time than this
 RATE_PATTERN = re.compile(r"^[+-]\d+%$")
 PITCH_PATTERN = re.compile(r"^[+-]\d+Hz$")
@@ -66,8 +89,8 @@ class SynthesisError(RuntimeError):
 @dataclass(frozen=True)
 class WordTiming:
     word: str
-    startMs: int  # noqa: N815 — mirrors the TypeScript contract
-    endMs: int  # noqa: N815
+    startMs: int  # camelCase mirrors the TypeScript contract
+    endMs: int
 
 
 @dataclass(frozen=True)
@@ -81,8 +104,8 @@ class Prosody:
 
 @dataclass(frozen=True)
 class Narration:
-    audioPath: str  # noqa: N815
-    durationMs: int  # noqa: N815
+    audioPath: str
+    durationMs: int
     words: list[WordTiming]
 
 
@@ -99,6 +122,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=float,
         default=DEFAULT_DEADLINE_SECONDS,
         help=f"wall-clock budget for all attempts incl. backoff (default {DEFAULT_DEADLINE_SECONDS:g})",
+    )
+    parser.add_argument(
+        "--max-pause-ms",
+        type=int,
+        default=DEFAULT_MAX_PAUSE_MS,
+        help=f"longest pause kept between words, in ms; 0 disables trimming (default {DEFAULT_MAX_PAUSE_MS})",
     )
     return parser.parse_args(argv)
 
@@ -187,6 +216,92 @@ def _backoff_within(attempt: int, deadline: float) -> None:
         time.sleep(backoff)
 
 
+def longest_gap_ms(words: list[WordTiming]) -> int:
+    return max((nxt.startMs - prev.endMs for prev, nxt in pairwise(words)), default=0)
+
+
+def find_ffmpeg() -> Path | None:
+    name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    bundled = sorted(path for path in REMOTION_PACKAGES_DIR.glob(f"compositor-*/{name}") if path.is_file())
+    system = shutil.which("ffmpeg")
+    return bundled[0] if bundled else Path(system) if system else None
+
+
+def wav_samples(wav: bytes) -> array.array[int] | None:
+    """16-bit samples of a RIFF/WAVE byte string (the piped data chunk may carry a bogus size; take the rest)."""
+    offset = 12
+    while wav[:4] == b"RIFF" and offset + 8 <= len(wav):
+        chunk_id, size = wav[offset : offset + 4], int.from_bytes(wav[offset + 4 : offset + 8], "little")
+        if chunk_id == b"data":
+            data = wav[offset + 8 :]
+            samples = array.array("h", data[: len(data) // 2 * 2])
+            if sys.byteorder == "big":
+                samples.byteswap()
+            return samples
+        offset += 8 + size + (size & 1)
+    return None
+
+
+def decode_peaks(audio: bytes, timeout: float) -> list[float] | None:
+    """Per-frame decoded peaks (dBFS) via ffmpeg, or None (callers then fall back to the side-info proxy)."""
+    ffmpeg = find_ffmpeg()
+    if ffmpeg is None or timeout <= 0:
+        return None
+    command = [
+        str(ffmpeg),
+        "-v",
+        "error",
+        "-f",
+        "mp3",
+        "-i",
+        "pipe:0",
+        "-ac",
+        "1",
+        "-c:a",
+        "pcm_s16le",
+        "-f",
+        "wav",
+        "pipe:1",
+    ]
+    no_window = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    try:
+        proc = subprocess.run(
+            command, input=audio, capture_output=True, timeout=timeout, check=False, creationflags=no_window
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        log.warning("could not decode narration for pause detection: %s", exc)
+        return None
+    samples = wav_samples(proc.stdout) if proc.returncode == 0 else None
+    frame_count = len(parse_frames(audio))
+    if samples is None or len(samples) != frame_count * SAMPLES_PER_FRAME:
+        log.warning("ffmpeg decode unusable for pause detection (exit %d)", proc.returncode)
+        return None
+    return frame_peaks_dbfs(samples, frame_count)
+
+
+def shorten_pauses(
+    audio: bytes, words: list[WordTiming], max_pause_ms: int, deadline: float
+) -> tuple[bytes, list[WordTiming]]:
+    """Drop MP3 frames so pauses fit max_pause_ms; on any unexpected stream keep the audio untouched."""
+    if max_pause_ms <= 0:
+        return audio, words
+    try:
+        peaks = decode_peaks(audio, min(DECODE_TIMEOUT_SECONDS, deadline - time.monotonic() - 2))
+        result = trim_pauses(audio, [(w.startMs, w.endMs) for w in words], max_pause_ms, peaks)
+    except (UnsupportedMp3Error, RepackError) as exc:
+        log.warning("pause trimming skipped, keeping the untrimmed audio: %s", exc)
+        return audio, words
+    shifted = [WordTiming(w.word, result.map_ms(w.startMs), result.map_ms(w.endMs)) for w in words]
+    log.info(
+        "trimmed %d ms of pauses using %s (longest gap %d -> %d ms)",
+        round(result.removed_ms),
+        "decoded levels" if peaks is not None else "frame gain (no ffmpeg)",
+        longest_gap_ms(words),
+        longest_gap_ms(shifted),
+    )
+    return result.audio, shifted
+
+
 def mp3_duration_ms(byte_count: int) -> int:
     return round(byte_count * 8 * 1000 / MP3_BITRATE_BPS)
 
@@ -211,20 +326,24 @@ def build_narration(out_dir: Path, audio: bytes, words: list[WordTiming]) -> Nar
 def run(args: argparse.Namespace, started: float) -> Narration:
     if not args.deadline_seconds > 0:
         raise InputError(f"--deadline-seconds must be > 0, got {args.deadline_seconds}")
+    if args.max_pause_ms < 0:
+        raise InputError(f"--max-pause-ms must be >= 0, got {args.max_pause_ms}")
     deadline = started + args.deadline_seconds
     text = read_text(args.text_file)
     prosody = validate_prosody(args.rate, args.pitch, args.volume)
     out_dir: Path = args.out_dir.expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     log.info(
-        "synthesizing %d chars with %s (rate %s, pitch %s, volume %s)",
+        "synthesizing %d chars with %s (rate %s, pitch %s, volume %s, max pause %d ms)",
         len(text),
         args.voice,
         prosody.rate,
         prosody.pitch,
         prosody.volume,
+        args.max_pause_ms,
     )
     audio, words = synthesize_with_retries(text, args.voice, prosody, deadline)
+    audio, words = shorten_pauses(audio, words, args.max_pause_ms, deadline)
     narration = build_narration(out_dir, audio, words)
     write_atomic(out_dir / AUDIO_FILENAME, audio)
     timings_json = json.dumps(asdict(narration), ensure_ascii=False, indent=2).encode("utf-8")

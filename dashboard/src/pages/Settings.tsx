@@ -1,12 +1,15 @@
 import {
   Captions,
   CircleCheck,
+  Shapes,
   CircleX,
   Clapperboard,
   FileText,
+  Film,
   KeyRound,
   Layers,
   LoaderCircle,
+  Megaphone,
   Mic,
   Palette,
   Play,
@@ -16,6 +19,7 @@ import {
   Search,
   Trash2,
   TriangleAlert,
+  Type,
   Undo2,
   Upload,
 } from "lucide-react";
@@ -33,7 +37,8 @@ import type {
   VoiceSampleResponse,
 } from "../../shared/api";
 import { categoryColor } from "../colors";
-import { Card, Empty } from "../components";
+import { Card, Empty, formatIcon } from "../components";
+import { SCRIPT_FORMATS, type ScriptFormat } from "../format";
 import { PreviewPanel } from "../PreviewPanel";
 import {
   clone,
@@ -48,7 +53,7 @@ import {
   validateTopics,
   type Json,
 } from "../settingsModel";
-import { ColorField, Field, NumberInput, Section, Segmented, Slider, Switch, TextInput } from "../settingsUi";
+import { ChipMultiSelect, ColorField, Field, NumberInput, Section, Segmented, Slider, Switch, TextInput } from "../settingsUi";
 
 const SECTIONS = [
   { id: "cfg-voz", label: "Voz", icon: Mic },
@@ -73,6 +78,14 @@ const LOCALES = [
   { id: "es", label: "Espanhol" },
   { id: "en", label: "Inglês" },
 ];
+const HIGHLIGHT_HELP: Record<Required<CaptionSettings>["highlight"], string> = {
+  keywords: "Só as palavras importantes acendem (substantivos, números, verbos fortes); artigos e preposições ficam na cor do texto.",
+  color: "Cada palavra acende no momento em que é narrada.",
+  none: "Todas as palavras ficam na cor do texto.",
+};
+const FORMAT_OPTIONS = SCRIPT_FORMATS.map((f) => ({ value: f.id as ScriptFormat, label: f.label, hint: f.hint, icon: formatIcon(f.id) }));
+/** 0.15 -> "0,15 s" */
+const fmtSeconds = (v: number, digits = 2): string => `${v.toLocaleString("pt-BR", { maximumFractionDigits: digits })} s`;
 const DEFAULT_SAMPLE = "Você sabia que um dia em Vênus dura mais do que um ano inteiro? Segue o canal para mais curiosidades!";
 const FPS_FALLBACK = 30;
 
@@ -286,15 +299,27 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
               />
               <ColorField label="Cor do texto" value={captions.textColor} presets="text" onChange={(v) => set("captions.textColor", v)} error={errorAt("captions.textColor")} />
               <ColorField label="Cor do contorno" value={captions.strokeColor} presets="stroke" onChange={(v) => set("captions.strokeColor", v)} error={errorAt("captions.strokeColor")} />
-              <Switch
-                label="Destacar a palavra falada"
-                checked={captions.highlight === "color"}
-                onChange={(v) => set("captions.highlight", v ? "color" : "none")}
-                help="Pinta a palavra que está sendo narrada."
+              <Segmented
+                label="Destaque das palavras"
+                value={captions.highlight}
+                options={[
+                  { value: "keywords", label: "Importantes" },
+                  { value: "color", label: "Todas" },
+                  { value: "none", label: "Nenhuma" },
+                ]}
+                onChange={(v) => set("captions.highlight", v)}
+                help={HIGHLIGHT_HELP[captions.highlight]}
+                error={errorAt("captions.highlight")}
               />
-              {captions.highlight === "color" && (
+              {captions.highlight !== "none" && (
                 <ColorField label="Cor do destaque" value={captions.highlightColor} presets="highlight" onChange={(v) => set("captions.highlightColor", v)} error={errorAt("captions.highlightColor")} />
               )}
+              <Switch
+                label="Não terminar legenda em “de”, “da”, “com”…"
+                checked={captions.avoidDanglingWords}
+                onChange={(v) => set("captions.avoidDanglingWords", v)}
+                help="Evita quebras como “O CHEIRO DA” / “LUA”: artigos e preposições passam para a legenda seguinte."
+              />
             </div>
           </Section>
 
@@ -338,6 +363,72 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
                 onChange={(v) => set("visual.captionBackdrop", v)}
                 help="Gradiente que melhora a leitura em fundos claros."
               />
+
+              <div className="subsection">
+                <Film size={13} /> Ritmo e movimento
+              </div>
+              <Slider
+                label="Tempo máximo de cada enquadramento"
+                value={visual.maxShotSeconds}
+                min={range("visual.maxShotSeconds", [2, 12])[0]}
+                max={range("visual.maxShotSeconds", [2, 12])[1]}
+                step={0.5}
+                format={(v) => fmtSeconds(v, 1)}
+                onChange={(v) => set("visual.maxShotSeconds", v)}
+                help="Cenas mais longas são divididas em vários planos (outro clipe ou um novo recorte da mesma imagem). Menos segundos = ritmo mais rápido."
+                error={errorAt("visual.maxShotSeconds")}
+              />
+              <Segmented
+                label="Curva do movimento"
+                value={visual.motionEasing}
+                options={[
+                  { value: "ease", label: "Suave" },
+                  { value: "linear", label: "Linear" },
+                ]}
+                onChange={(v) => set("visual.motionEasing", v)}
+                help={visual.motionEasing === "ease" ? "Zoom e deslize aceleram e freiam devagar, como uma câmera de verdade." : "Velocidade constante do início ao fim de cada plano."}
+                error={errorAt("visual.motionEasing")}
+              />
+              <Switch
+                label="Zoom rápido na abertura"
+                checked={visual.openingPunchIn}
+                onChange={(v) => set("visual.openingPunchIn", v)}
+                help="Aproximação mais forte no primeiro plano para segurar quem está rolando o feed."
+              />
+              <Slider
+                label="Sobra no final"
+                value={visual.tailSeconds}
+                min={range("visual.tailSeconds", [0, 1.5])[0]}
+                max={range("visual.tailSeconds", [0, 1.5])[1]}
+                step={0.05}
+                format={(v) => (v === 0 ? "sem sobra" : fmtSeconds(v))}
+                onChange={(v) => set("visual.tailSeconds", v)}
+                help="Tempo de vídeo depois da última palavra. Sobra curta faz o Short emendar melhor no replay."
+                error={errorAt("visual.tailSeconds")}
+              />
+
+              <div className="subsection">
+                <Type size={13} /> Texto de capa
+              </div>
+              <Switch
+                label="Texto de capa no início"
+                checked={visual.overlayHook}
+                onChange={(v) => set("visual.overlayHook", v)}
+                help="Mostra a frase-gancho do roteiro (ex.: “A LUA TEM CHEIRO?”) no alto da tela nos primeiros segundos; o primeiro quadro vira a capa do vídeo."
+              />
+              {visual.overlayHook && (
+                <Slider
+                  label="Duração do texto de capa"
+                  value={visual.overlayHookSeconds}
+                  min={range("visual.overlayHookSeconds", [1, 5])[0]}
+                  max={range("visual.overlayHookSeconds", [1, 5])[1]}
+                  step={0.5}
+                  format={(v) => fmtSeconds(v, 1)}
+                  onChange={(v) => set("visual.overlayHookSeconds", v)}
+                  help="Some com um esmaecimento curto no fim desse tempo."
+                  error={errorAt("visual.overlayHookSeconds")}
+                />
+              )}
             </div>
           </Section>
 
@@ -372,14 +463,60 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
                 onChange={(v) => set("script.factCheck", v)}
                 help="O Gemini confere cada afirmação com busca no Google e corrige o roteiro (≈ 4–6 chamadas extras por vídeo). Roteiros que não puderem ser corrigidos são descartados e refeitos com outro tema."
               />
+              <Switch
+                label="Final que volta ao gancho"
+                checked={script.loopEnding}
+                onChange={(v) => set("script.loopEnding", v)}
+                help="A última frase responde ou retoma a pergunta do início, para o vídeo emendar no replay em vez de terminar numa despedida genérica."
+              />
+              <Switch
+                label="Buscar imagens específicas"
+                checked={script.specificFootage}
+                onChange={(v) => set("script.specificFootage", v)}
+                help="Lugares, missões, obras e personagens históricos (ex.: “Apollo 11”, “Coliseu”), além das imagens genéricas."
+              />
+
+              <div className="subsection">
+                <Megaphone size={13} /> Chamada final
+              </div>
+              <Segmented
+                label="Estilo da chamada"
+                value={script.ctaStyle}
+                options={[
+                  { value: "curto", label: "Curta" },
+                  { value: "nenhum", label: "Nenhuma" },
+                ]}
+                onChange={(v) => set("script.ctaStyle", v)}
+                help={
+                  script.cta?.trim()
+                    ? "Sem efeito agora: a chamada fixa tem prioridade."
+                    : script.ctaStyle === "curto"
+                      ? "O modelo escreve uma chamada curta e variada, sem nunca usar a palavra “canal”."
+                      : "O vídeo termina sem pedir like, inscrição ou comentário."
+                }
+                error={errorAt("script.ctaStyle")}
+              />
               <TextInput
                 label="Chamada final fixa (opcional)"
                 value={script.cta ?? ""}
                 maxLength={120}
-                placeholder="Ex.: Segue o canal para mais curiosidades!"
+                placeholder="Ex.: Comenta o que te surpreendeu!"
                 onChange={(v) => set("script.cta", v.trim() ? v : undefined)}
-                help="Vazio = o modelo escreve uma chamada curta para cada vídeo."
+                help="Preenchida, substitui o estilo da chamada em todos os vídeos. Vazio = segue o estilo."
                 error={errorAt("script.cta")}
+              />
+
+              <div className="subsection">
+                <Shapes size={13} /> Formatos
+              </div>
+              <ChipMultiSelect
+                label="Formatos que o pipeline sorteia"
+                value={script.formats}
+                options={FORMAT_OPTIONS}
+                min={1}
+                onChange={(v) => set("script.formats", v)}
+                help={`${script.formats.length} de ${FORMAT_OPTIONS.length} ativos. A etapa 01 alterna entre eles para vídeos seguidos não repetirem a mesma estrutura.`}
+                error={errorAt("script.formats") ?? clientErrors.find((e) => e.path.startsWith("script.formats."))?.message}
               />
             </div>
           </Section>

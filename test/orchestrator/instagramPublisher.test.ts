@@ -12,7 +12,8 @@ import { redactSecrets, registerSecret } from "../../src/orchestrator/lib/redact
 import { StageFailedError } from "../../src/orchestrator/lib/rejection.js";
 import { buildTitle, fitDescription, MODIFIED_NOTE } from "../../src/orchestrator/stages/07-generateMetadata.js";
 import { buildInstagramCaption, CAPTION_MAX, countHashtags, HASHTAGS_MAX, missingAttributions } from "../../src/orchestrator/publishers/instagramCaption.js";
-import { createInstagramPublisher, ruploadUrl, type PublishReelOptions } from "../../src/orchestrator/publishers/instagram.js";
+import { createInstagramPublisher, REEL_COVER_OFFSET_MS, ruploadUrl, type PublishReelOptions } from "../../src/orchestrator/publishers/instagram.js";
+import { VISUAL_DEFAULTS } from "../../src/shared/settings.js";
 import { journalFile, publishAll, type PublishDeps } from "../../src/orchestrator/publishers/runner.js";
 import { createYouTubePublisher, type YouTubeUploader } from "../../src/orchestrator/publishers/youtube.js";
 import type { FootageClip, RunContext, Script } from "../../src/orchestrator/types.js";
@@ -265,6 +266,16 @@ describe("Instagram publisher", () => {
     expect(JSON.parse(readFileSync(join(ctx.runDir, journalFile("instagram")), "utf8"))).toMatchObject({ status: "uploaded", videoId: mediaId, sessionUri: [...graph.containers.keys()][0] });
     expect(lines).toContain("I [instagram] Instagram quota: 2/50 posts in the last 24 h");
     expect(lines.join("\n")).not.toContain(TOKEN);
+  });
+
+  it("sets the Reel cover inside the on-screen hook text window (thumb_offset in ms)", async () => {
+    const graph = fakeGraph();
+    await publishAll(publishable(), [instagram(graph)], {}, world().deps, recordingLog().log);
+    const container = graph.calls.find((c) => c.method === "POST" && c.url.pathname.endsWith(`${IG_USER}/media`))!;
+    const body = Object.fromEntries(new URLSearchParams(String(container.init.body)));
+    expect(body).toMatchObject({ media_type: "REELS", thumb_offset: String(REEL_COVER_OFFSET_MS) });
+    expect(REEL_COVER_OFFSET_MS).toBeGreaterThan(0);
+    expect(REEL_COVER_OFFSET_MS).toBeLessThan(VISUAL_DEFAULTS.overlayHookSeconds * 1000);
   });
 
   it("a retry inspects the journaled container and resumes it: never a second container or post", async () => {

@@ -13,10 +13,26 @@ export const CAPTION_FONTS = {
 } as const;
 export type CaptionFont = keyof typeof CAPTION_FONTS;
 
+/** TTS engines: Gemini TTS (default) or edge-tts (Microsoft's unofficial endpoint; 403 since Oct 2026). */
+export const VOICE_ENGINES = ["gemini", "edge-tts"] as const;
+export type VoiceEngine = (typeof VOICE_ENGINES)[number];
+
 export const VoiceExtrasSchema = z.object({
+  engine: z.enum(VOICE_ENGINES).optional(),
+  /** edge-tts only (Gemini paces itself; steer it with `style`). */
   rate: z.string().regex(/^[+-]\d+%$/).optional(), // e.g. "+5%"
+  /** edge-tts only. */
   pitch: z.string().regex(/^[+-]\d+Hz$/).optional(), // e.g. "-2Hz"
+  /** edge-tts only. */
   volume: z.string().regex(/^[+-]\d+%$/).optional(), // e.g. "+0%"
+  /** Longest silence kept between sentences/words in the narration, in ms (longer pauses are trimmed). Both engines. */
+  maxPauseMs: z.number().int().min(0).max(1500).optional(),
+  /** Gemini TTS model id (e.g. gemini-3.8-flash-tts, gemini-3.8-flash-lite-tts). */
+  geminiModel: z.string().min(1).optional(),
+  /** Gemini voice: prebuilt ("Fenrir", "Puck"), voice library ("pt-br-podcaster-12") or designed ("voice_..."). */
+  geminiVoice: z.string().min(1).optional(),
+  /** Gemini delivery instruction (speech_metadata.style), in pt-BR. */
+  style: z.string().max(500).optional(),
 });
 
 export const CaptionSettingsSchema = z.object({
@@ -28,7 +44,10 @@ export const CaptionSettingsSchema = z.object({
   textColor: hexColor.optional(),
   highlightColor: hexColor.optional(),
   strokeColor: hexColor.optional(),
-  highlight: z.enum(["color", "none"]).optional(),
+  /** color = every spoken word lights up; keywords = only content words (emphasis); none = no highlight. */
+  highlight: z.enum(["color", "keywords", "none"]).optional(),
+  /** Never end a caption group on an article/preposition ("O CHEIRO DA" / "LUA"). */
+  avoidDanglingWords: z.boolean().optional(),
   /** Vertical center of the caption block as a fraction of frame height (Shorts UI covers the bottom ~20%). */
   verticalPosition: z.number().min(0.3).max(0.75).optional(),
 });
@@ -40,6 +59,16 @@ export const VisualSettingsSchema = z.object({
   crossfadeFrames: z.number().int().min(0).max(20).optional(),
   /** Dark gradient behind the caption area for legibility. */
   captionBackdrop: z.boolean().optional(),
+  /** Longest time one framing stays on screen; longer scenes are split into shots (other clip or a new crop). */
+  maxShotSeconds: z.number().min(2).max(12).optional(),
+  /** On-screen hook/cover text (Script.overlayText) at the top in the first seconds. */
+  overlayHook: z.boolean().optional(),
+  overlayHookSeconds: z.number().min(1).max(5).optional(),
+  /** Faster zoom-in on the opening shot to stop the scroll. */
+  openingPunchIn: z.boolean().optional(),
+  motionEasing: z.enum(["linear", "ease"]).optional(),
+  /** Silent tail after the narration ends, in seconds (0.5 before; a short tail loops better). */
+  tailSeconds: z.number().min(0).max(1.5).optional(),
 });
 
 export const ScriptSettingsSchema = z.object({
@@ -52,6 +81,14 @@ export const ScriptSettingsSchema = z.object({
   cta: z.string().max(120).optional(),
   /** Web-grounded fact-check of the script before footage/voice (stage 02b-factCheck). Default true. */
   factCheck: z.boolean().optional(),
+  /** Last line pays off / reconnects to the hook so the Short loops (instead of a generic sign-off). */
+  loopEnding: z.boolean().optional(),
+  /** curto = short varied CTA without the word "canal"; nenhum = no CTA (ignored when a fixed `cta` is set). */
+  ctaStyle: z.enum(["curto", "nenhum"]).optional(),
+  /** Narrative formats rotated by 01-pickTopic. */
+  formats: z.array(z.enum(["mito-verdade", "lista", "e-se", "comparacao", "linha-do-tempo", "pergunta-resposta"])).min(1).optional(),
+  /** Allow specific footage queries (historical places, missions, artworks, deceased historical figures). */
+  specificFootage: z.boolean().optional(),
 });
 
 /** Instagram Reels publisher (config section `instagram`). Off by default; needs `npm run auth:instagram`. */
@@ -76,7 +113,8 @@ export const CAPTION_DEFAULTS: Required<CaptionSettings> = {
   textColor: "#FFFFFF",
   highlightColor: "#FFE11A",
   strokeColor: "#000000",
-  highlight: "color",
+  highlight: "keywords",
+  avoidDanglingWords: true,
   verticalPosition: 0.62,
 };
 
@@ -86,19 +124,40 @@ export const VISUAL_DEFAULTS: Required<VisualSettings> = {
   imagePan: true,
   crossfadeFrames: 8,
   captionBackdrop: true,
+  maxShotSeconds: 4.5,
+  overlayHook: true,
+  overlayHookSeconds: 2.5,
+  openingPunchIn: true,
+  motionEasing: "ease",
+  tailSeconds: 0.15,
 };
 
 export const SCRIPT_DEFAULTS: Required<Omit<ScriptSettings, "cta">> & Pick<ScriptSettings, "cta"> = {
-  minWords: 130,
-  maxWords: 190,
+  // Gemini TTS measured 2.7-3.4 words/s (17-18 chars/s) after pause trimming: 152 words -> 47 s, 172 -> 51 s,
+  // 155 long-worded words -> 57 s. 160-195 keeps narrations ~47-71 s, clear of the 45 s gate (was 130-190).
+  minWords: 160,
+  maxWords: 195,
   minScenes: 4,
   maxScenes: 7,
   tone: "curioso",
   cta: undefined,
   factCheck: true,
+  loopEnding: true,
+  ctaStyle: "curto",
+  formats: ["mito-verdade", "lista", "e-se", "comparacao", "linha-do-tempo", "pergunta-resposta"],
+  specificFootage: true,
 };
 
-export const VOICE_EXTRAS_DEFAULTS: Required<VoiceExtras> = { rate: "+0%", pitch: "+0Hz", volume: "+0%" };
+export const VOICE_EXTRAS_DEFAULTS: Required<VoiceExtras> = {
+  engine: "gemini",
+  rate: "+10%",
+  pitch: "+0Hz",
+  volume: "+0%",
+  maxPauseMs: 250,
+  geminiModel: "gemini-3.8-flash-tts",
+  geminiVoice: "Fenrir",
+  style: "Narre em português do Brasil, tom curioso e envolvente, ritmo ágil de vídeo curto, sem pausas longas",
+};
 
 export const INSTAGRAM_DEFAULTS: Required<InstagramSettings> = { enabled: false, maxPostsPerDay: 3 };
 

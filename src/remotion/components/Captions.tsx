@@ -2,7 +2,7 @@ import type React from "react";
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import type { CaptionSettings } from "../../shared/settings.js";
 import type { CaptionChunkProps } from "../shared.js";
-import { activeWordIndex, captionBox, captionContainerStyle, captionFontSize, captionText, captionWordStyle } from "./captionStyle.js";
+import { captionBox, captionContainerStyle, captionFontSize, captionText, captionWordStyle, highlightedWordIndex } from "./captionStyle.js";
 
 // Layout tuned for YouTube Shorts: the bottom ~20% and right ~15% are covered by the player UI.
 
@@ -19,13 +19,13 @@ export const Captions: React.FC<{ chunks: CaptionChunkProps[]; settings: Require
   const fontSize = captionFontSize(chunk.words, box.width, settings);
   const pop = spring({ frame: frame - chunk.startFrame, fps, config: { damping: 12, stiffness: 220, mass: 0.6 } });
   const popScale = interpolate(pop, [0, 1], [0.8, 1]);
-  const active = activeWordIndex(chunk.words, frame);
+  const lit = highlightedWordIndex(chunk.words, frame, settings.highlight);
 
   return (
     <AbsoluteFill style={{ pointerEvents: "none" }}>
       <div style={captionContainerStyle(fontSize, box, popScale, settings)}>
         {chunk.words.map((w, i) => (
-          <span key={`${w.startFrame}-${i}`} style={captionWordStyle(i === active, fontSize, settings)}>
+          <span key={`${w.startFrame}-${i}`} style={captionWordStyle(i === lit, fontSize, settings)}>
             {captionText(w.text, settings)}
           </span>
         ))}

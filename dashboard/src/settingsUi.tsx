@@ -1,5 +1,5 @@
 // Form controls for the Configurações page (same visual language as the rest of the dashboard).
-import { RotateCcw, type LucideIcon } from "lucide-react";
+import { Check, RotateCcw, type LucideIcon } from "lucide-react";
 import { useId, type CSSProperties, type ReactNode } from "react";
 
 export function Section(props: {
@@ -113,6 +113,60 @@ export function Segmented<T extends string | number>(props: {
             {o.label}
           </button>
         ))}
+      </div>
+    </Field>
+  );
+}
+
+/**
+ * Multi-select as icon chips; keeps the result in `options` order and never lets the selection drop
+ * below `min` (the last selected chip is disabled instead of silently emptying the list).
+ */
+export function ChipMultiSelect<T extends string>(props: {
+  label: string;
+  value: readonly T[];
+  options: readonly { value: T; label: string; hint?: string; icon: LucideIcon }[];
+  onChange: (v: T[]) => void;
+  min?: number;
+  help?: ReactNode;
+  error?: string;
+}) {
+  const { value, options, min = 0 } = props;
+  const selected = new Set(value);
+  const toggle = (v: T) => {
+    const next = new Set(selected);
+    if (next.has(v)) next.delete(v);
+    else next.add(v);
+    props.onChange(options.map((o) => o.value).filter((o) => next.has(o)));
+  };
+  return (
+    <Field label={props.label} help={props.help} error={props.error} wide>
+      <div className="format-chips" role="group" aria-label={props.label}>
+        {options.map((o) => {
+          const on = selected.has(o.value);
+          const locked = on && selected.size <= min;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              role="checkbox"
+              aria-checked={on}
+              className={`format-chip ${on ? "on" : ""}`}
+              disabled={locked}
+              title={locked ? `Mantenha pelo menos ${min} selecionado(s).` : undefined}
+              onClick={() => toggle(o.value)}
+            >
+              <span className="fc-icon">
+                <o.icon size={15} />
+              </span>
+              {on && <Check size={14} className="fc-check" />}
+              <span className="fc-text">
+                <b>{o.label}</b>
+                {o.hint && <span>{o.hint}</span>}
+              </span>
+            </button>
+          );
+        })}
       </div>
     </Field>
   );

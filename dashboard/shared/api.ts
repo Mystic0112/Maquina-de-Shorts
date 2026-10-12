@@ -71,8 +71,13 @@ export interface RunSummary {
   failure: { stage: StageName; message: string; at: string } | null;
   hasContext: boolean;
   hasLog: boolean;
-  topic: { categoryId: string; categoryLabel: string } | null;
+  /** format = narrative format drawn by 01-pickTopic ("lista", "mito-verdade"…); null on older runs. */
+  topic: { categoryId: string; categoryLabel: string; format: string | null } | null;
   title: string | null;
+  /** Hook/cover text shown on screen in the first seconds (Script.overlayText); null on older runs. */
+  overlayText: string | null;
+  /** Captions carry per-word emphasis marks (needed by the "keywords" highlight); false on older runs. */
+  captionKeywords: boolean;
   sceneCount: number | null;
   clips: ClipInfo[];
   sources: Record<string, number>;

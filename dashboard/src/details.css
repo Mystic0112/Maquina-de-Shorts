@@ -149,3 +149,58 @@
 .modal-side .badge {
   align-self: flex-start;
 }
+
+/* Conteúdo: recent scripts (title + format + hook text) */
+.script-list {
+  display: flex;
+  flex-direction: column;
+}
+.script-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--grid);
+}
+.script-row:last-child {
+  border-bottom: 0;
+}
+.script-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(135deg, var(--brand-1), var(--brand-2));
+}
+.script-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.script-body b {
+  font-size: 0.88rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.script-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.script-none {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.74rem;
+}
+.script-date {
+  font-size: 0.74rem;
+  margin-left: auto;
+}

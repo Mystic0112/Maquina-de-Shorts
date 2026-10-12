@@ -80,3 +80,17 @@ export const STAGE_STATUS_LABEL: Record<StageStatus, string> = {
   pending: "não executada",
   bypassed: "pulado",
 };
+
+/** Narrative formats rotated by 01-pickTopic (ScriptSettings.formats), in canonical order. */
+export const SCRIPT_FORMATS = [
+  { id: "mito-verdade", label: "Mito × verdade", hint: "Desmonta uma crença popular." },
+  { id: "lista", label: "Lista", hint: "3 a 5 fatos numerados." },
+  { id: "e-se", label: "E se…", hint: "Cenário hipotético explicado." },
+  { id: "comparacao", label: "Comparação", hint: "Duas coisas lado a lado." },
+  { id: "linha-do-tempo", label: "Linha do tempo", hint: "Antes → depois, em ordem." },
+  { id: "pergunta-resposta", label: "Pergunta e resposta", hint: "Uma dúvida, resposta direta." },
+] as const;
+export type ScriptFormat = (typeof SCRIPT_FORMATS)[number]["id"];
+
+export const formatLabel = (id: string | null | undefined): string | null =>
+  id ? (SCRIPT_FORMATS.find((f) => f.id === id)?.label ?? id) : null;

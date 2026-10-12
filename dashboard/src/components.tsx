@@ -4,16 +4,23 @@ import {
   CircleCheck,
   CircleDashed,
   CirclePause,
+  CircleHelp,
   CircleX,
   Copy,
   ExternalLink,
   Film,
+  GitCompareArrows,
+  History,
+  ListOrdered,
   LoaderCircle,
+  MessageCircleQuestion,
   Minus,
   Play,
   ShieldX,
+  Sparkles,
   Table2,
   ChartColumn,
+  Type,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -22,7 +29,7 @@ import { Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import type { CategoryInfo, RunStatus, UploadResult, VideoMetadata, VideoRow } from "../shared/api";
 import { MetadataPreview, UploadBadge } from "./runDetails";
 import { categoryColor } from "./colors";
-import { fmtDateTime, fmtDuration, fmtInt, STATUS_LABEL } from "./format";
+import { fmtDateTime, fmtDuration, fmtInt, formatLabel, STATUS_LABEL } from "./format";
 
 /* ---------- shared chart styling (Recharts) ---------- */
 export const axisProps = {
@@ -246,6 +253,37 @@ export function CategoryChip({ id, label, categories }: { id: string | null | un
   return (
     <span className="chip" style={{ "--chip": categoryColor(id, categories) } as CSSProperties}>
       {name}
+    </span>
+  );
+}
+
+const FORMAT_ICONS: Record<string, LucideIcon> = {
+  "mito-verdade": CircleHelp,
+  lista: ListOrdered,
+  "e-se": Sparkles,
+  comparacao: GitCompareArrows,
+  "linha-do-tempo": History,
+  "pergunta-resposta": MessageCircleQuestion,
+};
+export const formatIcon = (id: string): LucideIcon => FORMAT_ICONS[id] ?? Sparkles;
+
+/** Narrative format of a run (topic.format); nothing for older runs that predate formats. */
+export function FormatBadge({ format }: { format: string | null | undefined }) {
+  if (!format) return null;
+  const Icon = formatIcon(format);
+  return (
+    <span className="badge fmt" title="Formato narrativo sorteado na etapa 01">
+      <Icon size={13} /> {formatLabel(format)}
+    </span>
+  );
+}
+
+/** Cover/hook text (script.overlayText) styled like the on-screen text. */
+export function OverlayTextTag({ text }: { text: string | null | undefined }) {
+  if (!text) return null;
+  return (
+    <span className="overlay-tag" title="Texto de capa mostrado no início do vídeo">
+      <Type size={12} /> {text}
     </span>
   );
 }

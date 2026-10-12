@@ -1,6 +1,7 @@
 import { mkdir, rm, rmdir, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { z } from "zod";
+import { resolveScript } from "../../shared/settings.js";
 import { loadConfig, paths } from "../lib/config.js";
 import {
   buildImageNormalizeArgs,
@@ -17,6 +18,7 @@ import {
   classifyClip,
   describeScored,
   normalizeAlternatives,
+  penalizeLowResolution,
   proposeAlternativeQueries,
   resolveRelevanceSettings,
   scoreClip,
@@ -25,6 +27,7 @@ import {
   type RelevanceSettings,
   type SceneSelection,
   type ScoredClip,
+  type SourceSize,
 } from "../lib/relevance.js";
 import { footageHash } from "../lib/contentHash.js";
 import { PythonExitError, runPythonJson } from "../lib/python.js";
@@ -211,6 +214,7 @@ async function normalizeAll(
   normDir: string,
   log: Logger,
   namePrefix = "",
+  sourceSizes?: Map<string, SourceSize>,
 ): Promise<NormalizeSummary> {
   const { width, height, fps } = loadConfig().video;
   const target: NormalizeTarget = { width, height, fps, maxSeconds: MAX_CLIP_SECONDS };
@@ -222,6 +226,7 @@ async function normalizeAll(
     const started = performance.now();
     try {
       const normalized = await normalizeClip(clip, join(normDir, names[i] ?? `clip_${i}`), target);
+      sourceSizes?.set(normalized.path, { width: clip.width, height: clip.height });
       log.info(
         `Normalized ${basename(clip.path)} -> ${basename(normalized.path)} (${normalized.durationSeconds.toFixed(1)} s) in ${seconds(started)}`,
       );
@@ -314,6 +319,30 @@ interface FetchRound {
   normDir: string;
   clipsPerQuery: number;
   namePrefix: string;
+  /**
+   * Pseudo scene index carrying the hook query (scene count, so it never collides with a real scene). Its clips
+   * belong to scene 0 and are named "0_h<n>" so the gate knows they came from Script.hookFootageQuery.
+   */
+  hookSceneIndex?: number;
+}
+
+/** Normalized-name prefix of clips found by the hook query (scene 0). */
+export const HOOK_CLIP_PREFIX = "h";
+
+export function isHookClip(clip: Pick<FootageClip, "path" | "sceneIndex">): boolean {
+  return clip.sceneIndex === 0 && basename(clip.path).startsWith(`0_${HOOK_CLIP_PREFIX}`);
+}
+
+/**
+ * First-round queries: scene 0 asks for the hook's iconic visual first (as pseudo scene `scenes.length`),
+ * then its own footageQuery as the fallback; every other scene its footageQuery.
+ */
+export function firstRoundQueries(script: Pick<Script, "scenes" | "hookFootageQuery">): FootageRequest["queries"] {
+  const scenes = script.scenes.map((scene, sceneIndex) => ({ sceneIndex, query: scene.footageQuery }));
+  const hook = script.hookFootageQuery?.trim();
+  const sceneZero = script.scenes[0]?.footageQuery.trim().toLowerCase();
+  if (!hook || hook.toLowerCase() === sceneZero) return scenes;
+  return [{ sceneIndex: script.scenes.length, query: hook }, ...scenes];
 }
 
 /** Downloads, drops clips already evaluated (same sourceUrl), normalizes. */
@@ -322,18 +351,34 @@ async function fetchAndNormalize(
   seenSourceUrls: Set<string>,
   stats: FootageStats,
   log: Logger,
+  sourceSizes?: Map<string, SourceSize>,
 ): Promise<FootageClip[]> {
   const downloaded = await requestFootage(round.queries, round.downloadDir, round.clipsPerQuery, log);
-  const fresh = downloaded.filter((c) => !c.sourceUrl || !seenSourceUrls.has(c.sourceUrl));
+  // First occurrence wins, also within one response (the hook query and scene 0's query may find the same file).
+  const fresh: FootageClip[] = [];
+  for (const c of downloaded) {
+    if (c.sourceUrl && seenSourceUrls.has(c.sourceUrl)) continue;
+    if (c.sourceUrl) seenSourceUrls.add(c.sourceUrl);
+    fresh.push(c);
+  }
   const duplicates = downloaded.filter((c) => !fresh.includes(c));
-  await Promise.all(duplicates.map((c) => rm(c.path, { force: true })));
-  for (const c of fresh) if (c.sourceUrl) seenSourceUrls.add(c.sourceUrl);
+  await Promise.all(duplicates.filter((c) => !fresh.some((f) => f.path === c.path)).map((c) => rm(c.path, { force: true })));
   if (duplicates.length > 0) log.info(`Skipped ${duplicates.length} clip(s) already evaluated earlier`);
-  const normalized = await normalizeAll(fresh, round.normDir, log, round.namePrefix);
+  const fromHook = (c: { sceneIndex: number }): boolean => round.hookSceneIndex !== undefined && c.sceneIndex === round.hookSceneIndex;
+  const hookClips = fresh.filter(fromHook).map((c) => ({ ...c, sceneIndex: 0 }));
+  const sceneClips = fresh.filter((c) => !fromHook(c));
+  const parts = [
+    await normalizeAll(hookClips, round.normDir, log, HOOK_CLIP_PREFIX, sourceSizes),
+    await normalizeAll(sceneClips, round.normDir, log, round.namePrefix, sourceSizes),
+  ];
   stats.downloaded += downloaded.length;
-  stats.rawBytes += normalized.rawBytes;
-  stats.normalizedBytes += normalized.normalizedBytes;
-  return normalized.clips;
+  for (const part of parts) {
+    stats.rawBytes += part.rawBytes;
+    stats.normalizedBytes += part.normalizedBytes;
+  }
+  const hookQuery = round.queries.find(fromHook)?.query;
+  if (hookQuery) log.info(`Hook query "${hookQuery}" gave ${parts[0]?.clips.length ?? 0} candidate(s) for scene 0`);
+  return parts.flatMap((part) => part.clips);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -343,6 +388,10 @@ async function fetchAndNormalize(
 interface GateContext {
   script: Script;
   settings: RelevanceSettings;
+  /** Footage queries may name specific subjects (script.specificFootage): alternative queries may too. */
+  specificFootage: boolean;
+  /** Source (pre-normalization) size of every normalized clip, for the low-resolution penalty. */
+  sourceSizes: Map<string, SourceSize>;
   dirs: { footage: string; frames: string };
   seen: Set<string>;
   stats: FootageStats;
@@ -351,9 +400,16 @@ interface GateContext {
   altQueries: Map<number, string[]>;
 }
 
-function sceneForClip(gate: GateContext, clip: FootageClip): ScriptScene {
-  const scene = gate.script.scenes[clip.sceneIndex] ?? { narration: "", footageQuery: "" };
-  const alts = gate.altQueries.get(clip.sceneIndex);
+/** What the reviewer judges a clip against: scene 0 also carries the hook, which is spoken over it. */
+export function sceneForClip(
+  script: Pick<Script, "scenes" | "hook" | "hookFootageQuery">,
+  clip: Pick<FootageClip, "path" | "sceneIndex">,
+  altQueries: ReadonlyMap<number, string[]> = new Map(),
+): ScriptScene {
+  const base = script.scenes[clip.sceneIndex] ?? { narration: "", footageQuery: "" };
+  const scene = clip.sceneIndex === 0 ? { ...base, narration: `${script.hook.trim()} ${base.narration}`.trim() } : base;
+  if (isHookClip(clip) && script.hookFootageQuery) return { ...scene, footageQuery: script.hookFootageQuery };
+  const alts = altQueries.get(clip.sceneIndex);
   const isRetryClip = basename(clip.path).startsWith(`${clip.sceneIndex}_r`);
   return alts && isRetryClip ? { ...scene, footageQuery: alts.join(" / ") } : scene;
 }
@@ -362,7 +418,9 @@ async function scoreAll(clips: readonly FootageClip[], gate: GateContext): Promi
   const { settings, stats, log } = gate;
   return mapWithConcurrency(clips, settings.concurrency, async (clip) => {
     const started = performance.now();
-    const scored = await scoreClip(clip, sceneForClip(gate, clip), gate.dirs.frames, gate.script.title, settings.thinking);
+    const scene = sceneForClip(gate.script, clip, gate.altQueries);
+    const raw = await scoreClip(clip, scene, gate.dirs.frames, gate.script.title, settings.thinking, gate.script.hook);
+    const scored = penalizeLowResolution(raw, gate.sourceSizes.get(clip.path));
     stats.visionCalls++;
     if (scored.verdict) {
       log.info(
@@ -379,7 +437,7 @@ async function scoreAll(clips: readonly FootageClip[], gate: GateContext): Promi
 async function alternativeQueries(failed: readonly FailedScene[], gate: GateContext): Promise<Map<number, string[]>> {
   try {
     gate.stats.textCalls++;
-    return normalizeAlternatives(failed, await proposeAlternativeQueries(failed));
+    return normalizeAlternatives(failed, await proposeAlternativeQueries(failed, gate.specificFootage));
   } catch (error) {
     gate.log.warn(`Alternative query generation failed, using simplified queries: ${errorText(error)}`);
     return normalizeAlternatives(failed, undefined);
@@ -389,7 +447,7 @@ async function alternativeQueries(failed: readonly FailedScene[], gate: GateCont
 function selectAll(scored: readonly ScoredClip[], gate: GateContext, allowWeak: boolean): SceneSelection[] {
   const groups: ScoredClip[][] = gate.script.scenes.map(() => []);
   for (const s of scored) groups[s.clip.sceneIndex]?.push(s);
-  return groups.map((candidates, sceneIndex) => selectSceneClips(sceneIndex, candidates, gate.settings, allowWeak));
+  return groups.map((candidates, sceneIndex) => selectSceneClips(sceneIndex, candidates, gate.settings, allowWeak, (s) => isHookClip(s.clip)));
 }
 
 function logSceneSummary(selections: readonly SceneSelection[], gate: GateContext): void {
@@ -424,7 +482,7 @@ async function retryFailedScenes(scored: readonly ScoredClip[], gate: GateContex
     clipsPerQuery: RETRY_CLIPS_PER_QUERY,
     namePrefix: "r",
   };
-  return scoreAll(await fetchAndNormalize(round, gate.seen, gate.stats, gate.log), gate);
+  return scoreAll(await fetchAndNormalize(round, gate.seen, gate.stats, gate.log, gate.sourceSizes), gate);
 }
 
 interface GateResult {
@@ -466,12 +524,15 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   const script = ctx.script;
   if (!script) throw new Error("03-fetchFootage requires ctx.script (run 02-generateScript first)");
   const log = getLogger(ctx.runId);
-  const footageConfig = loadConfig().footage;
+  const config = loadConfig();
+  const footageConfig = config.footage;
   const settings = resolveRelevanceSettings(footageConfig);
   const footageDir = join(ctx.runDir, "footage");
   const gate: GateContext = {
     script,
     settings,
+    specificFootage: resolveScript(config.script).specificFootage,
+    sourceSizes: new Map(),
     dirs: { footage: footageDir, frames: join(footageDir, "frames") },
     seen: new Set<string>(),
     stats: { downloaded: 0, rawBytes: 0, normalizedBytes: 0, visionCalls: 0, textCalls: 0 },
@@ -480,16 +541,18 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   };
   const firstRound = await fetchAndNormalize(
     {
-      queries: script.scenes.map((scene, sceneIndex) => ({ sceneIndex, query: scene.footageQuery })),
+      queries: firstRoundQueries(script),
       downloadDir: footageDir,
       normDir: join(footageDir, "norm"),
       // The adapter returns up to clipsPerQuery items of EACH kind; 3 per kind keeps ~6 candidates per scene.
       clipsPerQuery: footageConfig?.clipsPerQuery ?? (settings.enabled ? ((footageConfig?.kinds?.length ?? 2) > 1 ? 3 : 4) : 2),
       namePrefix: "",
+      hookSceneIndex: script.scenes.length,
     },
     gate.seen,
     gate.stats,
     log,
+    gate.sourceSizes,
   );
   if (firstRound.length === 0) throw new RunRejectedError("No usable footage for this script (every query empty or failed)", ctx);
 
@@ -505,7 +568,7 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   const { stats } = gate;
   log.info(
     `Footage: ${stats.downloaded} downloaded (${toMb(stats.rawBytes)}), normalized ${toMb(stats.normalizedBytes)}, ` +
-      `kept ${kept.length}, rejected for text/logo/people ${rejected}, ` +
+      `kept ${kept.length}, rejected for text/logo/people/era ${rejected}, ` +
       `LLM calls ${stats.visionCalls} vision + ${stats.textCalls} text`,
   );
   if (kept.length === 0) throw new RunRejectedError("No clip survived the relevance gate for any scene", ctx);

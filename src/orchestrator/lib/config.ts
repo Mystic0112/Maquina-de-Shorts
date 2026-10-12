@@ -63,12 +63,12 @@ export const PipelineConfigSchema = z.object({
     maxSeconds: z.number().positive(),
   }),
   voice: z.object({
-    engine: z.string(),
+    /** "gemini" (default when absent) or "edge-tts"; see VOICE_ENGINES. */
+    engine: VoiceExtrasSchema.shape.engine,
+    /** edge-tts voice (e.g. pt-BR-AntonioNeural); Gemini uses geminiVoice. */
     name: z.string().min(1),
     language: z.string().min(1),
-    rate: VoiceExtrasSchema.shape.rate,
-    pitch: VoiceExtrasSchema.shape.pitch,
-    volume: VoiceExtrasSchema.shape.volume,
+    ...VoiceExtrasSchema.omit({ engine: true }).shape,
   }),
   captions: CaptionSettingsSchema.optional(),
   visual: VisualSettingsSchema.optional(),

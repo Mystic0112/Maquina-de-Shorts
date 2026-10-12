@@ -7,27 +7,21 @@ import type { VisualSettings } from "../shared/settings.js";
 import {
   DEFAULT_RENDER_STYLE,
   type CaptionChunkProps,
-  type ClipSegment,
+  type OverlayHookProps,
   type RenderStyle,
   type SceneProps,
-  type SegmentMotion,
   type ShortProps,
 } from "./shared.js";
+import { planSceneShots } from "./shots.js";
 
 export * from "./shared.js";
+export { IMAGE_PAN_PCT, maxSafePanPct, maxShotFrames, OPENING_PUNCH_SECONDS, OPENING_PUNCH_ZOOM, SAFE_MAX_ZOOM } from "./shots.js";
 
-export const TAIL_MS = 500;
 /** Default crossfade / words-per-cue, kept as named exports for callers and tests. */
 export const CROSSFADE_FRAMES = DEFAULT_RENDER_STYLE.visual.crossfadeFrames;
 export const MAX_WORDS_PER_CAPTION = DEFAULT_RENDER_STYLE.captions.maxWordsPerCue;
 /** Gaps between caption chunks up to this size are bridged so captions don't flicker off and on. */
 const CAPTION_GAP_BRIDGE_FRAMES = 12;
-/** Frames shaved off a clip's reported duration — container durations are often slightly optimistic. */
-const CLIP_SAFETY_FRAMES = 2;
-/** Preferred pan of a still at the end of its move, in % of frame width (clamped to the zoom's slack). */
-export const IMAGE_PAN_PCT = 4;
-/** Fraction of the zoom's edge slack a pan may use, leaving margin for rounding/subpixel sampling. */
-const PAN_SLACK_USAGE = 0.75;
 
 type Visual = Required<VisualSettings>;
 
@@ -45,8 +39,9 @@ export type RenderPlanOptions = {
 
 const msToFrame = (ms: number, fps: number): number => Math.round((ms / 1000) * fps);
 
-export function totalFramesFor(durationMs: number, fps: number): number {
-  return Math.ceil(((durationMs + TAIL_MS) / 1000) * fps);
+/** Narration plus a short tail; the last shot runs to the very end (no unrelated closing frame). */
+export function totalFramesFor(durationMs: number, fps: number, tailSeconds: number = DEFAULT_RENDER_STYLE.visual.tailSeconds): number {
+  return Math.ceil((durationMs / 1000 + tailSeconds) * fps);
 }
 
 function sanitizeBaseName(filePath: string): string {
@@ -83,93 +78,6 @@ function clipsForScene(sceneIndex: number, footage: FootageClip[]): FootageClip[
   return footage.length > 0 ? [footage[sceneIndex % footage.length]!] : [];
 }
 
-function usableFrames(clip: FootageClip, fps: number): number {
-  if (clip.kind === "image") return Number.POSITIVE_INFINITY;
-  return Math.max(1, Math.floor(clip.durationSeconds * fps) - CLIP_SAFETY_FRAMES);
-}
-
-type Slot = { clip: FootageClip; frames: number };
-
-/** Video-only scene: chain the clips in order and loop the chain until the scene is filled. */
-function loopVideoSlots(sceneFrames: number, clips: FootageClip[], fps: number): Slot[] {
-  const slots: Slot[] = [];
-  let cursor = 0;
-  for (let i = 0; clips.length > 0 && cursor < sceneFrames; i++) {
-    const clip = clips[i % clips.length]!;
-    const frames = Math.min(usableFrames(clip, fps), sceneFrames - cursor);
-    slots.push({ clip, frames });
-    cursor += frames;
-  }
-  return slots;
-}
-
-/**
- * Scene containing stills: every clip appears once, in order, sharing the time evenly. A video
- * shorter than its share is played once, and the leftover frames go to the images (never loop
- * a video when a still can hold the shot).
- */
-function splitSlotsWithImages(sceneFrames: number, clips: FootageClip[], fps: number): Slot[] {
-  const share = Math.floor(sceneFrames / clips.length);
-  const videoFrames = new Map(clips.filter((c) => c.kind === "video").map((c) => [c, Math.min(usableFrames(c, fps), share)]));
-  const imageCount = clips.filter((c) => c.kind === "image").length;
-  let budgetLeft = sceneFrames - [...videoFrames.values()].reduce((sum, f) => sum + f, 0);
-  let imagesLeft = imageCount;
-  return clips.map((clip) => {
-    const fixed = videoFrames.get(clip);
-    if (fixed !== undefined) return { clip, frames: fixed };
-    const frames = Math.ceil(budgetLeft / imagesLeft);
-    imagesLeft -= 1;
-    budgetLeft -= frames;
-    return { clip, frames };
-  });
-}
-
-/**
- * Largest end-of-move pan (in pre-scale % of width) that never reveals an edge for a linear
- * 1 -> zoom move. Slack at zoom z is (z-1)/(2z); for a linear move the binding point is the end.
- */
-export function maxSafePanPct(zoom: number): number {
-  return zoom <= 1 ? 0 : ((zoom - 1) / (2 * zoom)) * 100;
-}
-
-/** Videos get a gentle push-in; stills get a Ken Burns push-in plus a pan whose direction alternates. */
-export function motionFor(kind: FootageClip["kind"], alternationIndex: number, visual: Visual = DEFAULT_RENDER_STYLE.visual): SegmentMotion {
-  if (kind === "video") return { scaleFrom: 1, scaleTo: visual.videoZoom, panXFromPct: 0, panXToPct: 0 };
-  const pan = visual.imagePan ? Math.min(IMAGE_PAN_PCT, maxSafePanPct(visual.imageZoom) * PAN_SLACK_USAGE) : 0;
-  const direction = alternationIndex % 2 === 0 ? 1 : -1;
-  return { scaleFrom: 1, scaleTo: visual.imageZoom, panXFromPct: 0, panXToPct: pan === 0 ? 0 : direction * pan };
-}
-
-/**
- * Lays the scene's clips out over `sceneFrames`. `sceneOrdinal` alternates the pan direction of
- * stills from scene to scene (and between stills within a scene).
- */
-export function buildSegments(
-  sceneFrames: number,
-  clips: FootageClip[],
-  assets: Map<string, StagedAsset>,
-  fps: number,
-  sceneOrdinal = 0,
-  visual: Visual = DEFAULT_RENDER_STYLE.visual,
-): ClipSegment[] {
-  const hasImage = clips.some((c) => c.kind === "image");
-  const slots = hasImage ? splitSlotsWithImages(sceneFrames, clips, fps) : loopVideoSlots(sceneFrames, clips, fps);
-  let cursor = 0;
-  return slots
-    .filter((slot) => slot.frames > 0)
-    .map((slot, i) => {
-      const segment: ClipSegment = {
-        src: assets.get(slot.clip.path)!.publicPath,
-        kind: slot.clip.kind,
-        fromFrame: cursor,
-        durationInFrames: slot.frames,
-        motion: motionFor(slot.clip.kind, sceneOrdinal + i, visual),
-      };
-      cursor += slot.frames;
-      return segment;
-    });
-}
-
 type SceneBuildInput = { footage: FootageClip[]; assets: Map<string, StagedAsset>; fps: number; totalFrames: number; visual: Visual };
 
 function buildScenes(scenes: SceneTiming[], input: SceneBuildInput): SceneProps[] {
@@ -184,8 +92,14 @@ function buildScenes(scenes: SceneTiming[], input: SceneBuildInput): SceneProps[
     // Lead-in never reaches back past the previous scene's start, so very short scenes still work.
     const leadInFrames = i === 0 ? 0 : Math.max(0, Math.min(visual.crossfadeFrames, startFrame - previousStart - 1));
     previousStart = startFrame;
-    const clips = clipsForScene(scene.sceneIndex, footage);
-    const segments = buildSegments(leadInFrames + durationInFrames, clips, assets, fps, i, visual);
+    const segments = planSceneShots({
+      sceneFrames: leadInFrames + durationInFrames,
+      clips: clipsForScene(scene.sceneIndex, footage),
+      srcOf: (clip) => assets.get(clip.path)!.publicPath,
+      fps,
+      visual,
+      sceneOrdinal: i,
+    });
     return { sceneIndex: scene.sceneIndex, startFrame, durationInFrames, leadInFrames, segments };
   });
 }
@@ -205,7 +119,7 @@ function chunkWords(words: WordTiming[], maxWords: number): WordTiming[][] {
 
 function cueWords(cue: CaptionCue): WordTiming[] {
   if (cue.words.length > 0) return cue.words;
-  return [{ word: cue.text, startMs: cue.startMs, endMs: cue.endMs }];
+  return [{ word: cue.text, startMs: cue.startMs, endMs: cue.endMs, emphasis: true }];
 }
 
 function bridgeCaptionGaps(chunks: CaptionChunkProps[]): CaptionChunkProps[] {
@@ -227,9 +141,25 @@ export function buildCaptionChunks(cues: CaptionCue[], fps: number, maxWords = M
     .map((words) => ({
       startFrame: msToFrame(words[0]!.startMs, fps),
       endFrame: msToFrame(words[words.length - 1]!.endMs, fps),
-      words: words.map((w) => ({ text: w.word, startFrame: msToFrame(w.startMs, fps), endFrame: msToFrame(w.endMs, fps) })),
+      words: words.map((w) => ({
+        text: w.word,
+        startFrame: msToFrame(w.startMs, fps),
+        endFrame: msToFrame(w.endMs, fps),
+        emphasis: w.emphasis !== false, // absent (older runs) = treat as a content word
+      })),
     }));
   return bridgeCaptionGaps(chunks);
+}
+
+/** Seconds over which the hook text fades out, ending exactly at overlayHookSeconds. */
+const OVERLAY_FADE_SECONDS = 0.3;
+
+/** Hook/cover text (Script.overlayText) shown from frame 0, or null when off or absent. */
+export function buildOverlayHook(overlayText: string | undefined, visual: Visual, fps: number, totalFrames: number): OverlayHookProps | null {
+  const text = overlayText?.trim().replace(/\s+/g, " ").toLocaleUpperCase("pt-BR");
+  if (!visual.overlayHook || !text) return null;
+  const endFrame = Math.max(1, Math.min(totalFrames, Math.round(visual.overlayHookSeconds * fps)));
+  return { text, endFrame, fadeFrames: Math.min(Math.round(OVERLAY_FADE_SECONDS * fps), Math.floor(endFrame / 2)) };
 }
 
 /** Pure: derives inputProps plus the list of files to stage into the bundle's public dir. */
@@ -245,7 +175,7 @@ export function buildRenderPlan(
   const assets = planFootageAssets(footage, options.publicPrefix);
   const audioExt = path.extname(ctx.narration.audioPath).toLowerCase() || ".mp3";
   const audioAsset: StagedAsset = { sourcePath: ctx.narration.audioPath, publicPath: withPrefix(options.publicPrefix, `audio/narration${audioExt}`) };
-  const totalFrames = totalFramesFor(ctx.narration.durationMs, fps);
+  const totalFrames = totalFramesFor(ctx.narration.durationMs, fps, style.visual.tailSeconds);
   const sceneTimings: SceneTiming[] = ctx.captions?.scenes.length
     ? ctx.captions.scenes
     : [{ sceneIndex: 0, startMs: 0, endMs: ctx.narration.durationMs }];
@@ -258,6 +188,7 @@ export function buildRenderPlan(
     style,
     scenes: buildScenes(sceneTimings, { footage, assets, fps, totalFrames, visual: style.visual }),
     captions,
+    overlay: buildOverlayHook(ctx.script?.overlayText, style.visual, fps, totalFrames),
   };
   return { props, assets: [audioAsset, ...assets.values()] };
 }

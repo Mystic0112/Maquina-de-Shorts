@@ -1,11 +1,11 @@
-import { Bot, Coins, FileVideo, Images, Mic, Scale, ShieldCheck, Sparkles } from "lucide-react";
+import { Bot, Coins, FileText, FileVideo, Images, Mic, Scale, Shapes, ShieldCheck, Sparkles, Type } from "lucide-react";
 import type { CSSProperties } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Overview, RunSummary } from "../../shared/api";
 import { scoreColor, sourceColor } from "../colors";
-import { axisProps, Card, ChartCard, Donut, Empty, HBars, Kpi, Legend, tooltipProps } from "../components";
+import { axisProps, CategoryChip, Card, ChartCard, Donut, Empty, FormatBadge, formatIcon, HBars, Kpi, Legend, OverlayTextTag, tooltipProps } from "../components";
 import { chronological, relevanceHistogram, runLabel, sceneScores, sumCounts } from "../derive";
-import { fmtCompact, fmtDecimal, fmtInt, fmtUsd } from "../format";
+import { fmtCompact, fmtDateTime, fmtDecimal, fmtInt, fmtUsd, SCRIPT_FORMATS } from "../format";
 
 function NarrationChart({ runs, target }: { runs: RunSummary[]; target: Overview["targetSeconds"] }) {
   const rows = chronological(runs)
@@ -367,12 +367,95 @@ function QualityCard({ runs }: { runs: RunSummary[] }) {
   );
 }
 
+/** Scripts that got past 02-generateScript (rejected ones included: the format was still drawn). */
+const scripted = (runs: RunSummary[]): RunSummary[] => runs.filter((r) => r.title || r.topic?.format);
+
+function FormatsCard({ runs }: { runs: RunSummary[] }) {
+  const withFormat = scripted(runs).filter((r) => r.topic?.format);
+  const legacy = scripted(runs).length - withFormat.length;
+  const known = new Set<string>(SCRIPT_FORMATS.map((f) => f.id));
+  const extra = [...new Set(withFormat.map((r) => r.topic!.format!).filter((f) => !known.has(f)))];
+  const rows = [...SCRIPT_FORMATS.map((f) => ({ id: f.id as string, name: f.label })), ...extra.map((id) => ({ id, name: id }))].map((f) => ({
+    name: f.name,
+    value: withFormat.filter((r) => r.topic!.format === f.id).length,
+  }));
+  const unused = rows.filter((r) => r.value === 0).length;
+  return (
+    <Card
+      title="Formatos usados"
+      icon={Shapes}
+      sub={
+        withFormat.length
+          ? `${fmtInt(withFormat.length)} roteiro(s) · ${unused ? `${unused} formato(s) ainda não sorteado(s)` : "todos os formatos já apareceram"}`
+          : "Formato narrativo sorteado na etapa 01"
+      }
+    >
+      {withFormat.length ? (
+        <>
+          <HBars color="var(--brand-1)" data={rows} />
+          {legacy > 0 && <p className="hint">{fmtInt(legacy)} roteiro(s) anteriores aos formatos não entram na conta.</p>}
+        </>
+      ) : (
+        <Empty icon={Shapes} title="Nenhum roteiro com formato ainda">
+          Os próximos vídeos alternam entre Mito × verdade, Lista, E se…, Comparação, Linha do tempo e Pergunta e resposta.
+        </Empty>
+      )}
+    </Card>
+  );
+}
+
+function HooksCard({ runs, categories }: { runs: RunSummary[]; categories: Overview["categories"] }) {
+  const recent = scripted(runs).slice(0, 6);
+  return (
+    <Card title="Roteiros recentes" icon={FileText} sub="Título, formato e texto de capa de cada roteiro">
+      {recent.length ? (
+        <div className="script-list">
+          {recent.map((r) => {
+            const Icon = r.topic?.format ? formatIcon(r.topic.format) : FileText;
+            return (
+              <div className="script-row" key={r.runId}>
+                <span className="script-icon">
+                  <Icon size={15} />
+                </span>
+                <div className="script-body">
+                  <b title={r.title ?? undefined}>{r.title ?? "(sem título)"}</b>
+                  <div className="script-tags">
+                    <CategoryChip id={r.topic?.categoryId} label={r.topic?.categoryLabel} categories={categories} />
+                    <FormatBadge format={r.topic?.format} />
+                    {r.overlayText ? (
+                      <OverlayTextTag text={r.overlayText} />
+                    ) : (
+                      <span className="muted script-none">
+                        <Type size={12} /> sem texto de capa
+                      </span>
+                    )}
+                    <span className="muted script-date">{fmtDateTime(r.createdAt)}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <Empty icon={FileText} title="Nenhum roteiro gerado ainda" />
+      )}
+    </Card>
+  );
+}
+
 export function Content({ runs, overview }: { runs: RunSummary[]; overview: Overview }) {
   return (
     <>
       <div className="grid cols-2">
         <NarrationChart runs={runs} target={overview.targetSeconds} />
         <FileSizeChart runs={runs} />
+      </div>
+      <div className="section-title">
+        <Shapes size={14} /> Roteiros e formatos
+      </div>
+      <div className="grid cols-2">
+        <FormatsCard runs={runs} />
+        <HooksCard runs={runs} categories={overview.categories} />
       </div>
       <div className="section-title">
         <Images size={14} /> Footage e relevância

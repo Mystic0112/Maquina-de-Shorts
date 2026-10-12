@@ -7,7 +7,7 @@
     "maxSeconds": 90
   },
   "voice": {
-    "engine": "edge-tts",
+    "engine": "gemini",
     "name": "pt-BR-AntonioNeural",
     "language": "pt-BR"
   },

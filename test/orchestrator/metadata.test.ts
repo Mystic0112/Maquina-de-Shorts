@@ -5,7 +5,11 @@ import {
   buildDescription,
   buildTags,
   buildTitle,
+  canonicalHashtag,
+  CATEGORY_HASHTAGS,
+  curateHashtags,
   DESCRIPTION_MAX,
+  fallbackDraft,
   licenseKind,
   tagsLength,
   TITLE_MAX,
@@ -77,19 +81,50 @@ describe("buildCredits", () => {
 });
 
 describe("buildTitle", () => {
-  it("appends #Shorts once", () => {
-    expect(buildTitle("Vênus gira ao contrário #shorts")).toBe("Vênus gira ao contrário #Shorts");
+  it("is the script title without #Shorts (it goes in the description)", () => {
+    expect(buildTitle("Vênus gira ao contrário #shorts")).toBe("Vênus gira ao contrário");
+    expect(buildTitle("A Lua tem cheiro?")).toBe("A Lua tem cheiro?");
   });
 
   it("cuts long titles at a word boundary to fit 100 chars", () => {
     const title = buildTitle(`${"palavra ".repeat(30)}fim`);
     expect(title.length).toBeLessThanOrEqual(TITLE_MAX);
-    expect(title.endsWith(" #Shorts")).toBe(true);
-    expect(title).not.toMatch(/palavr #Shorts$/);
+    expect(title).toMatch(/ palavra$/);
+    expect(title).not.toContain("#Shorts");
   });
 
   it("removes angle brackets", () => {
-    expect(buildTitle("2 < 3 > 1")).toBe("2 3 1 #Shorts");
+    expect(buildTitle("2 < 3 > 1")).toBe("2 3 1");
+  });
+});
+
+describe("hashtags", () => {
+  it("canonical form: lowercase, accents fixed, letters only", () => {
+    expect(canonicalHashtag("#Historia")).toBe("#história");
+    expect(canonicalHashtag("Revolucao_Francesa")).toBe("#revoluçãofrancesa");
+    expect(canonicalHashtag("#Ciência")).toBe("#ciência");
+    expect(canonicalHashtag("#historiadores")).toBe("#historiadores"); // not a compound of "história"
+    expect(canonicalHashtag("#Bastilha")).toBe("#bastilha");
+  });
+
+  it("curated set per category + up to 2 topic tags (3-5 total), no bare #historia/#curiosidade duplicates", () => {
+    const tags = curateHashtags("historia", ["#historia", "#Curiosidades", "#Bastilha", "#RevolucaoFrancesa", "#Paris", "#shorts"]);
+    expect(tags).toEqual(["#história", "#curiosidades", "#fatoshistóricos", "#bastilha", "#revoluçãofrancesa"]);
+    expect(tags.length).toBeGreaterThanOrEqual(3);
+    expect(tags.length).toBeLessThanOrEqual(5);
+  });
+
+  it.each(Object.keys(CATEGORY_HASHTAGS))("category %s has 3 accented lowercase curated tags", (id) => {
+    const tags = curateHashtags(id, []);
+    expect(tags).toHaveLength(3);
+    expect(tags.every((t) => t === t.toLowerCase() && t.startsWith("#"))).toBe(true);
+    expect(tags).not.toContain("#historia");
+    expect(tags).not.toContain("#ciencia");
+    expect(tags).not.toContain("#espaco");
+  });
+
+  it("unknown category falls back to a generic set; the fallback draft adds no topic tags", () => {
+    expect(curateHashtags(undefined, fallbackDraft(script, "Outros").hashtags)).toEqual(["#curiosidades", "#fatoscuriosos"]);
   });
 });
 
@@ -140,9 +175,11 @@ describe("description and validation", () => {
       draft: { title: script.title, context: "A chave foi leiloada em 2007.", hashtags: ["titanic"], tags: ["titanic", "curiosidades"] },
       categoryId: "27",
       language: "pt-BR",
+      topic: { categoryId: "historia" },
     });
     expect(validateMetadata(meta)).toEqual([]);
-    expect(meta.title).toBe(`${script.title} #Shorts`);
+    expect(meta.title).toBe(script.title);
+    expect(meta.description).toContain("#Shorts #história #curiosidades #fatoshistóricos #titanic");
     expect(meta.description).toContain("Créditos das imagens:");
     expect(meta).toMatchObject({ categoryId: "27", defaultLanguage: "pt-BR", defaultAudioLanguage: "pt-BR" });
   });

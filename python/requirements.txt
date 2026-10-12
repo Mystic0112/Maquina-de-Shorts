@@ -4,3 +4,7 @@
 edge-tts==7.2.8
 aiohttp>=3.9,<4
 requests>=2.31,<3
+# Word timings for Gemini TTS narration (python/tts/align.py): Whisper "base" on CPU/int8. The model
+# (~140 MB) is cached in models/whisper/; fetch it once with
+#   .venv/Scripts/python.exe python/tts/align_narration.py --download-only
+faster-whisper==1.2.1

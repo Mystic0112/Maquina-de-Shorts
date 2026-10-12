@@ -10,6 +10,8 @@ import {
   countSpokenWords,
   findScriptProblems,
   isWithinTolerance,
+  keyTermMismatches,
+  overlayProblems,
   type ResolvedScriptSettings,
 } from "./02-generateScript.js";
 
@@ -34,6 +36,7 @@ export function buildFactCheckResultSchema(s: ResolvedScriptSettings) {
     publishable: z.boolean().describe("false só se a premissa central for falsa e não houver como salvar o roteiro"),
     reason: z.string().describe("Resumo curto do resultado, em pt-BR"),
     title: z.string().min(5).max(95),
+    overlayText: z.string().optional().describe("Texto da tela/capa (3 a 5 palavras); igual ao atual se estiver correto"),
     hook: z.string().min(10),
     scenes: z
       .array(z.object({ narration: z.string().min(10), footageQuery: z.string().min(3) }))
@@ -46,7 +49,7 @@ export function buildFactCheckResultSchema(s: ResolvedScriptSettings) {
 export type FactCheckResult = z.infer<ReturnType<typeof buildFactCheckResultSchema>>;
 
 export type RoundOutcome =
-  | { kind: "clean"; script: Script; claims: FactCheckClaim[]; titleChanged: boolean }
+  | { kind: "clean"; script: Script; claims: FactCheckClaim[]; titleChanged: boolean; overlayChanged?: boolean }
   | { kind: "revised"; script: Script; claims: FactCheckClaim[]; changes: string[] }
   | { kind: "reject"; reason: string; claims: FactCheckClaim[] };
 
@@ -59,11 +62,39 @@ export function toClaims(result: Pick<FactCheckResult, "claims">, round: number)
   }));
 }
 
+/** Overlay text after a round: the model's (possibly corrected) one, else the current one. */
+function nextOverlay(script: Script, result: Pick<FactCheckResult, "overlayText">): Pick<Script, "overlayText"> {
+  const overlayText = result.overlayText?.trim() || script.overlayText;
+  return overlayText ? { overlayText } : {};
+}
+
+/**
+ * Title <-> hook <-> narration (and overlay) consistency the round broke: problems the edited script has
+ * that the script before the round did not (a pre-existing, accepted soft issue is not blamed on the round).
+ */
+export function consistencyBreaks(before: Script, after: Script): string[] {
+  const breaks: string[] = [];
+  const keyTerms = keyTermMismatches(after);
+  if (keyTerms.length > 0 && keyTermMismatches(before).length === 0) breaks.push(...keyTerms);
+  const overlay = overlayProblems(after);
+  if (overlay.length > 0 && overlayProblems(before).length === 0) breaks.push(...overlay);
+  return breaks;
+}
+
+function consistencyReject(breaks: readonly string[], claims: FactCheckClaim[]): RoundOutcome {
+  return {
+    kind: "reject",
+    reason: `título, texto da tela, gancho e narração ficaram inconsistentes após a correção: ${breaks.join("; ")}`,
+    claims,
+  };
+}
+
 /**
  * Pure: turns one round's structured result into the next script.
- * - all claims supported: keep the script verbatim (the model may only retitle a sensational title);
- * - some unsupported/misleading: take the rewritten hook/scenes (CTA and language never change);
- * - not publishable, or a rewrite that breaks the length limits beyond tolerance: reject.
+ * - all claims supported: keep hook/scenes verbatim (the model may only fix an inaccurate title/overlay text);
+ * - some unsupported/misleading: take the rewritten hook/scenes (CTA, language and hookFootageQuery never change);
+ * - not publishable, a rewrite that breaks the length limits beyond tolerance, or an edit that makes the title's
+ *   key term disappear from the hook/narration: reject (reviewRound asks once more before giving up).
  */
 export function applyFactCheckRound(
   script: Script,
@@ -74,13 +105,24 @@ export function applyFactCheckRound(
   const claims = toClaims(result, round);
   if (!result.publishable) return { kind: "reject", reason: result.reason || "premissa central incorreta", claims };
   const title = result.title.trim() || script.title;
+  const overlay = nextOverlay(script, result);
   const failing = claims.filter((c) => c.verdict !== "supported");
   if (failing.length === 0) {
-    return { kind: "clean", script: { ...script, title }, claims, titleChanged: title !== script.title };
+    const clean: Script = { ...script, title, ...overlay };
+    const breaks = consistencyBreaks(script, clean);
+    if (breaks.length > 0) return consistencyReject(breaks, claims);
+    return {
+      kind: "clean",
+      script: clean,
+      claims,
+      titleChanged: title !== script.title,
+      overlayChanged: clean.overlayText !== script.overlayText,
+    };
   }
   const revised: Script = {
     ...script,
     title,
+    ...overlay,
     hook: result.hook.trim(),
     scenes: result.scenes.map((scene, i) => ({
       narration: scene.narration.trim(),
@@ -91,6 +133,8 @@ export function applyFactCheckRound(
   if (problems.length > 0 && !isWithinTolerance(revised, settings)) {
     return { kind: "reject", reason: `roteiro corrigido fora dos limites: ${problems.join("; ")}`, claims };
   }
+  const breaks = consistencyBreaks(script, revised);
+  if (breaks.length > 0) return consistencyReject(breaks, claims);
   return { kind: "revised", script: revised, claims, changes: result.changes.map((c) => c.trim()).filter(Boolean) };
 }
 
@@ -100,14 +144,19 @@ export function applyFactCheckRound(
 
 function scriptForReview(script: Script): string {
   const scenes = script.scenes.map((s, i) => `Cena ${i + 1}: ${s.narration}`).join("\n");
-  return `Título: ${script.title}\nGancho: ${script.hook}\n${scenes}`;
+  const overlay = script.overlayText ? `Texto na tela/capa: ${script.overlayText}\n` : "";
+  return `Título: ${script.title}\n${overlay}Gancho: ${script.hook}\n${scenes}`;
 }
+
+const CURIOSITY_RULE = `Um título ou texto na tela CHAMATIVO não é problema: palavras de curiosidade ("bizarro", "estranho",
+"assustador", "só 7") ficam quando o fato por trás é verdadeiro; não as troque por versões mornas ("misterioso",
+"curioso"). Só corrija o que for falso, exagerado ou enganoso, mantendo a palavra-gancho sempre que ela for exata.`;
 
 export function buildGroundedReviewPrompt(script: Script): string {
   return `Você é um checador de fatos rigoroso de um canal brasileiro de YouTube Shorts de curiosidades.
 Nenhum humano revisa os vídeos antes da publicação: erros factuais vão ao ar. Use a busca do Google para
-verificar CADA afirmação factual do roteiro abaixo (título, gancho e narração das cenas; ignore chamadas para
-seguir o canal).
+verificar CADA afirmação factual do roteiro abaixo (título, texto na tela, gancho e narração das cenas; ignore
+chamadas para seguir ou comentar).
 
 ${scriptForReview(script)}
 
@@ -120,8 +169,9 @@ Critérios:
   exagerados ou arredondados de forma errada, causalidade simplificada demais ("X causou Y" quando foi um entre
   vários fatores), lendas apresentadas como fato.
 - Seja específico nas correções: diga o valor ou fato correto.
-Depois, avalie o TÍTULO: é sensacionalista ou atribui causa/efeito de forma enganosa? Se for, proponha um título
-preciso e ainda curioso (até 70 caracteres).
+Depois, avalie o TÍTULO e o TEXTO NA TELA: afirmam algo falso, exagerado ou atribuem causa/efeito de forma
+enganosa? Se sim, proponha uma versão precisa e ainda curiosa (título até 70 caracteres; texto na tela 3 a 5 palavras).
+${CURIOSITY_RULE}
 Termine com uma linha "CONCLUSÃO:" dizendo se a premissa central do vídeo se sustenta.`;
 }
 
@@ -144,8 +194,8 @@ export function buildRevisionPrompt(
 Transforme a checagem em JSON e, se necessário, corrija o roteiro.
 
 ROTEIRO ATUAL (JSON):
-${JSON.stringify({ title: script.title, hook: script.hook, scenes: script.scenes }, null, 2)}
-Chamada final fixa, narrada depois da última cena (não a altere nem a repita): "${cta}"
+${JSON.stringify({ title: script.title, overlayText: script.overlayText, hook: script.hook, scenes: script.scenes }, null, 2)}
+${cta ? `Chamada final fixa, narrada depois da última cena (não a altere nem a repita): "${cta}"` : "O vídeo não tem chamada final: termina na última frase da última cena."}
 
 CHECAGEM DE FATOS:
 ${review.text.trim()}
@@ -164,6 +214,11 @@ Regras:
 - "title": se a checagem NÃO apontou problema no título, devolva-o EXATAMENTE igual. Se apontou, use o título
   sugerido pela checagem (ou um equivalente) com até 70 caracteres, curioso mas preciso, e que não repita nenhuma
   afirmação marcada como "unsupported" ou "misleading".
+- "overlayText": mesma regra do título (3 a 5 palavras); devolva-o EXATAMENTE igual se não houver problema nele.
+- ${CURIOSITY_RULE.replace(/\n/g, "\n  ")}
+- Coerência: as palavras importantes do título (o assunto e a promessa, ex.: "chuva" e "diamante") precisam continuar
+  ditas no gancho e na narração das cenas, e o texto na tela precisa resumir o mesmo fato. Se uma correção mudar o
+  termo-chave, ajuste título, texto na tela, gancho e cenas juntos. O gancho continua com no máximo 12 palavras.
 - "publishable": false apenas se a premissa central do vídeo for falsa e não houver como salvá-lo dentro dos limites.
 - "changes": cada edição feita, em pt-BR (lista vazia se nada mudou).
 Responda somente com o JSON.`;
@@ -251,6 +306,7 @@ export async function factCheckScript(
     }
     if (outcome.kind === "clean") {
       if (outcome.titleChanged) corrections.push(`Título: "${script.title}" -> "${outcome.script.title}"`);
+      if (outcome.overlayChanged) corrections.push(`Texto da tela: "${script.overlayText ?? ""}" -> "${outcome.script.overlayText ?? ""}"`);
       const changed = outcome.script.title !== original.title || corrections.length > 0;
       const summary: FactCheckSummary = {
         ...base,
@@ -262,6 +318,9 @@ export async function factCheckScript(
     }
     corrections.push(...outcome.changes);
     if (outcome.script.title !== script.title) corrections.push(`Título: "${script.title}" -> "${outcome.script.title}"`);
+    if (outcome.script.overlayText !== script.overlayText) {
+      corrections.push(`Texto da tela: "${script.overlayText ?? ""}" -> "${outcome.script.overlayText ?? ""}"`);
+    }
     script = outcome.script;
     if (round === MAX_FACT_CHECK_ROUNDS && outcome.claims.every((c) => c.verdict !== "unsupported")) {
       // Last round only found nuance ("misleading"): its rewrite still gets a grounded verification pass.

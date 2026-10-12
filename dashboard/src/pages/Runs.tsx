@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { STAGE_NAMES, stageCode, type CategoryInfo, type Overview, type RunSummary } from "../../shared/api";
 import { sourceColor, stageColor } from "../colors";
-import { axisProps, CategoryChip, Card, ChartCard, Empty, HBars, Kpi, Legend, StatusBadge, tooltipProps } from "../components";
+import { axisProps, CategoryChip, Card, ChartCard, Empty, FormatBadge, HBars, Kpi, Legend, OverlayTextTag, StatusBadge, tooltipProps } from "../components";
 import { chronological, runLabel, stageDurations } from "../derive";
 import { FactCheckPanel, MetadataPreview, RejectionBox, UploadBadge, UploadDetail } from "../runDetails";
 import { fmtAgo, fmtBytes, fmtDateTime, fmtDuration, fmtInt, fmtPercent, STAGE_LABEL, STAGE_STATUS_LABEL } from "../format";
@@ -88,6 +88,8 @@ function RunCard({ run, categories }: { run: RunSummary; categories: CategoryInf
         <StatusBadge status={run.status} />
         <span className="title">{run.title ?? (run.hasContext ? "(sem roteiro)" : "(pasta removida, só o log)")}</span>
         <CategoryChip id={run.topic?.categoryId} label={run.topic?.categoryLabel} categories={categories} />
+        <FormatBadge format={run.topic?.format} />
+        <OverlayTextTag text={run.overlayText} />
         <span className="id mono">{run.runId}</span>
         <span className="id">{fmtDateTime(run.createdAt)}</span>
         <span className="total">

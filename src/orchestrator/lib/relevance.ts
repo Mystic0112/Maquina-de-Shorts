@@ -19,13 +19,16 @@ export interface RelevanceSettings {
   thinking: ThinkingSetting;
 }
 
+export const DEFAULT_KEEP_PER_SCENE = 3;
+
 export function resolveRelevanceSettings(footage: PipelineConfig["footage"]): RelevanceSettings {
   const r = footage?.relevance;
   return {
     enabled: r?.enabled ?? true,
     minScore: r?.minScore ?? 6,
     fallbackMinScore: r?.fallbackMinScore ?? 4,
-    keepPerScene: r?.keepPerScene ?? 2,
+    // 3 passing clips per scene give the renderer material to split long scenes into several shots.
+    keepPerScene: r?.keepPerScene ?? DEFAULT_KEEP_PER_SCENE,
     concurrency: r?.concurrency ?? 4,
     thinking: r?.thinking ?? "low",
   };
@@ -37,6 +40,10 @@ export const RelevanceVerdictSchema = z.object({
   reason: z.string().describe("one short English sentence: what the frames show and why this score"),
   hasTextOrLogo: z.boolean().describe("burned-in text, subtitles, watermark, channel/agency logo or title card"),
   hasIdentifiablePeople: z.boolean().describe("any clearly recognizable human face"),
+  wrongEraOrPlace: z
+    .boolean()
+    .optional()
+    .describe("footage clearly shows a different century, country or civilization than the narration (anachronism)"),
 });
 
 export type RelevanceVerdict = z.infer<typeof RelevanceVerdictSchema>;
@@ -59,7 +66,7 @@ export type ClipStatus = "pass" | "weak" | "reject" | "unscored";
 export function classifyClip(scored: ScoredClip, minScore: number): ClipStatus {
   const v = scored.verdict;
   if (!v) return "unscored";
-  if (v.hasTextOrLogo || v.hasIdentifiablePeople) return "reject";
+  if (v.hasTextOrLogo || v.hasIdentifiablePeople || v.wrongEraOrPlace) return "reject";
   return v.matches && v.score >= minScore ? "pass" : "weak";
 }
 
@@ -77,16 +84,19 @@ export interface SceneSelection {
 }
 
 /**
- * Best `keepPerScene` passing clips; without any, optionally the single best clean weak clip scoring at
- * least `fallbackMinScore`. Ties keep adapter order (stable sort).
+ * Best `keepPerScene` passing clips, highest score first (the first one opens the scene); without any,
+ * optionally the single best clean weak clip scoring at least `fallbackMinScore`. Ties go to `preferred`
+ * clips (e.g. the hook query's iconic shot), then keep adapter order (stable sort).
  */
 export function selectSceneClips(
   sceneIndex: number,
   candidates: readonly ScoredClip[],
   settings: Pick<RelevanceSettings, "minScore" | "keepPerScene" | "fallbackMinScore">,
   allowWeak: boolean,
+  preferred: (scored: ScoredClip) => boolean = () => false,
 ): SceneSelection {
-  const ranked = [...candidates].sort((a, b) => rankValue(b) - rankValue(a));
+  const pref = (s: ScoredClip): number => (preferred(s) ? 1 : 0);
+  const ranked = [...candidates].sort((a, b) => rankValue(b) - rankValue(a) || pref(b) - pref(a));
   const status = (s: ScoredClip): ClipStatus => classifyClip(s, settings.minScore);
   let kept = ranked.filter((s) => status(s) === "pass").slice(0, settings.keepPerScene);
   let mode: SelectionMode = kept.length > 0 ? "pass" : "none";
@@ -105,7 +115,8 @@ export function annotateClip(scored: ScoredClip): FootageClip {
     ...scored.clip,
     relevanceScore: scored.verdict.score,
     relevanceReason: scored.verdict.reason,
-    relevanceMatches: scored.verdict.matches && !scored.verdict.hasTextOrLogo && !scored.verdict.hasIdentifiablePeople,
+    relevanceMatches:
+      scored.verdict.matches && !scored.verdict.hasTextOrLogo && !scored.verdict.hasIdentifiablePeople && !scored.verdict.wrongEraOrPlace,
   };
 }
 
@@ -113,8 +124,51 @@ export function describeScored(scored: ScoredClip, minScore: number): string {
   const name = basename(scored.clip.path, extname(scored.clip.path));
   const v = scored.verdict;
   if (!v) return `${name}=unscored`;
-  const flags = [v.hasTextOrLogo ? "text/logo" : "", v.hasIdentifiablePeople ? "people" : ""].filter(Boolean);
+  const flags = [v.hasTextOrLogo ? "text/logo" : "", v.hasIdentifiablePeople ? "people" : "", v.wrongEraOrPlace ? "era/place" : ""].filter(Boolean);
   return `${name}=${v.score}${flags.length ? `[${flags.join(",")}]` : ""}(${classifyClip(scored, minScore)})`;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Source resolution
+// ---------------------------------------------------------------------------------------------
+
+/** Videos below this short side look soft after the 9:16 crop. */
+export const MIN_VIDEO_SHORT_SIDE = 720;
+/** Stills are cover-cropped to the frame; beyond these upscale factors they look blurry. */
+export const IMAGE_UPSCALE_LIMITS = { soft: 1.5, blurry: 2 } as const;
+export const LOW_RES_PENALTY = { soft: 1, blurry: 2 } as const;
+
+export interface SourceSize {
+  width: number;
+  height: number;
+}
+
+/** Score points to subtract for a low-resolution source (dimensions as downloaded, before normalization). */
+export function resolutionPenalty(
+  source: SourceSize | undefined,
+  kind: FootageClip["kind"],
+  target: SourceSize = { width: 1080, height: 1920 },
+): { penalty: number; note?: string } {
+  if (!source || !(source.width > 0) || !(source.height > 0)) return { penalty: 0 };
+  const size = `${source.width}x${source.height}`;
+  if (kind === "video") {
+    return Math.min(source.width, source.height) < MIN_VIDEO_SHORT_SIDE
+      ? { penalty: LOW_RES_PENALTY.blurry, note: `low-res video ${size}` }
+      : { penalty: 0 };
+  }
+  const upscale = Math.max(target.width / source.width, target.height / source.height);
+  if (upscale > IMAGE_UPSCALE_LIMITS.blurry) return { penalty: LOW_RES_PENALTY.blurry, note: `still upscaled ${upscale.toFixed(1)}x (${size})` };
+  if (upscale > IMAGE_UPSCALE_LIMITS.soft) return { penalty: LOW_RES_PENALTY.soft, note: `still upscaled ${upscale.toFixed(1)}x (${size})` };
+  return { penalty: 0 };
+}
+
+/** The verdict with the low-resolution penalty applied to its score (and noted in the reason). */
+export function penalizeLowResolution(scored: ScoredClip, source: SourceSize | undefined, target?: SourceSize): ScoredClip {
+  const v = scored.verdict;
+  if (!v) return scored;
+  const { penalty, note } = resolutionPenalty(source, scored.clip.kind, target);
+  if (penalty === 0) return scored;
+  return { ...scored, verdict: { ...v, score: Math.max(0, v.score - penalty), reason: `${v.reason} [${note}: -${penalty}]` } };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -164,6 +218,7 @@ export function buildRelevancePrompt(
   frameCount: number,
   title?: string,
   kind: FootageClip["kind"] = "video",
+  hook?: string,
 ): string {
   const subject =
     kind === "image"
@@ -174,7 +229,7 @@ about history, science and space in Brazilian Portuguese. No human reviews the v
 
 ${subject}
 while the narrator speaks the line below.
-${title ? `Video title: "${title}"\n` : ""}Narration for this scene (pt-BR): "${scene.narration}"
+${title ? `Video title: "${title}"\n` : ""}${hook ? `Opening line of the video (pt-BR): "${hook}"\n` : ""}Narration for this scene (pt-BR): "${scene.narration}"
 Search query that found the clip: "${scene.footageQuery}"
 
 Return JSON with:
@@ -187,7 +242,15 @@ Return JSON with:
   (e.g. ZDF, BBC), an agency insignia (including the NASA logo), or a title card. Tiny incidental text on real-world
   objects far in the background does not count.
 - hasIdentifiablePeople: true if any person's face is clearly recognizable. Distant crowds, silhouettes, people seen
-  from behind and astronauts with visors down do not count.
+  from behind and astronauts with visors down do not count. Faces in old paintings, engravings, drawings and statues
+  (historical artworks) do not count either; photographs and video of real people do.
+- wrongEraOrPlace: true if the footage clearly belongs to a different century, country/region or civilization than the
+  narration (an anachronism): e.g. an American Civil War reenactment for a line about Paris in 1789; a Greek Doric
+  temple or an Egyptian temple for a line about the Ptolemaic Library of Alexandria (unless the line is about that
+  building); modern streets or cars for an ancient event; a nebula or galaxy for a line about the inside of a planet;
+  a different planet or moon than the one named. Then also set matches=false and score <= 3. Timeless generic imagery
+  (sea, sky, fire, parchment, rock) is not an anachronism.
+- Visibly blurry, pixelated, heavily compressed or upscaled-looking frames lower the score by 2 or more.
 - reason: one short English sentence describing what the frames show and why you gave that score.`;
 }
 
@@ -206,7 +269,7 @@ export interface FailedScene {
   footageQuery: string;
 }
 
-export function buildAlternativeQueriesPrompt(scenes: readonly FailedScene[]): string {
+export function buildAlternativeQueriesPrompt(scenes: readonly FailedScene[], specific = false): string {
   const list = scenes
     .map((s) => `- sceneIndex ${s.sceneIndex}: narration (pt-BR) "${s.narration}" | failed query "${s.footageQuery}"`)
     .join("\n");
@@ -214,11 +277,16 @@ export function buildAlternativeQueriesPrompt(scenes: readonly FailedScene[]): s
 of a Brazilian Portuguese YouTube Short:
 ${list}
 
-For each scene propose 2 alternative English search queries (2-4 words each) that those libraries are likely to have
+For each scene propose 2 alternative English search queries (${specific ? "2-6" : "2-4"} words each) that those libraries are likely to have
 and that would visually fit the narration. Name concrete visible things (e.g. "venus planet nasa", "volcano lava flow",
-"ancient pyramids aerial", "storm clouds timelapse"), not abstract concepts. Never use people's names, brands or titles
-of copyrighted works. Make them different from the failed query, and make the second one simpler and more generic.`;
+"ancient pyramids aerial", "storm clouds timelapse"), not abstract concepts. ${specific ? SPECIFIC_ALT_RULE : GENERIC_ALT_RULE}
+Make them different from the failed query, and make the second one simpler and more generic${specific ? " (still from the same era and place)" : ""}.`;
 }
+
+const GENERIC_ALT_RULE = "Never use people's names, brands or titles of copyrighted works.";
+const SPECIFIC_ALT_RULE = `Keep the scene's era and place. Named historical places, events with famous paintings
+("storming of the Bastille painting"), space missions ("Voyager 2 Uranus"), museum artworks and long-dead historical
+figures are welcome; never living people, brands or titles of modern copyrighted works.`;
 
 /** Deterministic fallback when the LLM cannot propose alternatives: progressively shorter queries. */
 export function deriveSimplerQueries(query: string): string[] {
@@ -256,12 +324,13 @@ export async function scoreClip(
   framesDir: string,
   title?: string,
   thinking: ThinkingSetting = "low",
+  hook?: string,
 ): Promise<ScoredClip> {
   try {
     const duration = clip.kind === "image" ? 0 : clip.durationSeconds;
     const frames = await extractFrames(clip.path, duration, framesDir, basename(clip.path, extname(clip.path)));
     const images = frames.map((data) => ({ mimeType: "image/jpeg" as const, data }));
-    const prompt = buildRelevancePrompt(scene, images.length, title, clip.kind);
+    const prompt = buildRelevancePrompt(scene, images.length, title, clip.kind, hook);
     // Low temperature: a reviewer should give the same clip the same score on every run.
     const verdict = await generateJsonWithImages(prompt, images, RelevanceVerdictSchema, { thinking, temperature: 0.2 });
     return { clip, verdict };
@@ -270,6 +339,9 @@ export async function scoreClip(
   }
 }
 
-export async function proposeAlternativeQueries(failed: readonly FailedScene[]): Promise<z.infer<typeof AlternativeQueriesSchema>> {
-  return generateJson(buildAlternativeQueriesPrompt(failed), AlternativeQueriesSchema);
+export async function proposeAlternativeQueries(
+  failed: readonly FailedScene[],
+  specific = false,
+): Promise<z.infer<typeof AlternativeQueriesSchema>> {
+  return generateJson(buildAlternativeQueriesPrompt(failed, specific), AlternativeQueriesSchema);
 }

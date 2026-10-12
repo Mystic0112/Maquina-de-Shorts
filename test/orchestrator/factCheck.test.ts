@@ -3,11 +3,14 @@ import { describe, expect, it } from "vitest";
 import { resolveScript } from "../../src/shared/settings.js";
 import {
   applyFactCheckRound,
+  buildGroundedReviewPrompt,
+  buildRevisionPrompt,
   factCheckScript,
   MAX_FACT_CHECK_ROUNDS,
   type FactCheckDeps,
   type FactCheckResult,
 } from "../../src/orchestrator/stages/02b-factCheck.js";
+import { scriptHash } from "../../src/orchestrator/lib/contentHash.js";
 import type { RunContext, Script } from "../../src/orchestrator/types.js";
 
 const venus = (JSON.parse(readFileSync("test/fixtures/context.venus-reveillon.json", "utf8")) as RunContext).script as Script;
@@ -195,5 +198,98 @@ describe("factCheckScript with a fake LLM", () => {
     expect(summary.verdict).toBe("corrected");
     expect(deps.structuredCalls).toBe(3);
     expect(deps.groundedCalls).toBe(2);
+  });
+});
+
+describe("overlay text, curiosity and key-term consistency", () => {
+  const moon: Script = {
+    title: "O cheiro bizarro da Lua",
+    overlayText: "A LUA TEM CHEIRO?",
+    hook: "A Lua tem cheiro: de pólvora queimada.",
+    hookFootageQuery: "Apollo 11 lunar surface",
+    scenes: [
+      { narration: "Os astronautas da Apollo sentiram esse cheiro bizarro ao tirar os capacetes na nave.", footageQuery: "Apollo lunar module" },
+      { narration: "A poeira lunar grudava nos trajes e, dentro da cabine, liberava um cheiro de pólvora.", footageQuery: "Apollo astronaut suit dust" },
+      { narration: "Os cientistas ainda discutem a causa, mas o cheiro foi descrito por vários astronautas.", footageQuery: "lunar soil sample nasa" },
+      { narration: "Na Terra, as mesmas amostras de poeira lunar não tinham cheiro nenhum. A Lua só cheira de perto.", footageQuery: "moon surface nasa" },
+    ],
+    cta: "Segue pra mais curiosidades.",
+    language: "pt-BR",
+  };
+  const ok = (over: Partial<FactCheckResult> = {}): FactCheckResult => ({
+    claims: [{ claim: "Astronautas relataram cheiro de pólvora.", verdict: "supported" }],
+    publishable: true,
+    reason: "ok",
+    title: moon.title,
+    overlayText: moon.overlayText,
+    hook: moon.hook,
+    scenes: moon.scenes,
+    changes: [],
+    ...over,
+  });
+
+  it("prompts check the overlay text and protect accurate curiosity words", () => {
+    const review = buildGroundedReviewPrompt(moon);
+    expect(review).toContain("Texto na tela/capa: A LUA TEM CHEIRO?");
+    expect(review).toContain('não as troque por versões mornas ("misterioso"');
+    const revision = buildRevisionPrompt(moon, { text: "ok", sources: [], queries: [] }, settings);
+    expect(revision).toContain('"overlayText": "A LUA TEM CHEIRO?"');
+    expect(revision).toContain("as palavras importantes do título");
+  });
+
+  it("keeps hookFootageQuery and an untouched overlay on a clean round", () => {
+    const out = applyFactCheckRound(moon, ok({ overlayText: undefined }), 1, settings);
+    expect(out.kind).toBe("clean");
+    if (out.kind === "clean") {
+      expect(out.script).toEqual(moon);
+      expect(out.overlayChanged).toBe(false);
+    }
+  });
+
+  it("an inaccurate overlay text is corrected and recorded", async () => {
+    const corrected = ok({ overlayText: "A LUA CHEIRA A PÓLVORA?" });
+    const { script, summary } = await factCheckScript(moon, settings, fakeDeps([corrected]));
+    expect(script.overlayText).toBe("A LUA CHEIRA A PÓLVORA?");
+    expect(summary.verdict).toBe("corrected");
+    expect(summary.corrections).toContain('Texto da tela: "A LUA TEM CHEIRO?" -> "A LUA CHEIRA A PÓLVORA?"');
+  });
+
+  it("a new title whose key word the narration never says is sent back, then accepted when fixed", async () => {
+    const broken = ok({ title: "O perfume de enxofre da Lua" }); // "perfume", "enxofre" are never narrated
+    const deps = fakeDeps([broken, ok({ title: "O cheiro de pólvora da Lua" })]);
+    const { script, summary } = await factCheckScript(moon, settings, deps);
+    expect(deps.structuredCalls).toBe(2);
+    expect(script.title).toBe("O cheiro de pólvora da Lua");
+    expect(summary.verdict).toBe("corrected");
+  });
+
+  it("rejects the run when the inconsistency survives the retry", async () => {
+    const broken = ok({ title: "O perfume de enxofre da Lua" });
+    const { summary } = await factCheckScript(moon, settings, fakeDeps([broken, broken]));
+    expect(summary.verdict).toBe("fail");
+    expect(summary.reason).toMatch(/inconsistentes/);
+  });
+
+  it("a rewrite that drops the title's key word from the narration is sent back", () => {
+    const rewrite = ok({
+      claims: [{ claim: "cheiro de pólvora", verdict: "misleading", correction: "cheiro parecido com pólvora" }],
+      hook: "A Lua tem um aroma curioso, parecido com pólvora.",
+      scenes: moon.scenes.map((s) => ({ ...s, narration: s.narration.replace(/cheiro|cheira/g, "aroma") })),
+    });
+    const shortVideo = resolveScript({ minWords: 60, maxWords: 120 }); // the moon script is ~90 words
+    expect(applyFactCheckRound(moon, ok({ claims: rewrite.claims }), 1, shortVideo).kind).toBe("revised");
+    const out = applyFactCheckRound(moon, rewrite, 1, shortVideo);
+    expect(out.kind).toBe("reject");
+    if (out.kind === "reject") {
+      expect(out.reason).toMatch(/^título, texto da tela, gancho e narração ficaram inconsistentes/);
+      expect(out.reason).toContain('"cheiro"');
+    }
+  });
+
+  it("scriptHash covers overlayText and hookFootageQuery, and is unchanged for scripts without them", () => {
+    expect(scriptHash({ ...moon, overlayText: "OUTRO TEXTO AQUI" })).not.toBe(scriptHash(moon));
+    expect(scriptHash({ ...moon, hookFootageQuery: "moon nasa" })).not.toBe(scriptHash(moon));
+    const legacy: Script = { ...venus };
+    expect(scriptHash(legacy)).toBe(scriptHash({ ...venus, overlayText: undefined, hookFootageQuery: undefined }));
   });
 });

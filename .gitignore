@@ -15,3 +15,4 @@ data/voice_samples/
 data/previews/
 config/backups/
 data/alerts.jsonl
+models/

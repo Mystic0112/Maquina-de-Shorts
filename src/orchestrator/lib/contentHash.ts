@@ -12,6 +12,10 @@ function sha256(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+/**
+ * Covers every published/checked field. overlayText (on-screen text, fact-checked) and hookFootageQuery are
+ * omitted from the JSON when absent, so hashes of scripts written before those fields existed are unchanged.
+ */
 export function scriptHash(script: Script): string {
   return sha256({
     title: script.title,
@@ -19,6 +23,8 @@ export function scriptHash(script: Script): string {
     scenes: script.scenes.map((s) => [s.narration, s.footageQuery]),
     cta: script.cta,
     language: script.language,
+    overlayText: script.overlayText,
+    hookFootageQuery: script.hookFootageQuery,
   });
 }
 

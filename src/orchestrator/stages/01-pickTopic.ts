@@ -1,9 +1,12 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { HISTORY_RELATIVE_PATH, readUploadHistory, type UploadRecord } from "../../shared/history.js";
-import { paths } from "../lib/config.js";
+import { resolveScript } from "../../shared/settings.js";
+import { loadConfig, paths } from "../lib/config.js";
 import { getLogger } from "../lib/logger.js";
+import { RUN_ID_PATTERN } from "../lib/recentTopics.js";
 import type { RunContext, TopicAvoidance, TopicPick } from "../types.js";
 
 const TopicsSeedSchema = z.object({
@@ -76,15 +79,58 @@ export async function readLastCategoryId(historyFile: string = paths.fromRoot(HI
   return lastTopicCategory((await readUploadHistory(historyFile)).records);
 }
 
+// ---------------------------------------------------------------------------------------------
+// Narrative format rotation
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Random narrative format, never the one the previous run used (when another is configured). With the
+ * 6 default formats this keeps each one (e.g. "mito-verdade") near 1/6 of the runs.
+ */
+export function pickFormat(formats: readonly string[], previousFormat: string | undefined, random: RandomFn = Math.random): string | undefined {
+  if (formats.length === 0) return undefined;
+  const fresh = formats.filter((f) => f !== previousFormat);
+  return pickOne(fresh.length > 0 ? fresh : formats, random);
+}
+
+/** Pure: format of the newest run that recorded one (runs without topic.format are skipped). */
+export function latestFormat(runs: readonly Pick<RunContext, "createdAt" | "topic">[]): string | undefined {
+  return [...runs]
+    .filter((r) => !!r.topic?.format)
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0]?.topic?.format;
+}
+
+/** Format used by the most recent earlier run (render_output/<runId>/context.json); undefined without one. */
+export async function readPreviousFormat(excludeRunId: string, renderOutput: string = paths.renderOutput): Promise<string | undefined> {
+  if (!existsSync(renderOutput)) return undefined;
+  const dirs = (await readdir(renderOutput)).filter((d) => RUN_ID_PATTERN.test(d) && d !== excludeRunId).sort().slice(-20);
+  const runs: Pick<RunContext, "createdAt" | "topic">[] = [];
+  for (const dir of dirs) {
+    try {
+      const ctx = JSON.parse(await readFile(join(renderOutput, dir, "context.json"), "utf8")) as RunContext;
+      runs.push({ createdAt: ctx.createdAt, topic: ctx.topic });
+    } catch {
+      // unreadable/partial run: no format to learn from
+    }
+  }
+  return latestFormat(runs);
+}
+
 export async function run(ctx: RunContext): Promise<RunContext> {
   const log = getLogger(ctx.runId);
   const lastCategoryId = await readLastCategoryId();
   const avoid = ctx.avoid?.topics ?? [];
-  const topic = pickTopic(loadSeed(), lastCategoryId, Math.random, avoid);
+  const previousFormat = await readPreviousFormat(ctx.runId);
+  const format = pickFormat(resolveScript(loadConfig().script).formats, previousFormat);
+  const topic: TopicPick = { ...pickTopic(loadSeed(), lastCategoryId, Math.random, avoid), ...(format ? { format } : {}) };
   const notes = [
     lastCategoryId ? `last category "${lastCategoryId}"` : "",
+    previousFormat ? `last format "${previousFormat}"` : "",
     avoid.length ? `${avoid.length} failed topic(s)` : "",
   ].filter(Boolean);
-  log.info(`Topic: [${topic.categoryLabel}] ${topic.seedPrompt}${notes.length ? ` (avoiding ${notes.join(", ")})` : ""}`);
+  log.info(
+    `Topic: [${topic.categoryLabel}] ${topic.seedPrompt} | format ${topic.format ?? "livre"}` +
+      `${notes.length ? ` (avoiding ${notes.join(", ")})` : ""}`,
+  );
   return { ...ctx, topic };
 }

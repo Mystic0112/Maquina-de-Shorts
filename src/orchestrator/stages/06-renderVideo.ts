@@ -8,7 +8,7 @@ import path from "node:path";
 import { makeCancelSignal, renderMedia, selectComposition } from "@remotion/renderer";
 import { loadConfig } from "../lib/config.js";
 import { contentBindingProblems } from "../lib/contentHash.js";
-import { buildRenderPlan, COMPOSITION_ID } from "../../remotion/props.js";
+import { buildRenderPlan, COMPOSITION_ID, type ShortProps } from "../../remotion/props.js";
 import { ensureBundle, newPublicPrefix, removeStagedAssets, renderStyleFrom, stageAssets, videoConfigFrom } from "../../remotion/node/renderKit.js";
 import type { RenderResult, RunContext } from "../types.js";
 
@@ -34,6 +34,14 @@ function progressLogger(label: string): (progress: number) => void {
     lastBucket = bucket;
     log(`${label} ${Math.round(progress * 100)}%`);
   };
+}
+
+/** One-line summary of the shot plan for the run log: shot count, longest shot, hook text. */
+export function describePlan(props: ShortProps): string {
+  const shots = props.scenes.flatMap((s) => s.segments);
+  const longest = Math.max(0, ...shots.map((s) => s.durationInFrames)) / props.fps;
+  const overlay = props.overlay ? `"${props.overlay.text}" for ${(props.overlay.endFrame / props.fps).toFixed(1)}s` : "none";
+  return `${shots.length} shots in ${props.scenes.length} scenes (longest ${longest.toFixed(1)}s), ${(props.durationInFrames / props.fps).toFixed(2)}s total, hook text: ${overlay}`;
 }
 
 async function renderComposition(
@@ -95,6 +103,7 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   const { props, assets } = buildRenderPlan(ctx, videoConfigFrom(config), renderStyleFrom(config), { publicPrefix });
   const outputPath = path.join(ctx.runDir, OUTPUT_FILE_NAME);
   const startedAt = Date.now();
+  log(describePlan(props));
 
   const serveUrl = await ensureBundle(log);
   try {

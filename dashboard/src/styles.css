@@ -536,6 +536,33 @@ code,
   --tone: var(--info);
   background: var(--info-bg);
 }
+.badge.fmt {
+  --tone: var(--brand-1);
+  background: color-mix(in srgb, var(--brand-1) 15%, var(--surface-2));
+}
+/* Hook/cover text: same yellow-on-black look as the on-screen overlay. */
+.overlay-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 3px 9px 3px 7px;
+  border-radius: 6px;
+  color: #ffe11a;
+  background: #111318;
+  border: 1px solid color-mix(in srgb, #ffe11a 35%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.overlay-tag svg {
+  flex: none;
+  opacity: 0.8;
+}
 .chip {
   display: inline-flex;
   align-items: center;

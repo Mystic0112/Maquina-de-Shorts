@@ -14,7 +14,7 @@ Cada execução passa por nove estágios. Depois de cada um, o estado completo �
 | 02 | `generateScript` | O LLM (Gemini por padrão) escreve o roteiro em pt-BR: gancho, cenas, chamada final e uma busca de imagem por cena |
 | 02b | `factCheck` | **Checagem de fatos** com busca no Google: cada afirmação vira correta, sem respaldo ou enganosa; frases erradas são reescritas, títulos sensacionalistas são suavizados e o roteiro corrigido é checado de novo |
 | 03 | `fetchFootage` | Busca vídeos e imagens com licença livre, normaliza para 1080x1920 e passa cada candidato por uma **checagem visual** com o Gemini |
-| 04 | `synthesizeVoice` | Gera a narração com edge-tts, com o tempo de cada palavra |
+| 04 | `synthesizeVoice` | Gera a narração com o Gemini TTS (padrão) ou o edge-tts, encurta pausas longas e marca o tempo de cada palavra (veja [Narração](#narração)) |
 | 05 | `buildCaptions` | Agrupa as palavras em legendas e alinha cada cena com a fala |
 | 06 | `renderVideo` | Renderiza o vídeo com Remotion: legenda com a palavra falada em destaque, zoom e movimento lento nas imagens |
 | 07 | `generateMetadata` | Título (até 100 caracteres, com #Shorts), descrição com **créditos das imagens** (autor, licença e link de cada clipe CC BY) e tags, validados contra os limites do YouTube |
@@ -45,6 +45,7 @@ Cada execução passa por nove estágios. Depois de cada um, o estado completo �
 npm install
 python -m venv .venv
 .venv\Scripts\python.exe -m pip install -r python/requirements.txt
+.venv\Scripts\python.exe python/tts/align_narration.py --download-only   # modelo Whisper (~140 MB) que marca o tempo das palavras
 powershell -ExecutionPolicy Bypass -File scripts/setup_vendor.ps1   # clone parcial do OpenMontage (ferramentas de footage)
 npx remotion browser ensure                                          # baixa o Chrome usado no render
 npm --prefix dashboard install
@@ -56,7 +57,7 @@ copy .env.example .env                                               # depois pr
 | Variável | Obrigatória | Para quê |
 |---|---|---|
 | `LLM_PROVIDER` | não | `gemini` (padrão) ou `anthropic` |
-| `GEMINI_API_KEY` | sim, com Gemini | Roteiro, checagem visual e metadados |
+| `GEMINI_API_KEY` | sim, com Gemini ou com a voz Gemini (padrão) | Roteiro, checagem visual, metadados e narração (Gemini TTS) |
 | `GEMINI_MODEL` | não | Modelo do Gemini (padrão do projeto: `gemini-3.8-flash`) |
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | só com `anthropic` | Alternativa ao Gemini |
 | `PEXELS_API_KEY` / `PIXABAY_API_KEY` | não | Mais fontes de vídeo e imagem (recomendado) |
@@ -164,6 +165,32 @@ A receita só aparece depois do OAuth do Marco 2 e da entrada do canal no Progra
 
 Os dois podem ser editados à mão ou pela aba Configurações do painel.
 
+## Narração
+
+A seção `voice` do `config/pipeline.config.json` escolhe o motor em `voice.engine`:
+
+- **`gemini`** (padrão): Gemini TTS pela Interactions API ([documentação](https://ai.google.dev/gemini-api/docs/speech-generation)), com a mesma `GEMINI_API_KEY`. A resposta é PCM 16-bit, 24 kHz, mono. O Gemini não informa o tempo de cada palavra, então `python/tts/align_narration.py`:
+  1. encurta as pausas (trechos abaixo de -40 dBFS) para no máximo `voice.maxPauseMs`, com 50 ms de silêncio no início e 100 ms no fim;
+  2. transcreve o áudio final com o faster-whisper (modelo `base`, CPU/int8, ~5 s por minuto de áudio);
+  3. alinha o texto reconhecido ao roteiro, então as legendas usam exatamente as palavras do roteiro, na ordem certa.
+
+  Os números por extenso que o Whisper escreve com algarismos ("1818") recebem o tempo por interpolação. Se menos de 50% do roteiro for reconhecido no áudio (texto pulado, idioma errado), o estágio falha.
+
+  A saída é `narration.wav`; o áudio original do Gemini fica em `narration.source.wav`. O modelo do Whisper fica em `models/whisper/` (fora do Git): baixe uma vez com `--download-only`. Se ele faltar, a primeira execução baixa o modelo e avisa no log.
+
+  Os tokens de áudio entram em `llmUsage` como modelo `gemini-3.8-flash-tts`, a 25 tokens por segundo de áudio; um minuto de narração custa cerca de US$ 0,014 ([preços](https://ai.google.dev/gemini-api/docs/pricing)).
+- **`edge-tts`**: serviço não oficial da Microsoft (retorna 403 desde outubro de 2026). Gera `narration.mp3` com o tempo de cada palavra e encurta as pausas removendo quadros MP3 silenciosos (`python/tts/mp3_pauses.py`).
+
+| Campo | Motor | Padrão | Para quê |
+|---|---|---|---|
+| `engine` | os dois | `gemini` | `gemini` ou `edge-tts` |
+| `maxPauseMs` | os dois | `250` | maior pausa mantida entre palavras/frases, em ms (`0` não corta nada) |
+| `geminiModel` | gemini | `gemini-3.8-flash-tts` | também existe o `gemini-3.8-flash-lite-tts`, mais barato |
+| `geminiVoice` | gemini | `Fenrir` | voz pré-pronta (`Fenrir`, `Puck`, ...), da biblioteca (`pt-br-podcaster-12`, ...) ou criada (`voice_...`) |
+| `style` | gemini | "Narre em português do Brasil, tom curioso e envolvente, ritmo ágil de vídeo curto, sem pausas longas" | instrução de entrega (`speech_metadata.style`); o texto do roteiro é lido literalmente |
+| `name` | edge-tts | `pt-BR-AntonioNeural` | voz do edge-tts |
+| `rate` / `pitch` / `volume` | edge-tts | `+10%` / `+0Hz` / `+0%` | o Gemini ignora; para mudar o ritmo dele, use `style` |
+
 ## Estrutura
 
 ```
@@ -172,7 +199,8 @@ src/orchestrator/           orquestrador (runPipeline, estágios 01-08, libs de 
 src/orchestrator/publishers/ publicadores por plataforma (YouTube, Instagram; nova rede = um arquivo + uma linha no registro)
 src/remotion/               composição do vídeo (legendas, cenas, movimento)
 src/shared/                 contratos compartilhados com o painel (settings, histórico de uploads)
-python/tts/                 narração e lista de vozes (edge-tts)
+python/tts/                 narração: corte de pausas, alinhamento de palavras (Whisper) e o motor edge-tts
+models/whisper/             modelo do faster-whisper (baixado, fora do Git)
 vendor/openmontage_adapter/ adaptador de footage (chamado só como subprocesso)
 dashboard/                  painel local (Express + Vite + React)
 scripts/                    utilitários (estágio isolado, autorização do YouTube e do Instagram, setup do vendor, preview_still)
@@ -198,5 +226,6 @@ test/fixtures/              roteiro de exemplo para testar sem LLM
 
 - O Remotion avisa que esperava zod 4.5.4 (o projeto usa 4.6.5). Não afeta o render.
 - Ocasionalmente o Remotion registra `Page.bringToFront: Target closed` ao fechar o navegador. É inofensivo, o render termina normalmente.
-- O edge-tts usa um serviço não oficial da Microsoft e pode parar sem aviso. A alternativa planejada é o Piper TTS (offline).
+- O edge-tts usa um serviço não oficial da Microsoft e retorna 403 desde outubro de 2026. Por isso o motor padrão agora é o Gemini TTS; o edge-tts continua disponível com `voice.engine: "edge-tts"`, caso volte a funcionar.
+- A amostra de voz do painel (Configurações) ainda usa o edge-tts e o `narration.mp3`, então não funciona enquanto ele estiver fora do ar.
 - Ao iniciar o painel por um processo sem terminal (sem entrada padrão), use `npm run dev < NUL` dentro de `dashboard/`; caso contrário, o `tsx watch` trava antes de abrir a porta.

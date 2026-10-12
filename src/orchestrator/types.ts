@@ -7,6 +7,8 @@ export interface TopicPick {
   categoryId: string;
   categoryLabel: string;
   seedPrompt: string;
+  /** Narrative format drawn by 01-pickTopic so consecutive videos don't share one template (e.g. "lista", "mito-verdade"). */
+  format?: string;
 }
 
 export interface ScriptScene {
@@ -20,6 +22,10 @@ export interface Script {
   scenes: ScriptScene[];
   cta: string;
   language: string; // e.g. "pt-BR"
+  /** 3-5 word on-screen hook/cover text shown in the first seconds (fact-checked like the title). */
+  overlayText?: string;
+  /** Specific (may name a historical place/mission/artwork/deceased figure) query for the opening shot. */
+  hookFootageQuery?: string;
 }
 
 export interface FootageClip {
@@ -48,6 +54,8 @@ export interface WordTiming {
   word: string;
   startMs: number;
   endMs: number;
+  /** Content word worth highlighting (noun, number, key verb); set by 05-buildCaptions. Absent = treat as emphasized. */
+  emphasis?: boolean;
 }
 
 export interface Narration {
@@ -168,7 +176,7 @@ export interface FactCheckSummary {
 
 /** Written by 07-generateMetadata; already validated against YouTube limits. */
 export interface VideoMetadata {
-  title: string; // <= 100 chars, includes #Shorts
+  title: string; // <= 100 chars; the fact-checked script title (#Shorts goes in the description hashtags)
   description: string; // <= 5000 chars, includes image credits
   tags: string[]; // <= 500 chars as YouTube counts them
   categoryId: string;

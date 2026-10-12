@@ -1,38 +1,43 @@
 import type React from "react";
-import { AbsoluteFill, Img, interpolate, OffthreadVideo, Sequence, staticFile, useCurrentFrame } from "remotion";
+import { AbsoluteFill, Img, OffthreadVideo, Sequence, staticFile, useCurrentFrame } from "remotion";
 import type { ClipSegment, SceneProps } from "../shared.js";
+import { cameraAt, cameraTransform, fadeInOpacity } from "./motion.js";
 
 const coverStyle: React.CSSProperties = { width: "100%", height: "100%", objectFit: "cover", objectPosition: "center" };
-const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 
-/**
- * Linear camera move over the segment's lifetime. translateX is applied before scale (CSS composes
- * right-to-left), so the pan is in pre-scale % of the frame and stays inside the zoom's slack.
- */
-const MovingSegment: React.FC<{ segment: ClipSegment }> = ({ segment }) => {
-  const frame = useCurrentFrame(); // relative to the segment start
-  const { motion } = segment;
-  const progress = interpolate(frame, [0, Math.max(1, segment.durationInFrames - 1)], [0, 1], clamp);
-  const scale = motion.scaleFrom + (motion.scaleTo - motion.scaleFrom) * progress;
-  const panX = motion.panXFromPct + (motion.panXToPct - motion.panXFromPct) * progress;
+/** One shot: eased camera move over its own duration, optional dissolve-in over the previous shot. */
+const Shot: React.FC<{ segment: ClipSegment }> = ({ segment }) => {
+  const frame = useCurrentFrame(); // relative to the shot start
+  const camera = cameraAt(segment.motion, frame, segment.durationInFrames);
   const src = staticFile(segment.src);
 
   return (
-    <AbsoluteFill style={{ transform: `scale(${scale}) translateX(${panX}%)`, willChange: "transform" }}>
-      {segment.kind === "image" ? <Img src={src} style={coverStyle} /> : <OffthreadVideo src={src} muted style={coverStyle} />}
+    <AbsoluteFill style={{ opacity: fadeInOpacity(frame, segment.fadeInFrames), overflow: "hidden" }}>
+      <AbsoluteFill style={{ transform: cameraTransform(camera), willChange: "transform" }}>
+        {segment.kind === "image" ? (
+          <Img src={src} style={coverStyle} />
+        ) : (
+          <OffthreadVideo src={src} muted trimBefore={segment.trimBeforeFrames > 0 ? segment.trimBeforeFrames : undefined} style={coverStyle} />
+        )}
+      </AbsoluteFill>
     </AbsoluteFill>
   );
 };
 
 export const SceneBackground: React.FC<{ scene: SceneProps }> = ({ scene }) => {
   const frame = useCurrentFrame(); // relative to the scene's visual start (including lead-in)
-  const opacity = scene.leadInFrames > 0 ? interpolate(frame, [0, scene.leadInFrames], [0, 1], clamp) : 1;
+  const opacity = fadeInOpacity(frame, scene.leadInFrames);
 
   return (
     <AbsoluteFill style={{ opacity, backgroundColor: "#000", overflow: "hidden" }}>
       {scene.segments.map((segment, i) => (
-        <Sequence key={`${segment.src}-${i}`} from={segment.fromFrame} durationInFrames={segment.durationInFrames}>
-          <MovingSegment segment={segment} />
+        // A shot stays mounted under the next one while that one dissolves in.
+        <Sequence
+          key={`${segment.src}-${i}`}
+          from={segment.fromFrame}
+          durationInFrames={segment.durationInFrames + (scene.segments[i + 1]?.fadeInFrames ?? 0)}
+        >
+          <Shot segment={segment} />
         </Sequence>
       ))}
     </AbsoluteFill>

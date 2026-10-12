@@ -2,7 +2,7 @@ import { z } from "zod";
 import { loadConfig } from "../lib/config.js";
 import { generateJson } from "../lib/llmClient.js";
 import { getLogger } from "../lib/logger.js";
-import type { FootageClip, RunContext, Script, VideoMetadata } from "../types.js";
+import type { FootageClip, RunContext, Script, TopicPick, VideoMetadata } from "../types.js";
 
 // YouTube Data API limits (videos.insert snippet).
 export const TITLE_MAX = 100;
@@ -140,16 +140,75 @@ function collapseSpaces(text: string): string {
   return text.replace(/[ \t]+/g, " ").replace(/ *\n */g, "\n").trim();
 }
 
-/** Title with #Shorts, cut at a word boundary so the whole thing fits in 100 chars. */
+/**
+ * The fact-checked script title as published: no "#Shorts" (it lives in the description hashtags, which is
+ * enough for YouTube and keeps the title clean on Instagram/TikTok), cut at a word boundary to 100 chars.
+ */
 export function buildTitle(raw: string): string {
   const base = collapseSpaces(stripAngleBrackets(raw)).replace(/\s*#shorts\b/gi, "").replace(/\n/g, " ").trim();
-  const budget = TITLE_MAX - SHORTS_TAG.length - 1;
-  let title = base;
-  if (title.length > budget) {
-    const cut = title.slice(0, budget);
-    title = (cut.lastIndexOf(" ") > budget * 0.6 ? cut.slice(0, cut.lastIndexOf(" ")) : cut).replace(/[\s,;:.-]+$/, "");
+  if (base.length <= TITLE_MAX) return base;
+  const cut = base.slice(0, TITLE_MAX);
+  return (cut.lastIndexOf(" ") > TITLE_MAX * 0.6 ? cut.slice(0, cut.lastIndexOf(" ")) : cut).replace(/[\s,;:.-]+$/, "");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Hashtags
+// ---------------------------------------------------------------------------------------------
+
+/** Curated per-category hashtags (pt-BR, accented, lowercase); the LLM only adds 1-2 topic tags. */
+export const CATEGORY_HASHTAGS: Readonly<Record<string, readonly string[]>> = {
+  historia: ["#história", "#curiosidades", "#fatoshistóricos"],
+  ciencia: ["#ciência", "#curiosidades", "#fatoscuriosos"],
+  espaco: ["#espaço", "#astronomia", "#curiosidades"],
+};
+const DEFAULT_HASHTAGS = ["#curiosidades", "#fatoscuriosos"] as const;
+export const MAX_TOPIC_HASHTAGS = 2;
+
+/** Common unaccented spellings the model (or a keyboard) produces, fixed when they are the whole tag or its start/end. */
+const ACCENT_FIXES: readonly [string, string][] = [
+  ["historia", "história"], ["historicos", "históricos"], ["historico", "histórico"], ["ciencias", "ciências"], ["ciencia", "ciência"],
+  ["espaco", "espaço"], ["fisica", "física"], ["quimica", "química"], ["misterios", "mistérios"], ["misterio", "mistério"],
+  ["revolucao", "revolução"], ["exploracao", "exploração"], ["fenomeno", "fenômeno"], ["matematica", "matemática"],
+  ["imperio", "império"], ["evolucao", "evolução"], ["invencao", "invenção"], ["civilizacao", "civilização"],
+  ["egipcio", "egípcio"], ["grecia", "grécia"], ["planetario", "planetário"], ["vulcao", "vulcão"], ["oceanografia", "oceanografia"],
+];
+
+function fixAccents(word: string): string {
+  for (const [plain, accented] of ACCENT_FIXES) {
+    if (word === plain) return accented;
+    const rest = word.slice(plain.length);
+    if (word.startsWith(plain) && rest.length > 3 && !rest.startsWith("dor")) return accented + rest;
+    if (word.endsWith(plain) && word.length > plain.length + 3) return word.slice(0, -plain.length) + accented;
   }
-  return `${title} ${SHORTS_TAG}`;
+  return word;
+}
+
+const accentless = (tag: string): string => tag.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+
+/** "#Revolucao_Francesa" -> "#revoluçãofrancesa": lowercase, accents fixed, letters/digits only. */
+export function canonicalHashtag(tag: string): string | undefined {
+  const word = stripAngleBrackets(tag).normalize("NFC").replace(/^#+/, "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  return word ? `#${fixAccents(word)}` : undefined;
+}
+
+/**
+ * 3-5 hashtags: the curated set of the category plus up to 2 topic tags from the draft (deduplicated
+ * ignoring accents; generic ones like #shorts/#curiosidade/#historia are dropped). #Shorts is added by
+ * buildDescription.
+ */
+export function curateHashtags(categoryId: string | undefined, draft: readonly string[]): string[] {
+  const curated = [...(CATEGORY_HASHTAGS[categoryId ?? ""] ?? DEFAULT_HASHTAGS)];
+  const generic = new Set(["#shorts", "#short", "#curiosidade", "#curiosidades", "#historia", "#ciencia", "#espaco", "#fatos", "#vocesabia", "#viral", "#fyp"]);
+  const seen = new Set([...curated, ...generic].map(accentless));
+  const topic: string[] = [];
+  for (const raw of draft) {
+    const tag = canonicalHashtag(raw);
+    if (!tag || tag.length > 31 || seen.has(accentless(tag))) continue;
+    seen.add(accentless(tag));
+    topic.push(tag);
+    if (topic.length === MAX_TOPIC_HASHTAGS) break;
+  }
+  return [...curated, ...topic];
 }
 
 export function normalizeHashtag(tag: string): string | undefined {
@@ -213,7 +272,8 @@ export function fitDescription(parts: Omit<DescriptionParts, "credits">, footage
 /** Pre-render check: can this footage be credited within the description limit? */
 export function creditsFitDescription(script: Pick<Script, "hook">, footage: readonly FootageClip[]): boolean {
   try {
-    fitDescription({ hook: script.hook, context: "", hashtags: ["#Shorts", "#curiosidades", "#ciência"] }, footage);
+    // Worst case of curateHashtags: 3 curated + 2 topic tags.
+    fitDescription({ hook: script.hook, context: "", hashtags: ["#fatoshistóricos", "#curiosidades", "#história", `#${"x".repeat(30)}`, `#${"y".repeat(30)}`] }, footage);
     return true;
   } catch (error) {
     if (error instanceof DescriptionTooLongError) return false;
@@ -255,7 +315,7 @@ export function validateMetadata(meta: Pick<VideoMetadata, "title" | "descriptio
  */
 export const MetadataDraftSchema = z.object({
   context: z.array(z.string()).max(2).describe("Até 2 frases COPIADAS exatamente da narração"),
-  hashtags: z.array(z.string()).min(2).max(5),
+  hashtags: z.array(z.string()).min(1).max(5).describe("1 a 2 hashtags específicas do assunto, pt-BR com acentos, minúsculas"),
   tags: z.array(z.string()).min(5).max(20),
 });
 
@@ -302,7 +362,9 @@ Categoria: ${categoryLabel}
 Regras:
 - "context": 1 a 2 frases COPIADAS EXATAMENTE da narração acima (palavra por palavra, sem editar), que contextualizem
   o fato sem repetir o gancho. Não escreva frases novas.
-- "hashtags": 2 a 5 hashtags curtas em pt-BR relacionadas ao tema (sem #Shorts).
+- "hashtags": 1 a 2 hashtags ESPECÍFICAS do assunto (ex.: "#bastilha", "#urano", "#revoluçãofrancesa"), em pt-BR com acentos
+  corretos, minúsculas, sem espaços. Não repita as genéricas (#shorts, #curiosidades, #história, #ciência, #espaço):
+  elas são adicionadas automaticamente.
 - "tags": 8 a 15 palavras-chave de busca (pt-BR, algumas em inglês se fizer sentido), sem "#".`;
 }
 
@@ -310,7 +372,7 @@ Regras:
 export function fallbackDraft(script: Script, categoryLabel: string): MetadataDraft {
   return {
     context: splitSentences(script.scenes[0]?.narration ?? "").slice(0, 1),
-    hashtags: ["#curiosidades", `#${categoryLabel}`],
+    hashtags: [],
     tags: ["curiosidades", categoryLabel, "shorts", "você sabia", "fatos curiosos"],
   };
 }
@@ -319,8 +381,11 @@ export interface MetadataInput {
   script: Script;
   footage: readonly FootageClip[];
   draft: MetadataDraft;
+  /** YouTube category id (e.g. "27"). */
   categoryId: string;
   language: string;
+  /** Pipeline topic (picks the curated hashtag set); absent = generic set. */
+  topic?: Pick<TopicPick, "categoryId">;
 }
 
 export function assembleMetadata(input: MetadataInput): VideoMetadata {
@@ -328,7 +393,10 @@ export function assembleMetadata(input: MetadataInput): VideoMetadata {
   const metadata: VideoMetadata = {
     // Published title = the fact-checked script title (never a fresh LLM draft).
     title: buildTitle(script.title),
-    description: fitDescription({ hook: script.hook, context: verbatimContext(draft.context, script), hashtags: draft.hashtags }, footage),
+    description: fitDescription(
+      { hook: script.hook, context: verbatimContext(draft.context, script), hashtags: curateHashtags(input.topic?.categoryId, draft.hashtags) },
+      footage,
+    ),
     tags: buildTags(draft.tags),
     categoryId: input.categoryId,
     defaultLanguage: input.language,
@@ -357,6 +425,7 @@ export async function run(ctx: RunContext): Promise<RunContext> {
     draft,
     categoryId: String(config.upload.categoryId),
     language: config.voice.language,
+    topic: ctx.topic,
   });
   const credited = uniqueClips(ctx.footage ?? []).filter((c) => licenseKind(c) === "attribution").length;
   log.info(

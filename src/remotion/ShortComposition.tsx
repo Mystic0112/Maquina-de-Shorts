@@ -2,6 +2,7 @@ import type React from "react";
 import { AbsoluteFill, Audio, Sequence, staticFile } from "remotion";
 import { Captions } from "./components/Captions.js";
 import { backdropGradient } from "./components/captionStyle.js";
+import { OverlayHook } from "./components/OverlayHook.js";
 import { SceneBackground } from "./components/SceneBackground.js";
 import type { ShortProps } from "./shared.js";
 
@@ -14,7 +15,7 @@ const FallbackBackground: React.FC = () => (
   <AbsoluteFill style={{ background: "linear-gradient(160deg, #1b1f3b 0%, #0b0d1a 100%)" }} />
 );
 
-export const ShortComposition: React.FC<ShortProps> = ({ scenes, captions, audioSrc, style }) => {
+export const ShortComposition: React.FC<ShortProps> = ({ scenes, captions, overlay, audioSrc, style }) => {
   const showCaptions = style.captions.enabled && captions.length > 0;
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
@@ -30,6 +31,7 @@ export const ShortComposition: React.FC<ShortProps> = ({ scenes, captions, audio
       ))}
       {showCaptions && style.visual.captionBackdrop ? <LegibilityScrim verticalPosition={style.captions.verticalPosition} /> : null}
       {showCaptions ? <Captions chunks={captions} settings={style.captions} /> : null}
+      {overlay ? <OverlayHook overlay={overlay} captions={style.captions} /> : null}
       {audioSrc ? <Audio src={staticFile(audioSrc)} /> : null}
     </AbsoluteFill>
   );

@@ -14,7 +14,7 @@ export const CAPTION_SAFE_LEFT = 0.08;
 export const CAPTION_SAFE_RIGHT = 0.15; // Shorts action buttons live on the right edge
 
 /** Approx. average glyph advance per font, in em, used to keep the longest word on one line. */
-const AVG_GLYPH_EM: Record<CaptionFont, number> = {
+export const AVG_GLYPH_EM: Record<CaptionFont, number> = {
   "arial-black": 0.8,
   impact: 0.56,
   "segoe-black": 0.74,
@@ -53,6 +53,19 @@ export function activeWordIndex(words: CaptionWordProps[], frame: number): numbe
   return index;
 }
 
+/**
+ * Index of the word painted in the highlight color, or -1. "color": the word being spoken. "keywords":
+ * the latest spoken content word (emphasis), so "DE"/"DA" never light up and the keyword stays lit
+ * while the small words after it are spoken. "none": no word.
+ */
+export function highlightedWordIndex(words: CaptionWordProps[], frame: number, mode: Captions["highlight"]): number {
+  if (mode === "none" || words.length === 0) return -1;
+  const active = activeWordIndex(words, frame);
+  if (mode === "color") return active;
+  for (let i = active; i >= 0; i--) if (words[i]!.emphasis) return i;
+  return -1;
+}
+
 /** Crisp 8-direction hard shadow (thick outline) plus a soft drop shadow for depth. */
 function outlineShadow(fontSize: number, strokeColor: string): string {
   const r = Math.round(fontSize * HARD_SHADOW_EM);
@@ -62,15 +75,23 @@ function outlineShadow(fontSize: number, strokeColor: string): string {
   return [...hard, `0 ${Math.round(fontSize * 0.1)}px ${Math.round(fontSize * 0.2)}px rgba(0,0,0,0.85)`].join(", ");
 }
 
-export function captionWordStyle(active: boolean, fontSize: number, captions: Captions = CAPTION_DEFAULTS): CSSProperties {
-  const highlighted = active && captions.highlight === "color";
+/** Thick outline + shadow shared by captions and the hook overlay (identical for every word). */
+export function outlinedTextStyle(fontSize: number, strokeColor: string): CSSProperties {
+  return {
+    WebkitTextStroke: `${Math.round(fontSize * STROKE_EM)}px ${strokeColor}`,
+    paintOrder: "stroke fill",
+    textShadow: outlineShadow(fontSize, strokeColor),
+  };
+}
+
+/** `highlighted`: chosen by highlightedWordIndex(); only the color changes, never the box or outline. */
+export function captionWordStyle(highlighted: boolean, fontSize: number, captions: Captions = CAPTION_DEFAULTS): CSSProperties {
+  const lit = highlighted && captions.highlight !== "none";
   return {
     display: "inline-block",
     whiteSpace: "nowrap",
-    color: highlighted ? captions.highlightColor : captions.textColor,
-    WebkitTextStroke: `${Math.round(fontSize * STROKE_EM)}px ${captions.strokeColor}`,
-    paintOrder: "stroke fill",
-    textShadow: outlineShadow(fontSize, captions.strokeColor),
+    color: lit ? captions.highlightColor : captions.textColor,
+    ...outlinedTextStyle(fontSize, captions.strokeColor),
   };
 }
 

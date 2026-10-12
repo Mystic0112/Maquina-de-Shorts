@@ -40,6 +40,12 @@ export const MAX_REEL_BYTES = 300 * 1024 * 1024;
 /** Meta documents 50 (content_publishing_limit reference); used only when the API omits quota_total. */
 export const DEFAULT_QUOTA_TOTAL = 50;
 export const LOCKED_PRIVATE_WARNING = "Instagram publicou o Reel como privado";
+/**
+ * Reel cover frame (`thumb_offset`, ms; Meta: "for videos and reels, the location in milliseconds of the frame used
+ * as the cover", default 0 = first frame). 1.2 s falls inside the on-screen hook text window (visual.overlayHookSeconds,
+ * 2.5 s by default, at least 1 s), after its entrance animation, so the grid shows the overlay text, not a fade-in.
+ */
+export const REEL_COVER_OFFSET_MS = 1200;
 
 export function resolveInstagramSettings(section: InstagramSettings | undefined): Required<InstagramSettings> {
   return resolveInstagram(section);
@@ -47,6 +53,8 @@ export function resolveInstagramSettings(section: InstagramSettings | undefined)
 
 export interface InstagramPost {
   caption: string;
+  /** Cover frame in ms (thumb_offset); undefined = Meta's default (first frame). */
+  coverOffsetMs?: number;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -73,7 +81,7 @@ export interface MediaSummary {
 
 export interface InstagramClient {
   publishingLimit(): Promise<{ usage: number; total: number }>;
-  createReelContainer(caption: string): Promise<{ id: string; uploadUri?: string }>;
+  createReelContainer(caption: string, coverOffsetMs?: number): Promise<{ id: string; uploadUri?: string }>;
   getContainer(containerId: string): Promise<ContainerState>;
   /** Best effort (video_status); undefined when the API does not tell. */
   uploadState(containerId: string): Promise<UploadState | undefined>;
@@ -130,8 +138,10 @@ export function createGraphClient(token: Pick<InstagramToken, "accessToken" | "u
       const config = json.config && typeof json.config === "object" ? (json.config as Record<string, unknown>) : {};
       return { usage: numberField(json.quota_usage) ?? 0, total: numberField(config.quota_total) ?? DEFAULT_QUOTA_TOTAL };
     },
-    async createReelContainer(caption) {
-      const json = await post(`${userId}/media`, { media_type: "REELS", upload_type: "resumable", caption });
+    async createReelContainer(caption, coverOffsetMs) {
+      const params: Record<string, string> = { media_type: "REELS", upload_type: "resumable", caption };
+      if (coverOffsetMs !== undefined && coverOffsetMs >= 0) params.thumb_offset = String(Math.round(coverOffsetMs));
+      const json = await post(`${userId}/media`, params);
       const id = stringField(json, "id");
       if (!id) throw new InstagramApiError("Container creation returned no id");
       return { id: assertId(id, "container"), uploadUri: stringField(json, "uri") };
@@ -364,7 +374,7 @@ export async function publishReel(
   await assertQuota(client, log);
   let container: { id: string; uploadUri?: string } = { id: session.sessionUri ?? "" };
   if (resume.kind === "new") {
-    container = await client.createReelContainer(post.caption);
+    container = await client.createReelContainer(post.caption, post.coverOffsetMs);
     await session.onSession(container.id); // journaled before the first byte is sent
     log.info(`Created Instagram container ${container.id}`);
   }
@@ -385,6 +395,8 @@ export interface InstagramPublisherDeps {
   /** Overrides the Graph client (tests). Receives the (refreshed) token. */
   createClient?: (token: InstagramToken) => InstagramClient;
   publishOptions?: PublishReelOptions;
+  /** Reel cover frame in ms (default REEL_COVER_OFFSET_MS). */
+  coverOffsetMs?: number;
 }
 
 function profileUrl(tokenFile: string): string {
@@ -444,7 +456,10 @@ export function createInstagramPublisher(settings: Required<InstagramSettings>, 
       lockedPrivateWarning: LOCKED_PRIVATE_WARNING,
     },
     blockers: (ctx) => [...instagramTokenProblems(tokenFile, now()), ...captionProblems(ctx)],
-    buildPost: (ctx: PublishableContext): InstagramPost => ({ caption: buildInstagramCaption(ctx.metadata, ctx.footage ?? []) }),
+    buildPost: (ctx: PublishableContext): InstagramPost => ({
+      caption: buildInstagramCaption(ctx.metadata, ctx.footage ?? []),
+      coverOffsetMs: deps.coverOffsetMs ?? REEL_COVER_OFFSET_MS,
+    }),
     connect,
     postUrl: (postId) => permalinks.get(postId) ?? profileUrl(tokenFile),
   };

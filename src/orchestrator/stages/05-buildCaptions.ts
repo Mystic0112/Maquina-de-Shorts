@@ -1,20 +1,14 @@
 import { resolveCaptions } from "../../shared/settings.js";
 import { loadConfig } from "../lib/config.js";
 import { getLogger } from "../lib/logger.js";
+import { isDanglingWord, isEmphasisWord, normalizeToken } from "../lib/ptBr.js";
 import type { CaptionCue, Captions, RunContext, SceneTiming, Script, WordTiming } from "../types.js";
 
 // ---------------------------------------------------------------------------------------------
 // Tokens
 // ---------------------------------------------------------------------------------------------
 
-/** Lowercase, strip accents and anything that is not a letter/digit. "Ninguém," -> "ninguem". */
-export function normalizeToken(text: string): string {
-  return text
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]/gu, "");
-}
+export { normalizeToken };
 
 const CLAUSE_END = /[.,!?;:…]["'”’»)\]]*$/u;
 
@@ -279,6 +273,8 @@ export interface CueOptions {
   maxDurationMs: number;
   /** Extend a cue's end to the next cue's start when the gap is at most this (avoids flicker). */
   bridgeGapMs: number;
+  /** Never end a cue on an article/preposition/conjunction: it moves to the next cue when that still fits. */
+  avoidDanglingWords?: boolean;
 }
 
 export const DEFAULT_CUE_OPTIONS: CueOptions = { maxWords: 3, maxChars: 16, maxDurationMs: 1200, bridgeGapMs: 250 };
@@ -288,17 +284,21 @@ export const DEFAULT_CUE_OPTIONS: CueOptions = { maxWords: 3, maxChars: 16, maxD
  * 16-char / 1.2 s limits; 4 words gets proportionally more room (24 chars, 1.6 s) so it can actually
  * form. Stage 06 only re-splits cues longer than maxWordsPerCue, so both stay consistent.
  */
-export function cueOptionsFor(maxWordsPerCue: number): CueOptions {
+export function cueOptionsFor(maxWordsPerCue: number, avoidDanglingWords = false): CueOptions {
   const maxWords = Math.max(1, Math.round(maxWordsPerCue));
   return {
     ...DEFAULT_CUE_OPTIONS,
     maxWords,
     maxChars: maxWords <= DEFAULT_CUE_OPTIONS.maxWords ? DEFAULT_CUE_OPTIONS.maxChars : 6 * maxWords,
     maxDurationMs: Math.max(DEFAULT_CUE_OPTIONS.maxDurationMs, 400 * maxWords),
+    ...(avoidDanglingWords ? { avoidDanglingWords } : {}),
   };
 }
 
-/** Groups words into 1-3 word cues, breaking on punctuation/scene changes, length and duration limits. */
+/**
+ * Groups words into 1-3 word cues, breaking on punctuation/scene changes, length and duration limits.
+ * Every cue word carries `emphasis` (content word vs article/preposition/pronoun) for keyword highlighting.
+ */
 export function groupWordsIntoCues(
   words: readonly WordTiming[],
   options: CueOptions = DEFAULT_CUE_OPTIONS,
@@ -312,12 +312,37 @@ export function groupWordsIntoCues(
   };
   words.forEach((word, j) => {
     if (!normalizeToken(word.word)) return; // pure punctuation tokens are not displayed
-    if (current.length > 0 && !fitsInCue(current, word, options)) flush();
-    current.push({ ...word, word: word.word.trim() });
+    const text = word.word.trim();
+    const next: WordTiming = { ...word, word: text, emphasis: isEmphasisWord(text) };
+    if (current.length > 0 && !fitsInCue(current, next, options)) current = closeCue(groups, current, next, options);
+    current.push(next);
     if (breakAfter.has(j) || endsClause(word.word)) flush();
   });
   flush();
   return bridgeGaps(groups.map(toCue), options.bridgeGapMs);
+}
+
+/**
+ * Closes `current` as a cue because `next` does not fit. With avoidDanglingWords, trailing articles,
+ * prepositions and conjunctions ("O CHEIRO DA") move to the next cue ("DA LUA") when they still fit there
+ * with `next`; otherwise the cue closes as is. Returns the words that start the next cue.
+ */
+function closeCue(groups: WordTiming[][], current: readonly WordTiming[], next: WordTiming, options: CueOptions): WordTiming[] {
+  const tail = options.avoidDanglingWords ? danglingTailLength(current) : 0;
+  const carried = current.slice(current.length - tail);
+  if (tail > 0 && fitsInCue(carried, next, options)) {
+    groups.push(current.slice(0, current.length - tail));
+    return carried;
+  }
+  groups.push([...current]);
+  return [];
+}
+
+/** Trailing dangling words of a group, always leaving at least one word behind. */
+function danglingTailLength(group: readonly WordTiming[]): number {
+  let n = 0;
+  while (n < group.length - 1 && isDanglingWord(group[group.length - 1 - n]?.word ?? "")) n++;
+  return n;
 }
 
 function fitsInCue(current: readonly WordTiming[], next: WordTiming, options: CueOptions): boolean {
@@ -381,11 +406,18 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   if (!ctx.script) throw new Error("05-buildCaptions requires ctx.script");
   if (!ctx.narration) throw new Error("05-buildCaptions requires ctx.narration (run 04-synthesizeVoice first)");
   const log = getLogger(ctx.runId);
-  const cueOptions = cueOptionsFor(resolveCaptions(loadConfig().captions).maxWordsPerCue);
+  const captionSettings = resolveCaptions(loadConfig().captions);
+  const cueOptions = cueOptionsFor(captionSettings.maxWordsPerCue, captionSettings.avoidDanglingWords);
   const { captions, alignment } = buildCaptions(ctx.script, ctx.narration.words, ctx.narration.durationMs, cueOptions);
   const ratio = `${Math.round(alignment.matchRatio * 100)}%`;
   if (alignment.usedFallback) log.warn(`Word alignment weak (${ratio} matched); scenes split proportionally`);
   const sceneSummary = captions.scenes.map((s) => `${s.sceneIndex}:${s.startMs}-${s.endMs}`).join(" ");
-  log.info(`Captions: ${captions.cues.length} cues (max ${cueOptions.maxWords} words), alignment ${ratio}, scenes ${sceneSummary}`);
+  const cueWords = captions.cues.flatMap((c) => c.words);
+  const emphasized = cueWords.filter((w) => w.emphasis).length;
+  const dangling = captions.cues.filter((c) => c.words.length > 1 && isDanglingWord(c.words.at(-1)?.word ?? "")).length;
+  log.info(
+    `Captions: ${captions.cues.length} cues (max ${cueOptions.maxWords} words${cueOptions.avoidDanglingWords ? ", no dangling words" : ""}), ` +
+      `${emphasized}/${cueWords.length} words emphasized, ${dangling} cue(s) ending on a function word, alignment ${ratio}, scenes ${sceneSummary}`,
+  );
   return { ...ctx, captions };
 }
