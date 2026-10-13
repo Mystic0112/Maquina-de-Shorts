@@ -121,6 +121,8 @@ export const PipelineConfigSchema = z.object({
         .object({
           /** false skips the LLM vision gate (debugging); default true. */
           enabled: z.boolean().optional(),
+          /** LLM provider used specifically for visual relevance scoring. Default uses LLM_PROVIDER. */
+          provider: z.enum(["gemini", "anthropic", "antigravity-cli"]).optional(),
           /** Minimum 0-10 score for a clip to pass; default 6. */
           minScore: z.number().min(0).max(10).optional(),
           /** Last-resort floor for below-threshold clips; default 4. */

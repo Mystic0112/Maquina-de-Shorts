@@ -3,7 +3,14 @@ import { z } from "zod";
 import type { FootageClip, QualitySummary, ScriptScene } from "../types.js";
 import type { PipelineConfig } from "./config.js";
 import { extractFrames } from "./ffmpeg.js";
-import { generateJson, generateJsonWithImages, type ThinkingSetting } from "./llmClient.js";
+import {
+  generateJson,
+  generateJsonWithImages,
+  type CallOptions,
+  type LlmProvider,
+  type LlmProviderName,
+  type ThinkingSetting,
+} from "./llmClient.js";
 
 // ---------------------------------------------------------------------------------------------
 // Settings & verdicts
@@ -17,6 +24,7 @@ export interface RelevanceSettings {
   keepPerScene: number;
   concurrency: number;
   thinking: ThinkingSetting;
+  provider?: LlmProviderName;
 }
 
 export const DEFAULT_KEEP_PER_SCENE = 3;
@@ -31,6 +39,7 @@ export function resolveRelevanceSettings(footage: PipelineConfig["footage"]): Re
     keepPerScene: r?.keepPerScene ?? DEFAULT_KEEP_PER_SCENE,
     concurrency: r?.concurrency ?? 4,
     thinking: r?.thinking ?? "low",
+    provider: r?.provider,
   };
 }
 
@@ -325,6 +334,7 @@ export async function scoreClip(
   title?: string,
   thinking: ThinkingSetting = "low",
   hook?: string,
+  provider?: LlmProvider,
 ): Promise<ScoredClip> {
   try {
     const duration = clip.kind === "image" ? 0 : clip.durationSeconds;
@@ -332,7 +342,11 @@ export async function scoreClip(
     const images = frames.map((data) => ({ mimeType: "image/jpeg" as const, data }));
     const prompt = buildRelevancePrompt(scene, images.length, title, clip.kind, hook);
     // Low temperature: a reviewer should give the same clip the same score on every run.
-    const verdict = await generateJsonWithImages(prompt, images, RelevanceVerdictSchema, { thinking, temperature: 0.2 });
+    const verdict = await generateJsonWithImages(prompt, images, RelevanceVerdictSchema, {
+      thinking,
+      temperature: 0.2,
+      ...(provider ? { provider } : {}),
+    });
     return { clip, verdict };
   } catch (error) {
     return { clip, error: error instanceof Error ? error.message.split("\n")[0] : String(error) };

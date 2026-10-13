@@ -17,6 +17,28 @@ Estado em 2026-10-12: o comando `antigravity` (`D:\Antigravity\...`) é o **edit
 
 Implementação do teste: novo provedor `LLM_PROVIDER=antigravity-cli` em `src/orchestrator/lib/llmClient.ts`, ligado só para a avaliação de imagens (`footage.relevance`) por configuração. Rodar com ~20 imagens que já têm nota do Gemini via API (estão nos `context.json` de `render_output/`) e medir: concordância de notas, falhas, tempo por chamada, se a cota aguenta. **Critério para seguir:** ≥ 90% de concordância no "aprova/reprova", < 2% de falhas, sem intervenção manual em 50 chamadas seguidas. Se passar, migrar etapa por etapa (roteiro, checagem de fatos, metadados; a voz depende de o CLI gerar áudio). A API fica como reserva automática quando o CLI falhar.
 
+### Resultados do teste da Parte A (executado em 2026-10-12)
+
+O primeiro teste comparou o `agy` (com modelo medium) contra o histórico da API (que rodava em thinking low/orig), apresentando 50% de concordância devido ao maior rigor visual do raciocínio estendido.
+
+Em seguida, foi realizada a **revisão de segurança e o benchmark comparativo justo** (ambos avaliando as mesmas imagens em tempo real com thinking **medium**):
+
+1. **Medidas de segurança no provedor `antigravity-cli`:**
+   - Remoção de `--dangerously-skip-permissions`.
+   - Execução em `--sandbox` com permissão estrita (`read_file(*)` / `view_file` para inspeção visual).
+   - Execução isolada com `cwd` em pasta temporária contendo unicamente as imagens da chamada.
+   - Variáveis de ambiente higienizadas via `minimalChildEnv` (nenhuma chave de API ou segredo exposto ao subprocesso).
+   - Caminho configurável via `ANTIGRAVITY_CLI_PATH` ou PATH do sistema operacional (`agy`), eliminando caminhos absolutos fixos.
+   - Tratamento de erro de status do agy corrigido (não mais engolido) e rastreamento preciso do `modelToUse` no `recordLlmUsage`.
+   - Cópias das 20 mídias arquivadas em `data/benchmark/` para conferência visual.
+
+2. **Resultados do benchmark comparativo justo (API Medium vs AGY Medium):**
+   - **Concordância Aprova/Reprova:** **90,0%** (18 de 20) — **atingiu a meta de viabilidade de >= 90%**.
+   - **Diferença média de notas:** **0,55 pontos** (escala 0-10) — concordância altíssima entre os modelos.
+   - **Taxa de falhas técnicas:** **0,0%** no AGY e **0,0%** na API.
+   - **Tempo médio:** 7,3 s na API vs 33,5 s no AGY.
+   - **Resultados e amostras salvas:** arquivados em `data/agy_benchmark_results.json` e `data/benchmark/`.
+
 Alternativa para o custo das imagens, independente do CLI: triagem local com SigLIP/CLIP na RTX 3050 (8 GB), mantendo o Gemini só como juiz final dos 1–2 melhores candidatos por cena (corta ~60% das chamadas de imagem).
 
 ## Parte B — multicontas

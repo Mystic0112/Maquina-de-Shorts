@@ -34,6 +34,7 @@ import { PythonExitError, runPythonJson } from "../lib/python.js";
 import { RunRejectedError } from "../lib/rejection.js";
 import { creditsFitDescription } from "./07-generateMetadata.js";
 import { redactSecrets } from "../lib/redact.js";
+import { getProviderByName } from "../lib/llmClient.js";
 import type { FootageClip, RunContext, Script, ScriptScene } from "../types.js";
 
 const FOOTAGE_SCRIPT = "vendor/openmontage_adapter/fetch_footage.py";
@@ -416,10 +417,11 @@ export function sceneForClip(
 
 async function scoreAll(clips: readonly FootageClip[], gate: GateContext): Promise<ScoredClip[]> {
   const { settings, stats, log } = gate;
+  const relevanceProvider = settings.provider ? getProviderByName(settings.provider) : undefined;
   return mapWithConcurrency(clips, settings.concurrency, async (clip) => {
     const started = performance.now();
     const scene = sceneForClip(gate.script, clip, gate.altQueries);
-    const raw = await scoreClip(clip, scene, gate.dirs.frames, gate.script.title, settings.thinking, gate.script.hook);
+    const raw = await scoreClip(clip, scene, gate.dirs.frames, gate.script.title, settings.thinking, gate.script.hook, relevanceProvider);
     const scored = penalizeLowResolution(raw, gate.sourceSizes.get(clip.path));
     stats.visionCalls++;
     if (scored.verdict) {

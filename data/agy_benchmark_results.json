@@ -1,0 +1,720 @@
+{
+  "timestamp": "2026-10-13T01:01:55.353Z",
+  "benchmarkConfiguration": {
+    "modelAgy": "gemini-3.8-flash-medium (via agy CLI sandbox)",
+    "modelApi": "gemini-flash-latest (thinking medium)",
+    "thinkingSetting": "medium",
+    "imagesCopiedTo": "data/benchmark"
+  },
+  "totalEvaluated": 20,
+  "validComparisons": 20,
+  "agreementRatePercent": 90,
+  "averageScoreDifference": 0.55,
+  "agyFailureRatePercent": 0,
+  "apiFailureRatePercent": 0,
+  "averageAgyDurationSeconds": 33.5,
+  "averageApiDurationSeconds": 7.3,
+  "totalDurationSeconds": 815,
+  "results": [
+    {
+      "index": 1,
+      "file": "3_r1.jpg",
+      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\01_20261003-012134-95ce_3_r1.jpg",
+      "runId": "20261003-012134-95ce",
+      "sceneIndex": 3,
+      "historicalApi": {
+        "score": 4,
+        "matches": false,
+        "reason": "The satellite view shows a localized smoke plume over Earth terrain rather than a dense planetary atmosphere.",
+        "passed": false
+      },
+      "apiMedium": {
+        "score": 2,
+        "matches": false,
+        "reason": "The image shows a satellite view of Earth with rivers and a localized smoke plume, completely failing to illustrate Venus's thick planetary atmosphere.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": true,
+        "passed": false,
+        "durationSeconds": 8.8
+      },
+      "agyMedium": {
+        "score": 1,
+        "matches": false,
+        "reason": "The image shows satellite imagery of Earth featuring desert terrain, rivers, and a localized smoke plume rather than the thick atmosphere or sulfuric acid clouds of Venus.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": true,
+        "passed": false,
+        "durationSeconds": 26.8
+      },
+      "agreementWithApiMedium": true,
+      "scoreDiffWithApiMedium": 1
+    },
+    {
+      "index": 2,
+      "file": "4_r3.jpg",
+      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\02_20261003-034812-fb04_4_r3.jpg",
+      "runId": "20261003-034812-fb04",
+      "sceneIndex": 4,
+      "historicalApi": {
+        "score": 5,
+        "matches": true,
+        "reason": "The image shows a historical battlefield artillery scene that loosely matches the mention of a bloody battle.",
+        "passed": false
+      },
+      "apiMedium": {
+        "score": 2,
+        "matches": false,
+        "reason": "The image shows an American Civil War reenactment with 19th-century artillery instead of the 1789 storming of the Bastille fortress in Paris.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": true,
+        "passed": false,
+        "durationSeconds": 6.3
+      },
+      "agyMedium": {
+        "score": 2,
+        "matches": false,
+        "reason": "The image shows an American Civil War artillery reenactment with 19th-century uniforms and tents, which is an anachronism for the 1789 storming of the Bastille in Paris.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": true,
+        "passed": false,
+        "durationSeconds": 34
+      },
+      "agreementWithApiMedium": true,
+      "scoreDiffWithApiMedium": 0
+    },
+    {
+      "index": 3,
+      "file": "1_r3.jpg",
+      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\03_20261003-012134-95ce_1_r3.jpg",
+      "runId": "20261003-012134-95ce",
+      "sceneIndex": 1,
+      "historicalApi": {
+        "score": 6,
+        "matches": true,
+        "reason": "The image shows planetary orbits in the solar system, which loosely supports narration about planetary rotation.",
+        "passed": true
+      },
+      "apiMedium": {
+        "score": 5.5,
+        "matches": true,
+        "reason": "The image shows a simplistic diagram of planets orbiting the Sun, which loosely fits the discussion of planetary orbits and rotation periods but does not specifically illustrate Venus or its axial rotation.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": false,
+        "durationSeconds": 5.8
+      },
+      "agyMedium": {
+        "score": 5,
+        "matches": false,
+        "reason": "The image depicts a simplified diagram of inner planets orbiting the Sun rather than a focused view of Venus rotating on its axis, providing only a loose topical match.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": false,
+        "durationSeconds": 33.6
+      },
+      "agreementWithApiMedium": true,
+      "scoreDiffWithApiMedium": 0.5
+    },
+    {
+      "index": 4,
+      "file": "1_r4.mp4",
+      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\04_20261003-024238-838c_1_r4.mp4",
+      "runId": "20261003-024238-838c",
+      "sceneIndex": 1,
+      "historicalApi": {
+        "score": 6,
+        "matches": true,
+        "reason": "The frames show an active archaeological dig with ancient stone ruins, fitting the excavation topic though the architecture looks more Greco-Roman than Egyptian.",
+        "passed": true
+      },
+      "apiMedium": {
+        "score": 3,
+        "matches": false,
+        "reason": "The footage shows an active archaeological excavation of a classical Greco-Roman site with marble column bases, which does not match ancient Egyptian pyramid worker settlements.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": true,
+        "passed": false,
+        "durationSeconds": 14.7
+      },
+      "agyMedium": {
+        "score": 2,
+        "matches": false,
+        "reason": "The footage shows a modern excavation at a classical Greco-Roman site with machinery, which belongs to the wrong civilization and era for ancient Egyptian pyramid settlements.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": true,
+        "passed": false,
+        "durationSeconds": 52.2
+      },
+      "agreementWithApiMedium": true,
+      "scoreDiffWithApiMedium": 1
+    },
+    {
+      "index": 5,
+      "file": "0_1.jpg",
+      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\05_20261003-024830-116b_0_1.jpg",
+      "runId": "20261003-024830-116b",
+      "sceneIndex": 0,
+      "historicalApi": {
+        "score": 6,
+        "matches": true,
+        "reason": "The comic-style illustration depicts an astronaut wearing a helmet, which loosely fits the narration about taking off helmets.",
+        "passed": true
+      },
+      "apiMedium": {
+        "score": 4,
+        "matches": false,
+        "reason": "The image is a stylized black-and-white comic illustration of an astronaut with a helmet on, offering only a loose stylistic connection to astronauts taking off their helmets.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": false,
+        "durationSeconds": 9.2
+      },
+      "agyMedium": {
+        "score": 6,
+        "matches": true,
+        "reason": "The image is a black-and-white comic illustration of an astronaut wearing a helmet, which loosely fits the mention of astronauts and helmets but does not show them removing the helmet or inside a spacecraft.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": true,
+        "durationSeconds": 26.2
+      },
+      "agreementWithApiMedium": false,
+      "scoreDiffWithApiMedium": 2
+    },
+    {
+      "index": 6,
+      "file": "1_1.jpg",
+      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\06_20261003-025324-b368_1_1.jpg",
+      "runId": "20261003-025324-b368",
+      "sceneIndex": 1,
+      "historicalApi": {
+        "score": 6,
+        "matches": true,
+        "reason": "The image shows traditional riding boots, though the heels mentioned in the narration are mostly obscured.",
+        "passed": true
+      },
+      "apiMedium": {
+        "score": 4,
+        "matches": false,
+        "reason": "The image shows traditional Mongolian gutal boots in a display case, which have flat soles rather than the heels described in the narration.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": false,
+        "durationSeconds": 8.7
+      },
+      "agyMedium": {
+        "score": 3,
+        "matches": false,
+        "reason": "The image shows traditional flat-soled riding boots in a museum display case without the heel described in the narration, making it misleading for this specific line.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": false,
+        "durationSeconds": 57.3
+      },
+      "agreementWithApiMedium": true,
+      "scoreDiffWithApiMedium": 1
+    },
+    {
+      "index": 7,
+      "file": "2_r2.jpg",
+      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\07_20261003-031631-4dd2_2_r2.jpg",
+      "runId": "20261003-031631-4dd2",
+      "sceneIndex": 2,
+      "historicalApi": {
+        "score": 6,
+        "matches": true,
+        "reason": "The image shows a full view of Earth from space, which generally relates to orbiting satellites and planetary safety.",
+        "passed": true
+      },
+      "apiMedium": {
+        "score": 6,
+        "matches": true,
+        "reason": "The image shows a full view of planet Earth from orbit, providing an appropriate global context for satellites deorbiting away from inhabited cities.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": true,
+        "durationSeconds": 6.4
+      },
+      "agyMedium": {
+        "score": 6,
+        "matches": true,
+        "reason": "The image shows a clear view of planet Earth from orbit, which provides a fitting general space context for a line about deorbiting satellites avoiding inhabited areas, although it does not directly show any spacecraft.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": true,
+        "durationSeconds": 35.8
+      },
+      "agreementWithApiMedium": true,
+      "scoreDiffWithApiMedium": 0
+    },
+    {
+      "index": 8,
+      "file": "2_r2.jpg",
+      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\08_20261003-034812-fb04_2_r2.jpg",
+      "runId": "20261003-034812-fb04",
+      "sceneIndex": 2,
+      "historicalApi": {
+        "score": 6,
+        "matches": true,
+        "reason": "The painting shows a prisoner behind bars being visited, which loosely fits the narration about detained non-political prisoners.",
+        "passed": true
+      },
+      "apiMedium": {
+        "score": 2,
+        "matches": false,
+        "reason": "The image shows a medieval romance painting of a captive, which is visibly anachronistic for the 18th-century French prisoners of the Bastille.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": true,
+        "passed": false,
+        "durationSeconds": 6.8
+      },
+      "agyMedium": {
+        "score": 2,
+        "matches": false,
+        "reason": "The image shows a medieval painting of a woman visiting a prisoner at a barred window, which is anachronistic for 1789 Paris.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": true,
+        "passed": false,
+        "durationSeconds": 47.1
+      },
+      "agreementWithApiMedium": true,
+      "scoreDiffWithApiMedium": 0
+    },
+    {
+      "index": 9,
+      "file": "3_r0.mp4",
+      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\09_20261003-042046-9d9b_3_r0.mp4",
+      "runId": "20261003-042046-9d9b",
+      "sceneIndex": 3,
+      "historicalApi": {
+        "score": 6,
+        "matches": true,
+        "reason": "The microscopic crystal growth visually connects with the narration about carbon crystallization.",
+        "passed": true
+      },
+      "apiMedium": {
+        "score": 4,
+        "matches": false,
+        "reason": "The frames show microscopic needle crystal growth rather than gleaming diamonds, and the visual quality is noticeably degraded and low-resolution.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": false,
+        "durationSeconds": 8.3
+      },
+      "agyMedium": {
+        "score": 3,
+        "matches": false,
+        "reason": "The footage shows microscopic needle crystal growth rather than glittering diamonds forming under planetary pressure, and the frames suffer from visible pixelation and compression artifacts.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": false,
+        "durationSeconds": 41.3
+      },
+      "agreementWithApiMedium": true,
+      "scoreDiffWithApiMedium": 1
+    },
+    {
+      "index": 10,
+      "file": "2_r4.jpg",
+      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\10_20261012-164405-eb01_2_r4.jpg",
+      "runId": "20261012-164405-eb01",
+      "sceneIndex": 2,
+      "historicalApi": {
+        "score": 6,
+        "matches": true,
+        "reason": "The image shows vintage industrial gears and mill machinery, fitting the narration about grinding grain and pumping water, though it lacks prison elements.",
+        "passed": true
+      },
+      "apiMedium": {
+        "score": 3,
+        "matches": false,
+        "reason": "The image shows rustic outdoor mill gears instead of an English prison treadmill or convicts grinding grain.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": true,
+        "passed": false,
+        "durationSeconds": 6.8
+      },
+      "agyMedium": {
+        "score": 2,
+        "matches": false,
+        "reason": "The image shows outdoor rural mill gearing instead of a 19th-century British prison treadmill operated by inmates.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": true,
+        "passed": false,
+        "durationSeconds": 25
+      },
+      "agreementWithApiMedium": true,
+      "scoreDiffWithApiMedium": 1
+    },
+    {
+      "index": 11,
+      "file": "3_r4.jpg",
+      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\11_20261003-034812-fb04_3_r4.jpg",
+      "runId": "20261003-034812-fb04",
+      "sceneIndex": 3,
+      "historicalApi": {
+        "score": 6.5,
+        "matches": true,
+        "reason": "The image shows wooden barrels that visually represent the barrels of gunpowder mentioned in the narration.",
+        "passed": true
+      },
+      "apiMedium": {
+        "score": 3,
+        "matches": false,
+        "reason": "The wooden barrels sit next to modern industrial Euro-pallets, creating a noticeable anachronism for an 18th-century French Revolution setting.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": true,
+        "passed": false,
+        "durationSeconds": 10.2
+      },
+      "agyMedium": {
+        "score": 2,
+        "matches": false,
+        "reason": "The frame shows modern wooden barrels next to a contemporary Euro-pallet with stamps and barcode stickers, making it an anachronism for 18th-century gunpowder cellars.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": true,
+        "passed": false,
+        "durationSeconds": 23.8
+      },
+      "agreementWithApiMedium": true,
+      "scoreDiffWithApiMedium": 1
+    },
+    {
+      "index": 12,
+      "file": "1_4.jpg",
+      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\12_20261003-024830-116b_1_4.jpg",
+      "runId": "20261003-024830-116b",
+      "sceneIndex": 1,
+      "historicalApi": {
+        "score": 6.8,
+        "matches": true,
+        "reason": "The image shows an astronaut in a spacesuit on the lunar surface, appropriately matching the topic of lunar dust and suits.",
+        "passed": true
+      },
+      "apiMedium": {
+        "score": 8,
+        "matches": true,
+        "reason": "The image shows an Apollo astronaut on the lunar surface with the lunar module in the background, fitting the line about moon dust on spacesuits.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": true,
+        "durationSeconds": 6.4
+      },
+      "agyMedium": {
+        "score": 8,
+        "matches": true,
+        "reason": "The image clearly shows an Apollo astronaut in a dust-covered spacesuit on the lunar surface with the lunar module visible in the background, fitting the narration well.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": true,
+        "durationSeconds": 27.1
+      },
+      "agreementWithApiMedium": true,
+      "scoreDiffWithApiMedium": 0
+    },
+    {
+      "index": 13,
+      "file": "3_r1.jpg",
+      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\13_20261003-034812-fb04_3_r1.jpg",
+      "runId": "20261003-034812-fb04",
+      "sceneIndex": 3,
+      "historicalApi": {
+        "score": 6.8,
+        "matches": true,
+        "reason": "The image shows rows of wooden barrels stored in a dark cellar, which effectively illustrates the barrels mentioned in the narration.",
+        "passed": true
+      },
+      "apiMedium": {
+        "score": 8,
+        "matches": true,
+        "reason": "The vintage black-and-white photo shows rows of wooden barrels stored in a cellar, effectively illustrating the narration about barrels hidden in the basement.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": true,
+        "durationSeconds": 6.4
+      },
+      "agyMedium": {
+        "score": 8,
+        "matches": true,
+        "reason": "The image shows numerous vintage wooden barrels stored in a cellar, which clearly illustrates the narration about barrels hidden in basements.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": true,
+        "durationSeconds": 38.6
+      },
+      "agreementWithApiMedium": true,
+      "scoreDiffWithApiMedium": 0
+    },
+    {
+      "index": 14,
+      "file": "0_0.mp4",
+      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\14_20261003-042046-9d9b_0_0.mp4",
+      "runId": "20261003-042046-9d9b",
+      "sceneIndex": 0,
+      "historicalApi": {
+        "score": 6.8,
+        "matches": true,
+        "reason": "The animation shows the orbits of the Solar System, fitting the narration's reference to neighbors within our Solar System.",
+        "passed": true
+      },
+      "apiMedium": {
+        "score": 7.5,
+        "matches": true,
+        "reason": "The frames depict a 3D animation of the Solar System and planetary orbits, appropriately illustrating the mention of our Solar System neighbors.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": true,
+        "durationSeconds": 6
+      },
+      "agyMedium": {
+        "score": 7,
+        "matches": true,
+        "reason": "The frames show a clean animation of the solar system with orbital paths, which fits well as context for mentioning neighbors in our solar system.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": true,
+        "durationSeconds": 25.4
+      },
+      "agreementWithApiMedium": true,
+      "scoreDiffWithApiMedium": 0.5
+    },
+    {
+      "index": 15,
+      "file": "3_3.jpg",
+      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\15_20261003-011411-ece6_3_3.jpg",
+      "runId": "20261003-011411-ece6",
+      "sceneIndex": 3,
+      "historicalApi": {
+        "score": 7,
+        "matches": true,
+        "reason": "The frame depicts churning dark water at night, suitably reflecting the narration about the dark North Atlantic ocean.",
+        "passed": true
+      },
+      "apiMedium": {
+        "score": 7,
+        "matches": true,
+        "reason": "The image shows dark ocean water and breaking waves at night, fittingly evoking the cold darkness of the North Atlantic.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": true,
+        "durationSeconds": 4.7
+      },
+      "agyMedium": {
+        "score": 7,
+        "matches": true,
+        "reason": "The frame shows dark ocean waves churning in the dark, which fits the atmospheric description of searching the cold North Atlantic waters at night.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": true,
+        "durationSeconds": 19.1
+      },
+      "agreementWithApiMedium": true,
+      "scoreDiffWithApiMedium": 0
+    },
+    {
+      "index": 16,
+      "file": "1_2.mp4",
+      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\16_20261003-024830-116b_1_2.mp4",
+      "runId": "20261003-024830-116b",
+      "sceneIndex": 1,
+      "historicalApi": {
+        "score": 7,
+        "matches": true,
+        "reason": "The frames show lunar equipment and instruments coated in dark lunar soil and dust on the Moon's surface, which visually supports the discussion of sticky lunar dust.",
+        "passed": true
+      },
+      "apiMedium": {
+        "score": 6,
+        "matches": true,
+        "reason": "The frames show lunar regolith and spacecraft equipment on the Moon, which relates well to the mention of lunar dust although it does not show spacesuits inside the module.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": true,
+        "durationSeconds": 7
+      },
+      "agyMedium": {
+        "score": 5,
+        "matches": false,
+        "reason": "The footage shows a robotic arm sampling soil on the lunar surface, which loosely depicts lunar dust but fails to show spacesuits or the interior of the lunar module as described.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": false,
+        "durationSeconds": 38.8
+      },
+      "agreementWithApiMedium": false,
+      "scoreDiffWithApiMedium": 1
+    },
+    {
+      "index": 17,
+      "file": "3_3.jpg",
+      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\17_20261003-040320-f144_3_3.jpg",
+      "runId": "20261003-040320-f144",
+      "sceneIndex": 3,
+      "historicalApi": {
+        "score": 7,
+        "matches": true,
+        "reason": "The engraving depicts ancient scholars handling scrolls inside an Egyptian-style library, appropriately reflecting the narration about papyri and scholars.",
+        "passed": true
+      },
+      "apiMedium": {
+        "score": 8,
+        "matches": true,
+        "reason": "The engraving shows scholars studying and handling papyrus scrolls in the Library of Alexandria, fitting the narration well.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": true,
+        "durationSeconds": 5.5
+      },
+      "agyMedium": {
+        "score": 7,
+        "matches": true,
+        "reason": "The historical engraving depicts scholars studying and handling papyrus scrolls in the ancient library, fitting the narration well despite depicting an active library rather than its decay.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": true,
+        "durationSeconds": 37.4
+      },
+      "agreementWithApiMedium": true,
+      "scoreDiffWithApiMedium": 1
+    },
+    {
+      "index": 18,
+      "file": "0_2.jpg",
+      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\18_20261003-012134-95ce_0_2.jpg",
+      "runId": "20261003-012134-95ce",
+      "sceneIndex": 0,
+      "historicalApi": {
+        "score": 7.3,
+        "matches": true,
+        "reason": "The image directly shows the planet Venus with its characteristic cloud layers, fitting the narration accurately.",
+        "passed": true
+      },
+      "apiMedium": {
+        "score": 10,
+        "matches": true,
+        "reason": "The image clearly shows the planet Venus against the blackness of space, perfectly matching the narration.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": true,
+        "durationSeconds": 5.2
+      },
+      "agyMedium": {
+        "score": 10,
+        "matches": true,
+        "reason": "The image clearly shows the planet Venus in space, directly illustrating the narration.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": true,
+        "durationSeconds": 16.5
+      },
+      "agreementWithApiMedium": true,
+      "scoreDiffWithApiMedium": 0
+    },
+    {
+      "index": 19,
+      "file": "4_3.jpg",
+      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\19_20261012-164405-eb01_4_3.jpg",
+      "runId": "20261012-164405-eb01",
+      "sceneIndex": 4,
+      "historicalApi": {
+        "score": 8,
+        "matches": true,
+        "reason": "The shot shows a modern treadmill in a gym, perfectly illustrating the narration contrasting the historical punishment with modern gym equipment.",
+        "passed": true
+      },
+      "apiMedium": {
+        "score": 8,
+        "matches": true,
+        "reason": "The image shows a man running on a modern gym treadmill, directly matching the narration's reference to modern gym equipment.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": true,
+        "durationSeconds": 6.9
+      },
+      "agyMedium": {
+        "score": 8,
+        "matches": true,
+        "reason": "The footage shows a man running on a modern gym treadmill, clearly illustrating the narration's reference to modern gym equipment.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": true,
+        "durationSeconds": 41
+      },
+      "agreementWithApiMedium": true,
+      "scoreDiffWithApiMedium": 0
+    },
+    {
+      "index": 20,
+      "file": "4_4.jpg",
+      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\20_20261012-164405-eb01_4_4.jpg",
+      "runId": "20261012-164405-eb01",
+      "sceneIndex": 4,
+      "historicalApi": {
+        "score": 9,
+        "matches": true,
+        "reason": "The image clearly shows modern gym treadmills, directly illustrating the narration's reference to modern gym equipment.",
+        "passed": true
+      },
+      "apiMedium": {
+        "score": 8,
+        "matches": true,
+        "reason": "The image shows a woman on a modern gym treadmill, fittingly illustrating the narration's mention of modern devices entering gyms.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": true,
+        "durationSeconds": 5.5
+      },
+      "agyMedium": {
+        "score": 8,
+        "matches": true,
+        "reason": "The frame shows a woman using a modern gym treadmill, directly illustrating the narration's reference to modern gym equipment.",
+        "hasTextOrLogo": false,
+        "hasIdentifiablePeople": false,
+        "wrongEraOrPlace": false,
+        "passed": true,
+        "durationSeconds": 22.8
+      },
+      "agreementWithApiMedium": true,
+      "scoreDiffWithApiMedium": 0
+    }
+  ]
+}
