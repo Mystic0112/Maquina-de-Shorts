@@ -200,6 +200,7 @@ export class AntigravityCliProvider implements LlmProvider {
       } catch (error) {
         if (!isDeniedToolError(error)) throw error;
         // One retry: the model usually answers directly once told the tool is off-limits (seen in fact checks).
+        console.warn(`[antigravity-cli] comando negado pelo sandbox; repetindo a chamada com lembrete (${modelToUse})`);
         const { stdout, stderr } = await this.semaphore.run(() => this.spawnCli(args, tempDir, `${DENIED_RETRY_REMINDER}\n\n${fullPrompt}`));
         return this.parseResult(stdout, stderr, modelToUse, grounded);
       }
