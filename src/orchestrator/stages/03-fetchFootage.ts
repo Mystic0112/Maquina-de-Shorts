@@ -36,8 +36,9 @@ import { PythonExitError, runPythonJson } from "../lib/python.js";
 import { RunRejectedError } from "../lib/rejection.js";
 import { creditsFitDescription } from "./07-generateMetadata.js";
 import { redactSecrets } from "../lib/redact.js";
-import { getProviderByName } from "../lib/llmClient.js";
-import type { FootageClip, RunContext, Script, ScriptScene } from "../types.js";
+import { getDefaultProvider, getProviderByName, type LlmProvider } from "../lib/llmClient.js";
+import { buildVerdictRecord, saveVerdictFrames, VERDICT_FRAMES_DIR, writeVerdictLog, type VerdictRecord } from "../lib/verdictLog.js";
+import type { FootageClip, RunContext, SceneBeat, Script, ScriptScene } from "../types.js";
 
 const FOOTAGE_SCRIPT = "vendor/openmontage_adapter/fetch_footage.py";
 const FOOTAGE_TIMEOUT_MS = 15 * 60 * 1000;
@@ -421,6 +422,9 @@ interface GateContext {
   log: Logger;
   /** Alternative queries used in the retry round, per scene (shown to the reviewer for retry clips). */
   altQueries: Map<number, string[]>;
+  run: { id: string; dir: string };
+  /** Every verdict of the run, keyed by the scored clip the selection sees (written to footage_verdicts.jsonl). */
+  verdicts: Map<ScoredClip, VerdictRecord>;
 }
 
 /** What the reviewer judges a clip against: scene 0 also carries the hook, which is spoken over it. */
@@ -461,8 +465,10 @@ async function scoreAll(clips: readonly FootageClip[], gate: GateContext): Promi
     const took = batch.length > 1 ? `${seconds(started)} (batch of ${batch.length})` : seconds(started);
     const where = `scene ${first.sceneIndex}${beat ? ` beat ${first.beatIndex}` : ""}`;
     for (const [k, i] of indexes.entries()) {
-      const scored = penalizeLowResolution(raw[k]!, gate.sourceSizes.get(raw[k]!.clip.path));
+      const { frames = [], prompt: _prompt, ...reviewed } = raw[k]!; // frame buffers are not kept in memory
+      const scored = penalizeLowResolution(reviewed, gate.sourceSizes.get(reviewed.clip.path));
       results[i] = scored;
+      await recordVerdict(gate, { reviewed: raw[k]!, final: scored, frames, scene, beat, batchSize: batch.length, reviewer: relevanceProvider });
       const name = basename(scored.clip.path);
       if (scored.verdict) {
         log.info(`Scored ${name} (${where}): ${describeScored(scored, settings.minScore)} in ${took} - ${scored.verdict.reason}`);
@@ -472,6 +478,63 @@ async function scoreAll(clips: readonly FootageClip[], gate: GateContext): Promi
     }
   });
   return results;
+}
+
+function defaultProviderOrUndefined(): LlmProvider | undefined {
+  try {
+    return getDefaultProvider();
+  } catch {
+    return undefined; // no key configured: the scoring call itself reports the error
+  }
+}
+
+/** Saves the frames and builds the clip's verdict record. Never throws (the log is a by-product). */
+async function recordVerdict(
+  gate: GateContext,
+  r: { reviewed: ScoredClip; final: ScoredClip; frames: Buffer[]; scene: ScriptScene; beat?: SceneBeat; batchSize: number; reviewer?: LlmProvider },
+): Promise<void> {
+  const clip = r.reviewed.clip;
+  let framePaths: string[] = [];
+  try {
+    framePaths = await saveVerdictFrames(gate.run.dir, clip.path, r.frames);
+  } catch (error) {
+    gate.log.warn(`Could not save verdict frames of ${basename(clip.path)}: ${errorText(error)}`);
+  }
+  const reviewer = r.reviewer ?? defaultProviderOrUndefined();
+  gate.verdicts.set(
+    r.final,
+    buildVerdictRecord(
+      {
+        runId: gate.run.id,
+        runDir: gate.run.dir,
+        reviewed: r.reviewed,
+        final: r.final,
+        scene: r.scene,
+        beat: r.beat,
+        title: gate.script.title,
+        hook: gate.script.hook,
+        isHook: isHookClip(clip),
+        isRetry: basename(clip.path).startsWith(`${clip.sceneIndex}_r`),
+        sourceSize: gate.sourceSizes.get(clip.path),
+        provider: reviewer?.name,
+        model: gate.settings.model ?? reviewer?.model,
+        thinking: gate.settings.thinking,
+        batchSize: r.batchSize,
+      },
+      framePaths,
+    ),
+  );
+}
+
+/** Writes footage_verdicts.jsonl with the final selection. A failure is only logged. */
+export async function saveVerdicts(gate: Pick<GateContext, "run" | "verdicts" | "log">, selected: readonly ScoredClip[]): Promise<void> {
+  try {
+    for (const [scored, record] of gate.verdicts) record.selected = selected.includes(scored);
+    const file = await writeVerdictLog(gate.run.dir, [...gate.verdicts.values()]);
+    gate.log.info(`Saved ${gate.verdicts.size} verdict(s) to ${basename(file)}`);
+  } catch (error) {
+    gate.log.warn(`Could not save footage verdicts: ${errorText(error)}`);
+  }
 }
 
 async function alternativeQueries(failed: readonly FailedScene[], gate: GateContext): Promise<Map<number, string[]>> {
@@ -553,17 +616,22 @@ interface GateResult {
 }
 
 async function runRelevanceGate(firstRound: readonly FootageClip[], gate: GateContext): Promise<GateResult> {
-  const firstScored = await scoreAll(firstRound, gate);
-  if (firstScored.length > 0 && firstScored.every((s) => !s.verdict)) {
-    throw new Error(`Relevance gate unavailable (every scoring call failed): ${firstScored[0]?.error ?? "unknown"}`);
+  let keptScored: ScoredClip[] = [];
+  try {
+    const firstScored = await scoreAll(firstRound, gate);
+    if (firstScored.length > 0 && firstScored.every((s) => !s.verdict)) {
+      throw new Error(`Relevance gate unavailable (every scoring call failed): ${firstScored[0]?.error ?? "unknown"}`);
+    }
+    const scored = [...firstScored, ...(await retryFailedScenes(firstScored, gate))];
+    const selections = selectAll(scored, gate, true);
+    logSceneSummary(selections, gate);
+    keptScored = selections.flatMap((s) => s.kept);
+    await Promise.all(scored.filter((s) => !keptScored.includes(s)).map((s) => rm(s.clip.path, { force: true })));
+    const rejected = scored.filter((s) => classifyClip(s, gate.settings.minScore) === "reject").length;
+    return { kept: keptScored.map(annotateClip), rejected };
+  } finally {
+    await saveVerdicts(gate, keptScored);
   }
-  const scored = [...firstScored, ...(await retryFailedScenes(firstScored, gate))];
-  const selections = selectAll(scored, gate, true);
-  logSceneSummary(selections, gate);
-  const keptScored = selections.flatMap((s) => s.kept);
-  await Promise.all(scored.filter((s) => !keptScored.includes(s)).map((s) => rm(s.clip.path, { force: true })));
-  const rejected = scored.filter((s) => classifyClip(s, gate.settings.minScore) === "reject").length;
-  return { kept: keptScored.map(annotateClip), rejected };
 }
 
 /** Gate disabled: keep the first `keepPerScene` normalized clips of each scene, delete the rest. */
@@ -600,7 +668,11 @@ export async function run(ctx: RunContext): Promise<RunContext> {
     stats: { downloaded: 0, rawBytes: 0, normalizedBytes: 0, visionCalls: 0, clipsScored: 0, textCalls: 0 },
     log,
     altQueries: new Map(),
+    run: { id: ctx.runId, dir: ctx.runDir },
+    verdicts: new Map(),
   };
+  // A re-run of this stage replaces the previous verdict log, so its frames go too.
+  if (settings.enabled) await rm(join(ctx.runDir, VERDICT_FRAMES_DIR), { recursive: true, force: true });
   const kindCount = footageConfig?.kinds?.length ?? 2;
   // The adapter returns up to clipsPerQuery items of EACH kind; 3 per kind keeps ~6 candidates per scene.
   // Scenes with several beats split a budget of 1.5x that between their beat queries (lib/beats.ts).

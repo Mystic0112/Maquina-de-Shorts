@@ -76,6 +76,10 @@ export interface ScoredClip {
   verdict?: RelevanceVerdict;
   /** Set when scoring failed (frame extraction or LLM error). */
   error?: string;
+  /** JPEG frames sent to the reviewer (kept for the verdict log / training dataset). */
+  frames?: Buffer[];
+  /** Exact prompt sent with those frames (the batch prompt when reviewed in a batch). */
+  prompt?: string;
 }
 
 /**
@@ -414,6 +418,8 @@ const REVIEW_TEMPERATURE = 0.2;
 
 const errorLine = (error: unknown): string => (error instanceof Error ? error.message.split("\n")[0]! : String(error));
 
+const framesOf = (images: readonly LlmImage[]): Buffer[] => images.map((i) => i.data);
+
 async function clipImages(clip: FootageClip, framesDir: string): Promise<LlmImage[]> {
   const duration = clip.kind === "image" ? 0 : clip.durationSeconds;
   const frames = await extractFrames(clip.path, duration, framesDir, basename(clip.path, extname(clip.path)));
@@ -432,18 +438,20 @@ export async function scoreClip(
   beat?: SceneBeat,
   model?: string,
 ): Promise<ScoredClip> {
+  let sent: Pick<ScoredClip, "frames" | "prompt"> = {};
   try {
     const images = await clipImages(clip, framesDir);
     const prompt = buildRelevancePrompt(scene, images.length, title, clip.kind, hook, beat);
+    sent = { frames: framesOf(images), prompt };
     const verdict = await generateJsonWithImages(prompt, images, RelevanceVerdictSchema, {
       thinking,
       temperature: REVIEW_TEMPERATURE,
       model,
       ...(provider ? { provider } : {}),
     });
-    return { clip, verdict };
+    return { clip, verdict, ...sent };
   } catch (error) {
-    return { clip, error: errorLine(error) };
+    return { clip, error: errorLine(error), ...sent };
   }
 }
 
@@ -477,15 +485,15 @@ export async function scoreClipBatch(
   );
   const ready = extracted.filter((e): e is { clip: FootageClip; images: LlmImage[] } => "images" in e);
   const verdicts = new Map<FootageClip, ScoredClip>();
+  const prompt = buildRelevanceBatchPrompt(
+    scene,
+    ready.map((e) => ({ kind: e.clip.kind, frameCount: e.images.length })),
+    title,
+    hook,
+    beat,
+  );
   if (ready.length > 0) {
     try {
-      const prompt = buildRelevanceBatchPrompt(
-        scene,
-        ready.map((e) => ({ kind: e.clip.kind, frameCount: e.images.length })),
-        title,
-        hook,
-        beat,
-      );
       const images = ready.flatMap((e) => e.images);
       const answer = await generateJsonWithImages(prompt, images, BatchVerdictsSchema, {
         thinking,
@@ -499,7 +507,9 @@ export async function scoreClipBatch(
       for (const { clip } of ready) verdicts.set(clip, { clip, error: message });
     }
   }
-  return extracted.map((e) => ("images" in e ? verdicts.get(e.clip)! : { clip: e.clip, error: e.error }));
+  return extracted.map((e) =>
+    e.images ? { ...verdicts.get(e.clip)!, frames: framesOf(e.images), prompt } : { clip: e.clip, error: e.error },
+  );
 }
 
 function pickVerdict(clip: FootageClip, verdicts: z.infer<typeof BatchVerdictsSchema>["verdicts"], candidate: number): ScoredClip {

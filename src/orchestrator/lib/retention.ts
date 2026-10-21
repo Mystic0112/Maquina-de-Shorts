@@ -1,9 +1,10 @@
 import { existsSync } from "node:fs";
-import { readdir, readFile, rm, stat } from "node:fs/promises";
+import { cp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { RunContext } from "../types.js";
 import { paths, type PipelineConfig } from "./config.js";
 import { RUN_ID_PATTERN } from "./recentTopics.js";
+import { VERDICT_FRAMES_DIR, VERDICTS_ARCHIVE_DIR, VERDICTS_FILE } from "./verdictLog.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** upload.journal.json (legacy YouTube) and upload.<platform>.journal.json. */
@@ -31,7 +32,7 @@ function isFailed(ctx: RunContext): boolean {
 
 /**
  * Pure decision for one run:
- * - uploaded runs older than keepUploadedVideosDays lose final.mp4 + footage (context/log/thumbnail stay);
+ * - uploaded runs older than keepUploadedVideosDays lose final.mp4 + footage (context/log/thumbnail/verdicts stay);
  * - rejected/failed runs, and runs that crashed before rendering, are deleted after keepFailedRunsDays;
  * - rendered-but-not-uploaded runs are always kept (they may still be published).
  * `lastActivity` (latest mtime in the run dir) protects runs still being worked on.
@@ -65,12 +66,20 @@ async function latestMtime(dir: string): Promise<Date> {
   return new Date(latest);
 }
 
+/** Copies the verdict log + frames (dataset material, a few MB at most) out of a run about to be deleted. */
+export async function archiveVerdicts(runDir: string, archiveDir: string): Promise<void> {
+  for (const name of [VERDICTS_FILE, VERDICT_FRAMES_DIR]) {
+    if (existsSync(join(runDir, name))) await cp(join(runDir, name), join(archiveDir, name), { recursive: true });
+  }
+}
+
 /** Applies the retention policy to render_output/. Never throws; problems are reported in `errors`. */
 export async function pruneRuns(
   settings: RetentionSettings,
-  options: { now?: Date; root?: string; exclude?: readonly string[] } = {},
+  options: { now?: Date; root?: string; exclude?: readonly string[]; verdictsArchive?: string } = {},
 ): Promise<PruneSummary> {
   const root = options.root ?? paths.renderOutput;
+  const archive = options.verdictsArchive ?? VERDICTS_ARCHIVE_DIR;
   const now = options.now ?? new Date();
   const summary: PruneSummary = { deletedRuns: [], trimmedRuns: [], errors: [] };
   if (!existsSync(root)) return summary;
@@ -85,6 +94,7 @@ export async function pruneRuns(
       if (!hasJournal || ctx.upload?.status === "uploaded") {
         const action = retentionAction(ctx, await latestMtime(dir), now, settings);
         if (action === "delete-run") {
+          await archiveVerdicts(dir, join(archive, runId)); // a failed copy keeps the run (reported in errors)
           await rm(dir, { recursive: true, force: true });
           summary.deletedRuns.push(runId);
         } else if (action === "trim-uploaded" && (existsSync(join(dir, "final.mp4")) || existsSync(join(dir, "footage")))) {
