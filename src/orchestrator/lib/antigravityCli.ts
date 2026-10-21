@@ -5,6 +5,9 @@
  * agent to view them. Security rules (do not weaken): --sandbox, --disable-slash-commands, cwd in a
  * temp folder holding only the images, minimal child env without API keys, never
  * --dangerously-skip-permissions.
+ *
+ * ANTIGRAVITY_CLI_SESSION_TURNS > 0 turns on the continuous-session mode for `completeJson`: questions go
+ * to long-lived stream-json processes (see antigravitySession.ts) that are recycled after that many turns.
  */
 import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -13,6 +16,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { minimalChildEnv } from "./childEnv.js";
 import { env } from "./config.js";
+import { AgySession } from "./antigravitySession.js";
 import {
   dedupeSources,
   getProviderByName,
@@ -48,6 +52,7 @@ const GroundedSchema = z.object({
 interface CliWrapper {
   status?: string;
   response?: string;
+  error?: string;
   structured_output?: unknown;
   /** Tools the agent tried to use and was refused (we never skip permissions). */
   denied_actions?: Array<{ action?: string; display_name?: string }>;
@@ -90,13 +95,30 @@ export class AntigravityCliProvider implements LlmProvider {
   private readonly fallbackProvider?: LlmProvider;
   private readonly timeoutS: number;
   private readonly semaphore: Semaphore;
+  private readonly concurrency: number;
+  /** 0 = one process per call (original behaviour). */
+  private readonly sessionTurns: number;
+  /** Idle sessions per key (effective model args + whether the question carries images). */
+  private readonly idleSessions = new Map<string, AgySession[]>();
+  /** Open sessions (busy or idle); never more than `concurrency`. */
+  private readonly openSessions = new Set<AgySession>();
 
   constructor(cliPath?: string, model?: string, fallback?: LlmProvider | null) {
     this.cliPath = cliPath || env("ANTIGRAVITY_CLI_PATH") || DEFAULT_ANTIGRAVITY_CLI_PATH;
     this.model = model || env("ANTIGRAVITY_MODEL") || DEFAULT_ANTIGRAVITY_MODEL;
     this.fallbackProvider = fallback === null ? undefined : (fallback ?? fallbackFromEnv());
     this.timeoutS = Number(env("ANTIGRAVITY_CLI_TIMEOUT_S") ?? DEFAULT_TIMEOUT_S);
-    this.semaphore = new Semaphore(Math.max(1, Number(env("ANTIGRAVITY_CLI_CONCURRENCY") ?? DEFAULT_CONCURRENCY)));
+    this.concurrency = Math.max(1, Number(env("ANTIGRAVITY_CLI_CONCURRENCY") ?? DEFAULT_CONCURRENCY));
+    this.semaphore = new Semaphore(this.concurrency);
+    this.sessionTurns = Math.max(0, Math.floor(Number(env("ANTIGRAVITY_CLI_SESSION_TURNS") ?? 0)) || 0);
+  }
+
+  /** Closes every open session. Optional: idle sessions never keep Node alive and are killed on exit. */
+  async closeSessions(): Promise<void> {
+    const sessions = [...this.openSessions];
+    this.openSessions.clear();
+    this.idleSessions.clear();
+    await Promise.all(sessions.map((s) => s.close()));
   }
 
   async completeJson(
@@ -106,7 +128,9 @@ export class AntigravityCliProvider implements LlmProvider {
     options: CallOptions = {},
   ): Promise<string> {
     try {
-      const result = await this.invokeAgy(images.length > 0 ? prompt : `${DIRECT_ANSWER_INSTRUCTION}\n\n${prompt}`, schema, images, options);
+      const ownPrompt = images.length > 0 ? prompt : `${DIRECT_ANSWER_INSTRUCTION}\n\n${prompt}`;
+      if (this.sessionTurns > 0) return (await this.askInSession(ownPrompt, schema, images, options)).response ?? "";
+      const result = await this.invokeAgy(ownPrompt, schema, images, options);
       return result.structured_output !== undefined ? JSON.stringify(result.structured_output) : (result.response ?? "");
     } catch (error) {
       if (!this.fallbackProvider) throw error;
@@ -115,7 +139,11 @@ export class AntigravityCliProvider implements LlmProvider {
     }
   }
 
-  /** The CLI is an agent with a web search tool; we ask it to search and report its sources in the JSON. */
+  /**
+   * The CLI is an agent with a web search tool; we ask it to search and report its sources in the JSON.
+   * Always a one-shot process, even in session mode: grounded calls are few (fact check), long, and rely
+   * on --json-schema, which stream-json applies only to the first answer of a session.
+   */
   async completeGroundedText(prompt: string, options: CallOptions = {}): Promise<GroundedText> {
     const wrapped = [
       "Antes de responder, pesquise na web (use sua ferramenta de busca) para fundamentar a resposta.",
@@ -161,14 +189,78 @@ export class AntigravityCliProvider implements LlmProvider {
     }
   }
 
+  /**
+   * Session mode. No --json-schema: under stream-json the CLI enforces it only on the first answer, adds a
+   * "finish" turn and repeats the first structured_output on later results, so the schema goes in the prompt
+   * and the caller validates the text with zod. No --print-timeout either (we time each question ourselves).
+   */
+  private async askInSession(prompt: string, schema: z.ZodType, images: readonly LlmImage[], options: CallOptions): Promise<CliWrapper> {
+    const { args: modelArgs, modelToUse } = this.modelArgs(options);
+    const key = `${modelArgs.join(" ")}|${images.length > 0 ? "images" : "text"}`;
+    const schemaLine = `O JSON deve seguir este JSON Schema: ${JSON.stringify(toGeminiJsonSchema(schema))}`;
+    return await this.semaphore.run(async () => {
+      const session = await this.takeSession(key, modelArgs);
+      try {
+        const files = await writeImages(session.dir, images, `t${session.turns + 1}_`);
+        const fullPrompt = files.length > 0 ? imagePrompt(files, prompt) : `${prompt}\n\nResponda somente com o JSON.`;
+        const answer = await session.ask(`${fullPrompt}\n${schemaLine}`, this.timeoutS * 1000);
+        // cache_read_tokens (answer.usage) has no LlmCallUsage field; it is the instructions reused from the session.
+        const usage = { input_tokens: answer.usage.input_tokens, output_tokens: answer.usage.output_tokens, thinking_tokens: answer.usage.thinking_tokens };
+        const { status, response, error, denied_actions } = answer.result;
+        return this.checkWrapper({ status, response, error, denied_actions, usage }, answer.stderr, modelToUse, false);
+      } finally {
+        this.releaseSession(key, session);
+      }
+    });
+  }
+
+  /** Called inside the semaphore, so at most `concurrency - 1` other sessions are busy. */
+  private async takeSession(key: string, modelArgs: readonly string[]): Promise<AgySession> {
+    const idle = this.idleSessions.get(key) ?? [];
+    let session: AgySession | undefined;
+    while ((session = idle.pop())) if (!session.dead) return session;
+    if (this.openSessions.size >= this.concurrency) {
+      // Make room by closing an idle session of another model/kind.
+      for (const [otherKey, list] of this.idleSessions) {
+        const victim = list.shift();
+        if (!victim) continue;
+        if (list.length === 0) this.idleSessions.delete(otherKey);
+        this.openSessions.delete(victim);
+        void victim.close();
+        break;
+      }
+    }
+    const args = ["--print=", "--input-format", "stream-json", "--output-format", "stream-json", "--sandbox", "--disable-slash-commands", ...modelArgs];
+    const fresh = await AgySession.open(this.cliPath, args);
+    this.openSessions.add(fresh);
+    return fresh;
+  }
+
+  /** Back to the idle list, or closed when it died (timeout, crash) or reached ANTIGRAVITY_CLI_SESSION_TURNS. */
+  private releaseSession(key: string, session: AgySession): void {
+    if (!session.dead && session.turns < this.sessionTurns) {
+      this.idleSessions.set(key, [...(this.idleSessions.get(key) ?? []), session]);
+      return;
+    }
+    this.openSessions.delete(session);
+    void session.close();
+  }
+
   private buildArgs(schema: z.ZodType, options: CallOptions): { args: string[]; modelToUse: string } {
+    const { args: modelArgs, modelToUse } = this.modelArgs(options);
     const args = [
       "--output-format", "json",
       "--sandbox",
       "--disable-slash-commands",
       "--print-timeout", `${this.timeoutS}s`,
       "--json-schema", JSON.stringify(toGeminiJsonSchema(schema)),
+      ...modelArgs,
     ];
+    return { args, modelToUse };
+  }
+
+  private modelArgs(options: CallOptions): { args: string[]; modelToUse: string } {
+    const args: string[] = [];
     // An explicit per-call model wins over ANTIGRAVITY_MODEL and over the thinking -> flash-suffix mapping.
     let modelToUse = options.model ?? this.model;
     if (!options.model && options.thinking && (!this.model || this.model.startsWith("gemini-3.8-flash"))) {
@@ -227,7 +319,10 @@ export class AntigravityCliProvider implements LlmProvider {
       if (!rawText) throw new LlmOutputError(`agy retornou resposta vazia${tail(stderr)}`);
       return { response: rawText };
     }
-    if (wrapper.status && wrapper.status !== "SUCCESS") throw new LlmOutputError(`agy retornou status ${wrapper.status}`);
+    return this.checkWrapper(wrapper, stderr, modelToUse, grounded);
+  }
+
+  private checkWrapper(wrapper: CliWrapper, stderr: string, modelToUse: string, grounded: boolean): CliWrapper {
     if (wrapper.usage) {
       recordLlmUsage({
         provider: this.name,
@@ -237,6 +332,10 @@ export class AntigravityCliProvider implements LlmProvider {
         thinkingTokens: wrapper.usage.thinking_tokens ?? 0,
         ...(grounded ? { grounded: true } : {}),
       });
+    }
+    // Usage first: a failed turn still spent tokens (and in session mode its delta is already consumed).
+    if (wrapper.status && wrapper.status !== "SUCCESS") {
+      throw new LlmOutputError(`agy retornou status ${wrapper.status}${wrapper.error ? `: ${wrapper.error}` : ""}`);
     }
     // A refused tool call ends as SUCCESS with an empty response; surface what was denied.
     if (wrapper.structured_output === undefined && !wrapper.response?.trim()) {
@@ -249,10 +348,10 @@ export class AntigravityCliProvider implements LlmProvider {
 
 const EXT: Record<LlmImage["mimeType"], string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 
-async function writeImages(dir: string, images: readonly LlmImage[]): Promise<string[]> {
+async function writeImages(dir: string, images: readonly LlmImage[], prefix = ""): Promise<string[]> {
   const files: string[] = [];
   for (const [i, img] of images.entries()) {
-    const filePath = join(dir, `frame_${i}.${EXT[img.mimeType]}`);
+    const filePath = join(dir, `${prefix}frame_${i}.${EXT[img.mimeType]}`);
     await writeFile(filePath, img.data);
     files.push(filePath);
   }
