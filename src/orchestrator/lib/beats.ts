@@ -3,18 +3,24 @@
 // cuts when the beat's phrase starts). Pure helpers shared by those stages.
 
 import type { FootageClip, SceneBeat, SceneTiming, Script, WordTiming } from "../types.js";
-import { normalizeToken, textTokens } from "./ptBr.js";
+import { normalizeToken, textTokens, tokenSpans } from "./ptBr.js";
 
 export const MAX_BEATS = 3;
 
+/** Token index range [start, end) of a match inside a token list. */
+export interface TokenRange {
+  start: number;
+  end: number;
+}
+
 /**
- * Index of the first token where `needle` starts inside `haystack` (at or after `from`), comparing the
- * tokens glued together so TTS/script differences in word splitting ("guarda-chuva" vs "guarda chuva")
- * still match. -1 when absent.
+ * First place `needle` starts inside `haystack` (at or after `from`), comparing the tokens glued together
+ * so TTS/script differences in word splitting ("guarda-chuva" vs "guarda chuva") still match. `end` is
+ * the index after the last haystack token the match touches.
  */
-export function findTokenPhrase(haystack: readonly string[], needle: readonly string[], from = 0): number {
+export function locateTokenPhrase(haystack: readonly string[], needle: readonly string[], from = 0): TokenRange | undefined {
   const target = needle.join("");
-  if (!target) return -1;
+  if (!target) return undefined;
   const starts: number[] = [];
   let text = "";
   for (const token of haystack) {
@@ -23,44 +29,83 @@ export function findTokenPhrase(haystack: readonly string[], needle: readonly st
   }
   let pos = text.indexOf(target, starts[from] ?? text.length);
   while (pos !== -1) {
-    const index = starts.indexOf(pos);
-    if (index >= from) return index;
+    const start = starts.indexOf(pos);
+    if (start >= from) {
+      const stop = pos + target.length;
+      let end = start + 1;
+      while (end < haystack.length && starts[end]! < stop) end++;
+      return { start, end };
+    }
     pos = text.indexOf(target, pos + 1);
   }
-  return -1;
+  return undefined;
 }
 
-/** Beats whose phrase is found in the narration, in narration order; undefined when none survives. */
+/** `locateTokenPhrase().start`, or -1 when absent. */
+export function findTokenPhrase(haystack: readonly string[], needle: readonly string[], from = 0): number {
+  return locateTokenPhrase(haystack, needle, from)?.start ?? -1;
+}
+
+/**
+ * Where a beat's phrase is spoken (at or after `from`): the whole phrase or, when the model paraphrased
+ * it, its longest run of consecutive tokens that is still in the narration, as long as that run keeps at
+ * least max(2, 60%) of the phrase. Nothing is invented: the caller snaps the phrase to the matched words.
+ */
+export function matchBeatPhrase(haystack: readonly string[], phrase: string, from = 0): TokenRange | undefined {
+  const needle = textTokens(phrase);
+  const full = locateTokenPhrase(haystack, needle, from);
+  if (full) return full;
+  const minLen = Math.max(2, Math.ceil(needle.length * 0.6));
+  // ponytail: O(n^2) runs over a <= ~10-token phrase; a DP is not worth it at this size.
+  for (let len = needle.length - 1; len >= minLen; len--) {
+    for (let i = 0; i + len <= needle.length; i++) {
+      const range = locateTokenPhrase(haystack, needle.slice(i, i + len), from);
+      if (range) return range;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Beats whose phrase (or enough of it, see `matchBeatPhrase`) is found in the narration, in narration
+ * order, with the phrase replaced by the narration's own wording for those words; undefined when none
+ * survives.
+ */
 export function sanitizeBeats(narration: string, beats: readonly SceneBeat[] | undefined): SceneBeat[] | undefined {
   if (!beats) return undefined;
-  const tokens = textTokens(narration);
+  const text = narration.normalize("NFC");
+  const spans = tokenSpans(text);
+  const tokens = spans.map((s) => s.token);
   const kept: SceneBeat[] = [];
   let from = 0;
   for (const beat of beats.slice(0, MAX_BEATS)) {
-    const phrase = beat.phrase.trim();
     const footageQuery = beat.footageQuery.trim();
-    const at = findTokenPhrase(tokens, textTokens(phrase), from);
-    if (at < 0 || !footageQuery) continue;
-    kept.push({ phrase, footageQuery });
-    from = at + 1;
+    const at = matchBeatPhrase(tokens, beat.phrase, from);
+    if (!at || !footageQuery) continue;
+    kept.push({ phrase: text.slice(spans[at.start]!.start, spans[at.end - 1]!.end), footageQuery });
+    from = at.start + 1;
   }
   return kept.length > 0 ? kept : undefined;
 }
 
-/** Problems (pt-BR, for the corrective retry) with one scene's beats; empty when they are valid. */
+/**
+ * Problems (pt-BR, for the corrective retry) with one scene's beats; empty when they are valid. The
+ * message asks for a literal copy, but a phrase `sanitizeBeats` can still recover (partial match) is not
+ * reported, so a light paraphrase does not cost a correction round.
+ */
 export function beatProblems(label: string, narration: string, beats: readonly SceneBeat[] | undefined): string[] {
   if (!beats || beats.length === 0) return [`${label} precisa de 1 a ${MAX_BEATS} "beats".`];
   const problems: string[] = [];
   const tokens = textTokens(narration);
   let from = 0;
   beats.forEach((beat, j) => {
-    const at = findTokenPhrase(tokens, textTokens(beat.phrase), 0);
-    if (at < 0) {
+    const at = matchBeatPhrase(tokens, beat.phrase, 0);
+    if (!at) {
       problems.push(`${label}.beats[${j}].phrase "${beat.phrase}" não é um trecho literal da narração da cena: copie as palavras exatamente como estão na narração.`);
-    } else if (at < from) {
+    } else if (at.start < from) {
       problems.push(`${label}.beats[${j}].phrase "${beat.phrase}" está fora de ordem: os beats seguem a ordem da narração.`);
     } else {
-      from = at + 1;
+      from = at.start + 1;
     }
   });
   return problems;

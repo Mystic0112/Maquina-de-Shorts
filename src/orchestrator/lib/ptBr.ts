@@ -117,6 +117,23 @@ export function textTokens(text: string): string[] {
     .filter(Boolean);
 }
 
+export interface TokenSpan {
+  token: string;
+  /** [start, end) char offsets of the word in the text given to `tokenSpans`. */
+  start: number;
+  end: number;
+}
+
+/** `textTokens` plus where each word sits in `text` (pass NFC text so offsets map to what you slice). */
+export function tokenSpans(text: string): TokenSpan[] {
+  const spans: TokenSpan[] = [];
+  for (const m of text.matchAll(/[\p{L}\p{M}\p{N}]+/gu)) {
+    const token = normalizeToken(m[0]);
+    if (token) spans.push({ token, start: m.index, end: m.index + m[0].length });
+  }
+  return spans;
+}
+
 export function containsWord(tokens: readonly string[], key: string): boolean {
   return tokens.some((t) => sameWord(t, key));
 }

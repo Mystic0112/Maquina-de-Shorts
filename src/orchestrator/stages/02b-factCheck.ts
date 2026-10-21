@@ -8,6 +8,7 @@ import { getLogger } from "../lib/logger.js";
 import { RunRejectedError } from "../lib/rejection.js";
 import type { FactCheckClaim, FactCheckSummary, RunContext, Script } from "../types.js";
 import {
+  beatsSchema,
   countSpokenWords,
   findScriptProblems,
   isWithinTolerance,
@@ -40,7 +41,14 @@ export function buildFactCheckResultSchema(s: ResolvedScriptSettings) {
     overlayText: z.string().optional().describe("Texto da tela/capa (3 a 5 palavras); igual ao atual se estiver correto"),
     hook: z.string().min(10),
     scenes: z
-      .array(z.object({ narration: z.string().min(10), footageQuery: z.string().min(3) }))
+      .array(
+        z.object({
+          narration: z.string().min(10),
+          footageQuery: z.string().min(3),
+          // Optional: scripts from before beats existed have none, and an unchanged scene keeps its own.
+          beats: beatsSchema(s).optional(),
+        }),
+      )
       .min(s.minScenes)
       .max(s.maxScenes),
     changes: z.array(z.string()).describe("Cada edição feita no roteiro, em pt-BR (vazio se nada mudou)"),
@@ -127,11 +135,13 @@ export function applyFactCheckRound(
     hook: result.hook.trim(),
     scenes: result.scenes.map((scene, i) => {
       const narration = scene.narration.trim();
-      // Beats survive only where their literal phrase is still in the rewritten line.
-      const beats = sanitizeBeats(narration, script.scenes[i]?.beats);
+      const previous = script.scenes[i];
+      // Beats the rewrite returned for the new line, else the old ones where enough of their phrase is still
+      // said (snapped to the new wording), else the scene goes back to one image.
+      const beats = sanitizeBeats(narration, scene.beats) ?? sanitizeBeats(narration, previous?.beats);
       return {
         narration,
-        footageQuery: scene.footageQuery.trim() || script.scenes[i]?.footageQuery || script.scenes[0]?.footageQuery || "",
+        footageQuery: scene.footageQuery.trim() || previous?.footageQuery || script.scenes[0]?.footageQuery || "",
         ...(beats ? { beats } : {}),
       };
     }),
@@ -218,6 +228,9 @@ Regras:
   de ${settings.minScenes} a ${settings.maxScenes} cenas, cada uma com 1 a 3 frases. Atualmente: ${countSpokenWords(script)} palavras.
 - "footageQuery": mantenha a da cena, a menos que o assunto visual da cena tenha mudado (2-4 palavras em inglês,
   coisas concretas e visíveis).
+- "beats": devolva os de cada cena. Em cena NÃO alterada, iguais aos atuais. Em cena reescrita, refaça-os para a
+  narração NOVA: 1 a 3 trechos, cada "phrase" copiada palavra por palavra da narração nova, na ordem em que é dita,
+  e "footageQuery" nomeando EXATAMENTE a coisa concreta citada nesse trecho (2-4 palavras em inglês).
 - "title": se a checagem NÃO apontou problema no título, devolva-o EXATAMENTE igual. Se apontou, use o título
   sugerido pela checagem (ou um equivalente) com até 70 caracteres, curioso mas preciso, e que não repita nenhuma
   afirmação marcada como "unsupported" ou "misleading".

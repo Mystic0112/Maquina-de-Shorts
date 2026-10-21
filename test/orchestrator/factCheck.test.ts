@@ -86,16 +86,33 @@ describe("applyFactCheckRound", () => {
     expect(out.claims[0]).toMatchObject({ verdict: "unsupported", round: 1, correction: expect.stringContaining("117") });
   });
 
-  it("a rewrite keeps only the beats whose phrase is still said", () => {
-    const beats = [
-      { phrase: "Vênus gira no sentido contrário", footageQuery: "venus planet nasa" },
-      { phrase: "comemoraria o Réveillon", footageQuery: "fireworks night sky" },
-    ];
-    const withBeats: Script = { ...venus, scenes: venus.scenes.map((s) => (s.narration.includes("Réveillon") ? { ...s, beats } : s)) };
+  const oldBeats = [
+    { phrase: "Vênus gira no sentido contrário", footageQuery: "venus planet nasa" },
+    { phrase: "o Sol nasce no oeste e, como o dia", footageQuery: "sunrise over horizon" },
+    { phrase: "comemoraria o Réveillon", footageQuery: "fireworks night sky" },
+  ];
+  const withBeats: Script = { ...venus, scenes: venus.scenes.map((s) => (s.narration.includes("Réveillon") ? { ...s, beats: oldBeats } : s)) };
+  const revisedScene = (out: ReturnType<typeof applyFactCheckRound>) =>
+    out.kind === "revised" ? out.script.scenes.find((s) => s.narration.includes("sentido contrário")) : undefined;
+
+  it("a rewrite without beats keeps the old ones still said, snapping a partly rewritten phrase", () => {
     const out = applyFactCheckRound(withBeats, reveillonFlagged, 1, settings);
     expect(out.kind).toBe("revised");
-    if (out.kind !== "revised") return;
-    expect(out.script.scenes.find((s) => s.narration.includes("sentido contrário"))?.beats).toEqual([beats[0]]);
+    expect(revisedScene(out)?.beats).toEqual([oldBeats[0], { phrase: "o Sol nasce no oeste e", footageQuery: "sunrise over horizon" }]);
+  });
+
+  it("a rewrite that returns beats for the new line uses them", () => {
+    const newBeats = [oldBeats[0]!, { phrase: "ciclo de dia e noite", footageQuery: "venus day night cycle" }];
+    const scenes = fixedScenes.map((s) => (s.narration.includes("ciclo de dia") ? { ...s, beats: newBeats } : s));
+    const out = applyFactCheckRound(withBeats, { ...reveillonFlagged, scenes }, 1, settings);
+    expect(revisedScene(out)?.beats).toEqual(newBeats);
+  });
+
+  it("a rewrite whose beats do not match the new line falls back to the old ones", () => {
+    const bogus = [{ phrase: "fogos de artifício no céu", footageQuery: "fireworks" }];
+    const scenes = fixedScenes.map((s) => (s.narration.includes("ciclo de dia") ? { ...s, beats: bogus } : s));
+    const out = applyFactCheckRound(withBeats, { ...reveillonFlagged, scenes }, 1, settings);
+    expect(revisedScene(out)?.beats?.map((b) => b.phrase)).toEqual(["Vênus gira no sentido contrário", "o Sol nasce no oeste e"]);
   });
 
   it("rejects when the model says the premise is not salvageable", () => {

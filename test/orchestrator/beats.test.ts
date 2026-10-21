@@ -58,6 +58,42 @@ describe("sanitizeBeats / beatProblems", () => {
     expect(sanitizeBeats(narration, [{ phrase: "nada disso", footageQuery: "x" }])).toBeUndefined();
     expect(sanitizeBeats(narration, undefined)).toBeUndefined();
   });
+
+  it("recovers a lightly paraphrased phrase, snapping it to the narration's own words", () => {
+    // One word swapped ("em" -> "nos"): the longest run "sachês de vidro" is 3 of 5 tokens (>= 60%).
+    expect(sanitizeBeats(narration, [{ phrase: "vendido nos sachês de vidro", footageQuery: "q" }])).toEqual([{ phrase: "sachês de vidro", footageQuery: "q" }]);
+    // Accent and punctuation differences: literal match, phrase takes the real accents/punctuation.
+    expect(sanitizeBeats(narration, [{ phrase: "frasco de plastico, que a gente conhece", footageQuery: "q" }])).toEqual([
+      { phrase: "frasco de plástico que a gente conhece", footageQuery: "q" },
+    ]);
+    // A phrase saying something else is still dropped.
+    expect(sanitizeBeats(narration, [{ phrase: "embalagens antigas de molho", footageQuery: "q" }])).toBeUndefined();
+  });
+
+  it("keeps narration order when recovering partial matches", () => {
+    const out = sanitizeBeats(narration, [
+      { phrase: "frasco de plástico", footageQuery: "b" },
+      { phrase: "vendido nos sachês de vidro", footageQuery: "a" },
+    ]);
+    expect(out?.map((b) => b.phrase)).toEqual(["frasco de plástico"]);
+  });
+
+  it("keeps a beat through a fact-check rewrite that changed a word of its phrase", () => {
+    const rewritten = "O ketchup era vendido em sachês de vidro, e só depois passou a usar o frasco de plástico que a gente conhece.";
+    const kept = sanitizeBeats(rewritten, [
+      { phrase: "sachês de vidro", footageQuery: "a" },
+      { phrase: "virou o frasco de plástico", footageQuery: "b" },
+    ]);
+    expect(kept).toEqual([
+      { phrase: "sachês de vidro", footageQuery: "a" },
+      { phrase: "o frasco de plástico", footageQuery: "b" },
+    ]);
+  });
+
+  it("does not flag a phrase the sanitizer can recover, only ones it cannot", () => {
+    expect(beatProblems("scenes[0]", narration, [{ phrase: "vendido nos sachês de vidro", footageQuery: "q" }])).toEqual([]);
+    expect(beatProblems("scenes[0]", narration, [{ phrase: "embalagens antigas de molho", footageQuery: "q" }])).toHaveLength(1);
+  });
 });
 
 describe("beatStartsMs", () => {

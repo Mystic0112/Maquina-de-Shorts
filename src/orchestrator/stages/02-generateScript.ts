@@ -67,22 +67,30 @@ export function modelWritesCta(s: Pick<ResolvedScriptSettings, "cta" | "ctaStyle
   return !fixedCta(s) && s.ctaStyle !== "nenhum";
 }
 
-function sceneSchema(s: ResolvedScriptSettings) {
+function footageQuerySchema(s: ResolvedScriptSettings, what: string) {
   const q = queryWordRange(s);
-  const query = (what: string) => z.string().min(3).describe(`${q.min}-${q.max} English words naming ${what}`);
+  return z.string().min(3).describe(`${q.min}-${q.max} English words naming ${what}`);
+}
+
+/** A scene's beats as the model returns them (02 writes them; 02b returns them for rewritten scenes). */
+export function beatsSchema(s: ResolvedScriptSettings) {
+  return z
+    .array(
+      z.object({
+        phrase: z.string().min(1).describe("Trecho LITERAL da narração desta cena (copiado palavra por palavra), na ordem em que é dito"),
+        footageQuery: footageQuerySchema(s, "exactly the concrete thing this phrase mentions"),
+      }),
+    )
+    .min(1)
+    .max(MAX_BEATS)
+    .describe("1 a 3 trechos da narração, cada um com a imagem da coisa concreta citada nele");
+}
+
+function sceneSchema(s: ResolvedScriptSettings) {
   return z.object({
     narration: z.string().min(10).describe("Narração da cena em pt-BR (1-3 frases curtas)"),
-    footageQuery: query("filmable footage of this scene's era and place (= the first beat's footageQuery)"),
-    beats: z
-      .array(
-        z.object({
-          phrase: z.string().min(1).describe("Trecho LITERAL da narração desta cena (copiado palavra por palavra), na ordem em que é dito"),
-          footageQuery: query("exactly the concrete thing this phrase mentions"),
-        }),
-      )
-      .min(1)
-      .max(MAX_BEATS)
-      .describe("1 a 3 trechos da narração, cada um com a imagem da coisa concreta citada nele"),
+    footageQuery: footageQuerySchema(s, "filmable footage of this scene's era and place (= the first beat's footageQuery)"),
+    beats: beatsSchema(s),
   });
 }
 
@@ -283,7 +291,7 @@ function footageQueryProblems(script: LlmScript, s: ResolvedScriptSettings): str
   });
 }
 
-/** Beats are validated only when the model wrote any (older fixtures/tests have none): literal phrases, in order. */
+/** Beats are validated only when the model wrote any (older fixtures/tests have none): phrases found in the narration, in order. */
 export function sceneBeatProblems(script: Pick<LlmScript, "scenes">): string[] {
   if (!script.scenes.some((s) => s.beats)) return [];
   return script.scenes.flatMap((scene, i) => beatProblems(`scenes[${i}]`, scene.narration, scene.beats));
