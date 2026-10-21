@@ -29,6 +29,7 @@ import {
   type ScoredClip,
   type SourceSize,
 } from "../lib/relevance.js";
+import { beatClipsPerQuery, beatForClip, encodeBeatSlot, keepPerBeat, withBeat } from "../lib/beats.js";
 import { footageHash } from "../lib/contentHash.js";
 import { PythonExitError, runPythonJson } from "../lib/python.js";
 import { RunRejectedError } from "../lib/rejection.js";
@@ -62,7 +63,8 @@ const FootageResponseSchema = z.object({
 
 export interface FootageRequest {
   outputDir: string;
-  queries: { sceneIndex: number; query: string }[];
+  /** `clipsPerQuery` per query overrides the global one (beat queries share their scene's budget). */
+  queries: { sceneIndex: number; query: string; clipsPerQuery?: number }[];
   clipsPerQuery: number;
   minDurationSeconds: number;
   /** null = let the adapter use every allowlisted source whose API key is configured. */
@@ -98,7 +100,8 @@ export function fillMissingScenes(
     const donor = nearestSceneWithClips(scene, sceneCount, byScene);
     const donorClip = byScene.get(donor)?.[0];
     if (!donorClip) throw new Error(`No donor clip found for scene ${scene}`);
-    result.push({ ...donorClip, sceneIndex: scene, borrowedFromScene: donor });
+    const { beatIndex: _beat, ...donorFields } = donorClip; // the donor's beat means nothing in this scene
+    result.push({ ...donorFields, sceneIndex: scene, borrowedFromScene: donor });
     borrowed.push({ sceneIndex: scene, fromScene: donor });
   }
   return { clips: result, borrowed };
@@ -325,6 +328,8 @@ interface FetchRound {
    * belong to scene 0 and are named "0_h<n>" so the gate knows they came from Script.hookFootageQuery.
    */
   hookSceneIndex?: number;
+  /** First round only: clips get their beat (beat queries travel as pseudo scene indexes, see lib/beats.ts). */
+  beatsOf?: Pick<Script, "scenes">;
 }
 
 /** Normalized-name prefix of clips found by the hook query (scene 0). */
@@ -336,14 +341,26 @@ export function isHookClip(clip: Pick<FootageClip, "path" | "sceneIndex">): bool
 
 /**
  * First-round queries: scene 0 asks for the hook's iconic visual first (as pseudo scene `scenes.length`),
- * then its own footageQuery as the fallback; every other scene its footageQuery.
+ * then its own footageQuery as the fallback; every other scene its footageQuery (= beat 0) followed by its
+ * other beats as pseudo scene indexes. With `budget`, scenes with several beats split their candidate budget.
  */
-export function firstRoundQueries(script: Pick<Script, "scenes" | "hookFootageQuery">): FootageRequest["queries"] {
-  const scenes = script.scenes.map((scene, sceneIndex) => ({ sceneIndex, query: scene.footageQuery }));
+export function firstRoundQueries(
+  script: Pick<Script, "scenes" | "hookFootageQuery">,
+  budget?: { clipsPerQuery: number; kinds: number },
+): FootageRequest["queries"] {
+  const count = script.scenes.length;
+  const scenes = script.scenes.flatMap((scene, sceneIndex) => {
+    const beats = scene.beats ?? [];
+    const cap = budget && beats.length > 1 ? { clipsPerQuery: beatClipsPerQuery(beats.length, budget.clipsPerQuery, budget.kinds) } : {};
+    return [
+      { sceneIndex, query: scene.footageQuery, ...cap },
+      ...beats.slice(1).map((b, k) => ({ sceneIndex: encodeBeatSlot(sceneIndex, k + 1, count), query: b.footageQuery, ...cap })),
+    ];
+  });
   const hook = script.hookFootageQuery?.trim();
   const sceneZero = script.scenes[0]?.footageQuery.trim().toLowerCase();
   if (!hook || hook.toLowerCase() === sceneZero) return scenes;
-  return [{ sceneIndex: script.scenes.length, query: hook }, ...scenes];
+  return [{ sceneIndex: count, query: hook }, ...scenes];
 }
 
 /** Downloads, drops clips already evaluated (same sourceUrl), normalizes. */
@@ -366,8 +383,9 @@ async function fetchAndNormalize(
   await Promise.all(duplicates.filter((c) => !fresh.some((f) => f.path === c.path)).map((c) => rm(c.path, { force: true })));
   if (duplicates.length > 0) log.info(`Skipped ${duplicates.length} clip(s) already evaluated earlier`);
   const fromHook = (c: { sceneIndex: number }): boolean => round.hookSceneIndex !== undefined && c.sceneIndex === round.hookSceneIndex;
-  const hookClips = fresh.filter(fromHook).map((c) => ({ ...c, sceneIndex: 0 }));
-  const sceneClips = fresh.filter((c) => !fromHook(c));
+  const beatOf = (c: FootageClip): FootageClip => (round.beatsOf ? withBeat(c, round.beatsOf) : c);
+  const hookClips = fresh.filter(fromHook).map((c) => beatOf({ ...c, sceneIndex: 0 }));
+  const sceneClips = fresh.filter((c) => !fromHook(c)).map(beatOf);
   const parts = [
     await normalizeAll(hookClips, round.normDir, log, HOOK_CLIP_PREFIX, sourceSizes),
     await normalizeAll(sceneClips, round.normDir, log, round.namePrefix, sourceSizes),
@@ -421,16 +439,15 @@ async function scoreAll(clips: readonly FootageClip[], gate: GateContext): Promi
   return mapWithConcurrency(clips, settings.concurrency, async (clip) => {
     const started = performance.now();
     const scene = sceneForClip(gate.script, clip, gate.altQueries);
-    const raw = await scoreClip(clip, scene, gate.dirs.frames, gate.script.title, settings.thinking, gate.script.hook, relevanceProvider);
+    const beat = beatForClip(gate.script, clip);
+    const raw = await scoreClip(clip, scene, gate.dirs.frames, gate.script.title, settings.thinking, gate.script.hook, relevanceProvider, beat);
     const scored = penalizeLowResolution(raw, gate.sourceSizes.get(clip.path));
     stats.visionCalls++;
+    const where = `scene ${clip.sceneIndex}${beat ? ` beat ${clip.beatIndex}` : ""}`;
     if (scored.verdict) {
-      log.info(
-        `Scored ${basename(clip.path)} (scene ${clip.sceneIndex}): ${describeScored(scored, settings.minScore)} ` +
-          `in ${seconds(started)} - ${scored.verdict.reason}`,
-      );
+      log.info(`Scored ${basename(clip.path)} (${where}): ${describeScored(scored, settings.minScore)} in ${seconds(started)} - ${scored.verdict.reason}`);
     } else {
-      log.warn(`Could not score ${basename(clip.path)} (scene ${clip.sceneIndex}): ${scored.error ?? "unknown error"}`);
+      log.warn(`Could not score ${basename(clip.path)} (${where}): ${scored.error ?? "unknown error"}`);
     }
     return scored;
   });
@@ -446,35 +463,57 @@ async function alternativeQueries(failed: readonly FailedScene[], gate: GateCont
   }
 }
 
+/**
+ * One selection per scene, or per beat of a scene with beats (each beat keeps a share of keepPerScene); clips
+ * of a beat scene that have no beat (retry round) form one more group of their own.
+ */
 function selectAll(scored: readonly ScoredClip[], gate: GateContext, allowWeak: boolean): SceneSelection[] {
-  const groups: ScoredClip[][] = gate.script.scenes.map(() => []);
-  for (const s of scored) groups[s.clip.sceneIndex]?.push(s);
-  return groups.map((candidates, sceneIndex) => selectSceneClips(sceneIndex, candidates, gate.settings, allowWeak, (s) => isHookClip(s.clip)));
+  const preferred = (s: ScoredClip): boolean => isHookClip(s.clip);
+  return gate.script.scenes.flatMap((scene, sceneIndex) => {
+    const own = scored.filter((s) => s.clip.sceneIndex === sceneIndex);
+    const beats = scene.beats ?? [];
+    if (beats.length === 0) return [selectSceneClips(sceneIndex, own, gate.settings, allowWeak, preferred)];
+    const settings = { ...gate.settings, keepPerScene: keepPerBeat(gate.settings.keepPerScene, beats.length) };
+    const loose = own.filter((s) => s.clip.beatIndex === undefined);
+    return [
+      ...beats.map((_, beatIndex) => ({
+        ...selectSceneClips(sceneIndex, own.filter((s) => s.clip.beatIndex === beatIndex), settings, allowWeak, preferred),
+        beatIndex,
+      })),
+      ...(loose.length > 0 ? [selectSceneClips(sceneIndex, loose, gate.settings, allowWeak, preferred)] : []),
+    ];
+  });
+}
+
+/** Scenes where no selection (no beat) passed. */
+function scenesWithoutPass(selections: readonly SceneSelection[]): number[] {
+  const passing = new Set(selections.filter((s) => s.mode === "pass").map((s) => s.sceneIndex));
+  return [...new Set(selections.map((s) => s.sceneIndex))].filter((i) => !passing.has(i));
 }
 
 function logSceneSummary(selections: readonly SceneSelection[], gate: GateContext): void {
   for (const sel of selections) {
     const all = [...sel.kept, ...sel.discarded].map((s) => describeScored(s, gate.settings.minScore)).join(" ");
     const kept = sel.kept.map((s) => basename(s.clip.path)).join(", ") || "none";
-    const line = `Scene ${sel.sceneIndex}: ${sel.mode} -> kept ${kept} | candidates ${all || "none"}`;
+    const where = `Scene ${sel.sceneIndex}${sel.beatIndex !== undefined ? ` beat ${sel.beatIndex}` : ""}`;
+    const line = `${where}: ${sel.mode} -> kept ${kept} | candidates ${all || "none"}`;
     if (sel.mode === "pass") gate.log.info(line);
     else gate.log.warn(line);
   }
 }
 
-/** One retry round for scenes without a passing clip, using alternative queries. */
+/** One retry round for scenes without a passing clip (in any beat), using scene-level alternative queries. */
 async function retryFailedScenes(scored: readonly ScoredClip[], gate: GateContext): Promise<ScoredClip[]> {
-  const failed = selectAll(scored, gate, false).filter((s) => s.mode === "none");
+  const failed = scenesWithoutPass(selectAll(scored, gate, false));
   if (failed.length === 0) return [];
-  const failedScenes: FailedScene[] = failed.flatMap((f) => {
-    const scene = gate.script.scenes[f.sceneIndex];
-    return scene ? [{ sceneIndex: f.sceneIndex, narration: scene.narration, footageQuery: scene.footageQuery }] : [];
+  const failedScenes: FailedScene[] = failed.flatMap((sceneIndex) => {
+    const scene = gate.script.scenes[sceneIndex];
+    return scene ? [{ sceneIndex, narration: scene.narration, footageQuery: scene.footageQuery }] : [];
   });
   for (const [k, v] of await alternativeQueries(failedScenes, gate)) gate.altQueries.set(k, v);
   const queries = [...gate.altQueries].flatMap(([sceneIndex, qs]) => qs.map((query) => ({ sceneIndex, query })));
   gate.log.warn(
-    `No passing clip for scene(s) ${failed.map((f) => f.sceneIndex).join(", ")}; retrying with ` +
-      queries.map((q) => `${q.sceneIndex}:"${q.query}"`).join(", "),
+    `No passing clip for scene(s) ${failed.join(", ")}; retrying with ` + queries.map((q) => `${q.sceneIndex}:"${q.query}"`).join(", "),
   );
   if (queries.length === 0) return [];
   const round: FetchRound = {
@@ -541,15 +580,19 @@ export async function run(ctx: RunContext): Promise<RunContext> {
     log,
     altQueries: new Map(),
   };
+  const kindCount = footageConfig?.kinds?.length ?? 2;
+  // The adapter returns up to clipsPerQuery items of EACH kind; 3 per kind keeps ~6 candidates per scene.
+  // Scenes with several beats split a budget of 1.5x that between their beat queries (lib/beats.ts).
+  const clipsPerQuery = footageConfig?.clipsPerQuery ?? (settings.enabled ? (kindCount > 1 ? 3 : 4) : 2);
   const firstRound = await fetchAndNormalize(
     {
-      queries: firstRoundQueries(script),
+      queries: firstRoundQueries(script, { clipsPerQuery, kinds: kindCount }),
       downloadDir: footageDir,
       normDir: join(footageDir, "norm"),
-      // The adapter returns up to clipsPerQuery items of EACH kind; 3 per kind keeps ~6 candidates per scene.
-      clipsPerQuery: footageConfig?.clipsPerQuery ?? (settings.enabled ? ((footageConfig?.kinds?.length ?? 2) > 1 ? 3 : 4) : 2),
+      clipsPerQuery,
       namePrefix: "",
       hookSceneIndex: script.scenes.length,
+      beatsOf: script,
     },
     gate.seen,
     gate.stats,

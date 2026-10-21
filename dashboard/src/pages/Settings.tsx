@@ -358,6 +358,12 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
               />
               <Switch label="Movimento lateral nas imagens" checked={visual.imagePan} onChange={(v) => set("visual.imagePan", v)} help="Além do zoom, desliza a foto suavemente." />
               <Switch
+                label="Zoom só em rostos"
+                checked={visual.zoomOnlyOnFaces}
+                onChange={(v) => set("visual.zoomOnlyOnFaces", v)}
+                help="Aproxima só quando a imagem mostra um rosto; objetos e cenários ficam parados ou só deslizam."
+              />
+              <Switch
                 label="Faixa escura atrás das legendas"
                 checked={visual.captionBackdrop}
                 onChange={(v) => set("visual.captionBackdrop", v)}

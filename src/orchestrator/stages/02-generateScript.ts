@@ -9,7 +9,8 @@ import { getLogger } from "../lib/logger.js";
 import { containsWord, isEmphasisWord, normalizeToken, spellNumber, textTokens, titleKeyTokens } from "../lib/ptBr.js";
 import { findSimilarSubject, loadRecentSubjects, RUN_ID_PATTERN } from "../lib/recentTopics.js";
 import { RunRejectedError } from "../lib/rejection.js";
-import type { RunContext, Script, TopicPick } from "../types.js";
+import { beatProblems, MAX_BEATS, sanitizeBeats } from "../lib/beats.js";
+import type { RunContext, SceneBeat, Script, TopicPick } from "../types.js";
 
 /** Script settings after defaults (see src/shared/settings.ts). */
 export type ResolvedScriptSettings = ReturnType<typeof resolveScript>;
@@ -68,9 +69,20 @@ export function modelWritesCta(s: Pick<ResolvedScriptSettings, "cta" | "ctaStyle
 
 function sceneSchema(s: ResolvedScriptSettings) {
   const q = queryWordRange(s);
+  const query = (what: string) => z.string().min(3).describe(`${q.min}-${q.max} English words naming ${what}`);
   return z.object({
     narration: z.string().min(10).describe("Narração da cena em pt-BR (1-3 frases curtas)"),
-    footageQuery: z.string().min(3).describe(`${q.min}-${q.max} English words naming filmable footage of this scene's era and place`),
+    footageQuery: query("filmable footage of this scene's era and place (= the first beat's footageQuery)"),
+    beats: z
+      .array(
+        z.object({
+          phrase: z.string().min(1).describe("Trecho LITERAL da narração desta cena (copiado palavra por palavra), na ordem em que é dito"),
+          footageQuery: query("exactly the concrete thing this phrase mentions"),
+        }),
+      )
+      .min(1)
+      .max(MAX_BEATS)
+      .describe("1 a 3 trechos da narração, cada um com a imagem da coisa concreta citada nele"),
   });
 }
 
@@ -78,7 +90,7 @@ function sceneSchema(s: ResolvedScriptSettings) {
 export interface LlmScript {
   title: string;
   hook: string;
-  scenes: { narration: string; footageQuery: string }[];
+  scenes: { narration: string; footageQuery: string; beats?: SceneBeat[] }[];
   cta?: string;
   overlayText?: string;
   hookFootageQuery?: string;
@@ -248,6 +260,7 @@ export function findScriptIssues(script: LlmScript, s: ResolvedScriptSettings = 
   }
   ctaProblems(fixedCta(s) ?? script.cta ?? "", s).forEach(add(false));
   footageQueryProblems(script, s).forEach(add(false));
+  sceneBeatProblems(script).forEach(add(false));
   for (const p of hookProblems(script.hook)) add(p.includes(CLICHE_MARK))(p);
   const titleCliches = findCliches(script.title);
   if (titleCliches.length > 0) add(true)(`O título usa ${CLICHE_MARK} (${titleCliches.join(", ")}).`);
@@ -261,12 +274,19 @@ function footageQueryProblems(script: LlmScript, s: ResolvedScriptSettings): str
   const q = queryWordRange(s);
   const queries = [
     ...script.scenes.map((scene, i) => ({ label: `scenes[${i}].footageQuery`, query: scene.footageQuery })),
+    ...script.scenes.flatMap((scene, i) => (scene.beats ?? []).map((b, j) => ({ label: `scenes[${i}].beats[${j}].footageQuery`, query: b.footageQuery }))),
     ...(script.hookFootageQuery !== undefined ? [{ label: "hookFootageQuery", query: script.hookFootageQuery }] : []),
   ];
   return queries.flatMap(({ label, query }) => {
     const n = countWords(query);
     return n < q.min || n > q.max ? [`${label} "${query}" tem ${n} palavras; use de ${q.min} a ${q.max} palavras em inglês.`] : [];
   });
+}
+
+/** Beats are validated only when the model wrote any (older fixtures/tests have none): literal phrases, in order. */
+export function sceneBeatProblems(script: Pick<LlmScript, "scenes">): string[] {
+  if (!script.scenes.some((s) => s.beats)) return [];
+  return script.scenes.flatMap((scene, i) => beatProblems(`scenes[${i}]`, scene.narration, scene.beats));
 }
 
 /** Problems the JSON schema cannot express, checked on the spoken script (fixed CTA included). */
@@ -409,10 +429,14 @@ export function endingProblems(script: Pick<LlmScript, "scenes">, s: Pick<Resolv
 
 function footageRules(s: ResolvedScriptSettings, libraries: string): string {
   const q = queryWordRange(s);
-  const common = `Regras para as buscas de imagem (em INGLÊS): "hookFootageQuery" (uma) e "footageQuery" (uma por cena)
-- O vídeo de fundo vem automaticamente de ${libraries}. Um revisor automático descarta imagens que não mostrem o que a cena narra.
+  const common = `Regras para as buscas de imagem (em INGLÊS): "hookFootageQuery" (uma), "footageQuery" (uma por cena) e "beats" (1 a ${MAX_BEATS} por cena)
+- O vídeo de fundo vem automaticamente de ${libraries}. Um revisor automático descarta imagens que não mostrem o que está sendo dito naquele instante.
 - ${q.min} a ${q.max} palavras por busca, nomeando COISAS CONCRETAS E VISÍVEIS, nunca conceitos abstratos (nada de "slow rotation", "time paradox", "mystery").
 - "hookFootageQuery": a imagem MAIS ICÔNICA do assunto do gancho (a primeira coisa que o espectador vê).
+- "beats": a imagem troca a cada coisa concreta citada. Um beat por objeto, lugar ou coisa concreta CITADA na narração da cena, na ordem em que aparece (1 a ${MAX_BEATS}).
+  "phrase" = trecho LITERAL da narração (copie as palavras exatamente, sem reescrever nem resumir), começando onde a coisa é citada.
+  "footageQuery" do beat nomeia EXATAMENTE a coisa citada nesse trecho: narração "vendido em sachês" -> "ketchup sachet packets", NUNCA "hamburger with ketchup".
+  A "footageQuery" da cena é igual à do primeiro beat.
 - Nada de texto na tela.`;
   if (!s.specificFootage) {
     return `${common}
@@ -496,7 +520,12 @@ export function toScript(raw: LlmScript, s: ResolvedScriptSettings, language: st
   return {
     title: spoken.title.trim(),
     hook: spoken.hook.trim(),
-    scenes: spoken.scenes.map((sc) => ({ narration: sc.narration.trim(), footageQuery: sc.footageQuery.trim() })),
+    scenes: spoken.scenes.map((sc) => {
+      const narration = sc.narration.trim();
+      // Beats the model got wrong are dropped (none left = the whole scene is one beat, as before beats existed).
+      const beats = sanitizeBeats(narration, sc.beats);
+      return { narration, footageQuery: beats?.[0]?.footageQuery ?? sc.footageQuery.trim(), ...(beats ? { beats } : {}) };
+    }),
     cta: spoken.cta,
     language,
     ...(overlayText ? { overlayText } : {}),

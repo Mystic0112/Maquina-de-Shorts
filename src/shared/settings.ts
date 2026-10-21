@@ -56,6 +56,8 @@ export const VisualSettingsSchema = z.object({
   imageZoom: z.number().min(1).max(1.25).optional(),
   videoZoom: z.number().min(1).max(1.2).optional(),
   imagePan: z.boolean().optional(),
+  /** Zoom (scale change) only on clips whose main subject is a face; objects and places get a pan or stay still. */
+  zoomOnlyOnFaces: z.boolean().optional(),
   crossfadeFrames: z.number().int().min(0).max(20).optional(),
   /** Dark gradient behind the caption area for legibility. */
   captionBackdrop: z.boolean().optional(),
@@ -122,6 +124,7 @@ export const VISUAL_DEFAULTS: Required<VisualSettings> = {
   imageZoom: 1.12,
   videoZoom: 1.08,
   imagePan: true,
+  zoomOnlyOnFaces: true,
   crossfadeFrames: 8,
   captionBackdrop: true,
   maxShotSeconds: 4.5,

@@ -51,7 +51,10 @@ const panPct = (zoom: number, share: number): number => share * maxSafePanPct(zo
 
 export const maxShotFrames = (visual: Visual, fps: number): number => Math.max(1, Math.round(visual.maxShotSeconds * fps));
 
-const minShotFrames = (visual: Visual, fps: number): number => Math.min(Math.round(MIN_SHOT_SECONDS * fps), maxShotFrames(visual, fps));
+export const minShotFrames = (visual: Visual, fps: number): number => Math.min(Math.round(MIN_SHOT_SECONDS * fps), maxShotFrames(visual, fps));
+
+/** Owner's rule: a zoom (scale change) only when a face is the subject; objects and places never change scale. */
+const mayZoom = (clip: FootageClip, visual: Visual): boolean => !visual.zoomOnlyOnFaces || clip.hasFace === true;
 
 /** Frames of a video that can be shown, keeping room for the next shot's dissolve over its end. */
 function playableFrames(clip: FootageClip, fps: number, visual: Visual): number {
@@ -186,6 +189,19 @@ export function imageMotion(variant: number, direction: 1 | -1, visual: Visual):
   };
 }
 
+/**
+ * Fixed-scale move for a still that may not zoom: a gentle pan inside the configured zoom's slack, sideways on
+ * even reuses and vertical on odd ones (so each cut still lands on another region). Still at zoom 1 or without pan.
+ */
+export function panOnlyMotion(variant: number, direction: 1 | -1, visual: Visual): Omit<SegmentMotion, "easing"> {
+  const zoom = Math.min(visual.imageZoom, SAFE_MAX_ZOOM);
+  const pan = visual.imagePan ? Math.min(IMAGE_PAN_PCT, panPct(zoom, 1)) : 0;
+  if (pan === 0) return STILL;
+  const fixed = { ...STILL, scaleFrom: zoom, scaleTo: zoom };
+  if (variant % 2 === 0) return { ...fixed, panXFromPct: signed(-direction, pan), panXToPct: signed(direction, pan) };
+  return { ...fixed, panYFromPct: signed(direction, pan), panYToPct: signed(-direction, pan) };
+}
+
 /** Videos: gentle push-in; a later part of the same clip alternates with a pull-out. */
 function videoMotion(variant: number, visual: Visual): Omit<SegmentMotion, "easing"> {
   const zoom = Math.min(visual.videoZoom, SAFE_MAX_ZOOM);
@@ -205,7 +221,16 @@ function slotShots(slot: Slot, slotIndex: number, input: ScenePlanInput, firstCa
   return lengths.map((frames, variant) => {
     const opening = Number.isFinite(firstCap) && variant === 0;
     const direction = (sceneOrdinal + slotIndex + variant) % 2 === 0 ? 1 : -1;
-    const move = opening ? openingMotion() : slot.clip.kind === "image" ? imageMotion(variant, direction, visual) : videoMotion(variant, visual);
+    const isImage = slot.clip.kind === "image";
+    const move = !mayZoom(slot.clip, visual)
+      ? isImage
+        ? panOnlyMotion(variant, direction, visual)
+        : STILL
+      : opening
+        ? openingMotion()
+        : isImage
+          ? imageMotion(variant, direction, visual)
+          : videoMotion(variant, visual);
     return { clip: slot.clip, frames, trimBeforeFrames: trims[variant]!, motion: { ...move, easing: easingFor(visual, opening) } };
   });
 }

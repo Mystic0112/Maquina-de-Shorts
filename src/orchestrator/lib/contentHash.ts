@@ -20,7 +20,8 @@ export function scriptHash(script: Script): string {
   return sha256({
     title: script.title,
     hook: script.hook,
-    scenes: script.scenes.map((s) => [s.narration, s.footageQuery]),
+    // Beats are appended only when present so hashes of scripts written before beats existed are unchanged.
+    scenes: script.scenes.map((s) => (s.beats ? [s.narration, s.footageQuery, s.beats] : [s.narration, s.footageQuery])),
     cta: script.cta,
     language: script.language,
     overlayText: script.overlayText,

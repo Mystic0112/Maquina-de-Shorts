@@ -1,6 +1,6 @@
 import { basename, extname } from "node:path";
 import { z } from "zod";
-import type { FootageClip, QualitySummary, ScriptScene } from "../types.js";
+import type { FootageClip, QualitySummary, SceneBeat, ScriptScene } from "../types.js";
 import type { PipelineConfig } from "./config.js";
 import { extractFrames } from "./ffmpeg.js";
 import {
@@ -53,6 +53,10 @@ export const RelevanceVerdictSchema = z.object({
     .boolean()
     .optional()
     .describe("footage clearly shows a different century, country or civilization than the narration (anachronism)"),
+  showsFace: z
+    .boolean()
+    .optional()
+    .describe("a human face is the main subject (any person, statue or painting of a person with a visible face)"),
 });
 
 export type RelevanceVerdict = z.infer<typeof RelevanceVerdictSchema>;
@@ -87,6 +91,8 @@ export type SelectionMode = "pass" | "weak" | "none";
 
 export interface SceneSelection {
   sceneIndex: number;
+  /** Set when the candidates were searched for one beat of the scene. */
+  beatIndex?: number;
   mode: SelectionMode;
   kept: ScoredClip[];
   discarded: ScoredClip[];
@@ -126,6 +132,7 @@ export function annotateClip(scored: ScoredClip): FootageClip {
     relevanceReason: scored.verdict.reason,
     relevanceMatches:
       scored.verdict.matches && !scored.verdict.hasTextOrLogo && !scored.verdict.hasIdentifiablePeople && !scored.verdict.wrongEraOrPlace,
+    ...(scored.verdict.showsFace !== undefined ? { hasFace: scored.verdict.showsFace } : {}),
   };
 }
 
@@ -228,25 +235,38 @@ export function buildRelevancePrompt(
   title?: string,
   kind: FootageClip["kind"] = "video",
   hook?: string,
+  beat?: SceneBeat,
 ): string {
   const subject =
     kind === "image"
       ? "The image is ONE still picture, already cropped to vertical 9:16, that would be shown (with a slow zoom)"
       : `The ${frameCount} image(s) are frames sampled from ONE stock clip, already cropped to vertical 9:16, that would play`;
+  const spoken = beat
+    ? `Narration of the whole scene (pt-BR, context only): "${scene.narration}"
+WHAT IS BEING SAID while this footage is on screen (pt-BR): "${beat.phrase}"
+Search query that found the clip: "${beat.footageQuery}"`
+    : `Narration for this scene (pt-BR): "${scene.narration}"
+Search query that found the clip: "${scene.footageQuery}"`;
+  const beatRule = beat
+    ? `
+  The footage MUST show the concrete thing named in the phrase being said (the phrase mentions sachets -> the frames
+  show sachets, not a burger with ketchup); showing something else from the scene is at most 5 and matches=false.`
+    : "";
   return `You are the automated footage reviewer for a faceless YouTube Shorts channel that narrates curiosities
 about history, science and space in Brazilian Portuguese. No human reviews the videos before publishing, so be strict.
 
 ${subject}
 while the narrator speaks the line below.
-${title ? `Video title: "${title}"\n` : ""}${hook ? `Opening line of the video (pt-BR): "${hook}"\n` : ""}Narration for this scene (pt-BR): "${scene.narration}"
-Search query that found the clip: "${scene.footageQuery}"
+${title ? `Video title: "${title}"\n` : ""}${hook ? `Opening line of the video (pt-BR): "${hook}"\n` : ""}${spoken}
 
 Return JSON with:
-- score (0-10): how well the footage visually illustrates THIS narration for a viewer.
+- score (0-10): how well the footage visually illustrates ${beat ? "the phrase being said" : "THIS narration"} for a viewer.
   9-10 = directly shows the subject being narrated; 7-8 = clearly related and fitting (e.g. generic space imagery
   for an astronomy line); 4-6 = only a loose mood match; 0-3 = unrelated or misleading (e.g. an office building or
-  a zoo animal for a line about planets, or a different celestial body than the one named).
+  a zoo animal for a line about planets, or a different celestial body than the one named).${beatRule}
 - matches: true only if a typical viewer would feel the footage fits what is being said.
+- showsFace: true if a human face is the main subject of the frames: a photographed person, or a statue, bust,
+  painting, engraving or drawing of a person with a visible face. False for landscapes, objects, buildings, space.
 - hasTextOrLogo: true if any frame shows burned-in text, subtitles, captions, a watermark, a TV channel bug or logo
   (e.g. ZDF, BBC), an agency insignia (including the NASA logo), or a title card. Tiny incidental text on real-world
   objects far in the background does not count.
@@ -335,12 +355,13 @@ export async function scoreClip(
   thinking: ThinkingSetting = "low",
   hook?: string,
   provider?: LlmProvider,
+  beat?: SceneBeat,
 ): Promise<ScoredClip> {
   try {
     const duration = clip.kind === "image" ? 0 : clip.durationSeconds;
     const frames = await extractFrames(clip.path, duration, framesDir, basename(clip.path, extname(clip.path)));
     const images = frames.map((data) => ({ mimeType: "image/jpeg" as const, data }));
-    const prompt = buildRelevancePrompt(scene, images.length, title, clip.kind, hook);
+    const prompt = buildRelevancePrompt(scene, images.length, title, clip.kind, hook, beat);
     // Low temperature: a reviewer should give the same clip the same score on every run.
     const verdict = await generateJsonWithImages(prompt, images, RelevanceVerdictSchema, {
       thinking,

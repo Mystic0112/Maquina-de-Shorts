@@ -4,7 +4,8 @@
 Contract (see src/orchestrator/types.ts -> FootageClip):
 
     stdin  : {"outputDir": str,
-              "queries": [{"sceneIndex": int, "query": str, "kind"?: "video"|"image"|[...]}],
+              "queries": [{"sceneIndex": int, "query": str, "kind"?: "video"|"image"|[...],
+                           "clipsPerQuery"?: int}],   # per-query override of the global one
               "clipsPerQuery": int = 2, "minDurationSeconds": number | null,
               "sources": [str] | null,
               "kinds": ["video" | "image"] = ["video"],   # per-query "kind" overrides it
@@ -148,6 +149,7 @@ class SceneQuery:
     scene_index: int
     query: str
     kinds: tuple[str, ...] = ("video",)
+    clips_per_query: int | None = None  # None = the request's global clipsPerQuery
 
 
 @dataclass(frozen=True)
@@ -209,7 +211,9 @@ def _parse_queries(value: Any, default_kinds: tuple[str, ...]) -> list[SceneQuer
         if not isinstance(query, str) or not query.strip():
             raise InputError(f"queries[{i}].query must be a non-empty string")
         kinds = _parse_kinds(item.get("kind"), f"queries[{i}].kind", default_kinds)
-        queries.append(SceneQuery(scene_index, " ".join(query.split()), kinds))
+        per_query = item.get("clipsPerQuery")
+        cap = None if per_query is None else _positive_int(per_query, f"queries[{i}].clipsPerQuery", DEFAULT_CLIPS_PER_QUERY, 20)
+        queries.append(SceneQuery(scene_index, " ".join(query.split()), kinds, cap))
     return queries
 
 
@@ -1439,7 +1443,8 @@ def simplify_query(query: str) -> str | None:
 
 
 def run_direct_clip_search(
-    req: FetchRequest, query: str, sources: list[str], kind: str, deadline: float | None = None
+    req: FetchRequest, query: str, sources: list[str], kind: str, deadline: float | None = None,
+    clips_per_query: int | None = None,
 ) -> tuple[list[dict], list[dict], str]:
     """Return (clip records, tool errors, fatal error message or '')."""
     from tools.video.direct_clip_search import DirectClipSearch
@@ -1454,7 +1459,7 @@ def run_direct_clip_search(
         "output_dir": str(req.output_dir),
         "queries": [{"query": query, "slot_id": query, "kind": kind}],
         "sources": sources,
-        "clips_per_query": req.clips_per_query,
+        "clips_per_query": clips_per_query or req.clips_per_query,
         "filters": filters,
         "extract_thumbnails": False,
         # Never trust an existing file: it may be a leftover from an older, non-atomic run.
@@ -1523,7 +1528,7 @@ def _fetch_and_validate(
     ctx: FetchContext, scene: SceneQuery, query: str, kind: str, sources: list[str]
 ) -> list[dict[str, Any]]:
     log.info("scene %d: searching %s %r on %s", scene.scene_index, kind, query, ", ".join(sources))
-    records, tool_errors, fatal = run_direct_clip_search(ctx.req, query, sources, kind, ctx.deadline)
+    records, tool_errors, fatal = run_direct_clip_search(ctx.req, query, sources, kind, ctx.deadline, scene.clips_per_query)
     for err in tool_errors:
         ctx.errors.add(str(err.get("phase") or "openmontage"), str(err.get("error") or err),
                        scene=scene, query=query, source=err.get("source"))  # fmt: skip

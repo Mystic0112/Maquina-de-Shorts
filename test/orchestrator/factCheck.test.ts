@@ -86,6 +86,18 @@ describe("applyFactCheckRound", () => {
     expect(out.claims[0]).toMatchObject({ verdict: "unsupported", round: 1, correction: expect.stringContaining("117") });
   });
 
+  it("a rewrite keeps only the beats whose phrase is still said", () => {
+    const beats = [
+      { phrase: "Vênus gira no sentido contrário", footageQuery: "venus planet nasa" },
+      { phrase: "comemoraria o Réveillon", footageQuery: "fireworks night sky" },
+    ];
+    const withBeats: Script = { ...venus, scenes: venus.scenes.map((s) => (s.narration.includes("Réveillon") ? { ...s, beats } : s)) };
+    const out = applyFactCheckRound(withBeats, reveillonFlagged, 1, settings);
+    expect(out.kind).toBe("revised");
+    if (out.kind !== "revised") return;
+    expect(out.script.scenes.find((s) => s.narration.includes("sentido contrário"))?.beats).toEqual([beats[0]]);
+  });
+
   it("rejects when the model says the premise is not salvageable", () => {
     expect(applyFactCheckRound(venus, result({ publishable: false, reason: "premissa falsa" }), 1, settings)).toMatchObject({
       kind: "reject",

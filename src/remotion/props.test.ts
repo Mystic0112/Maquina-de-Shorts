@@ -34,12 +34,18 @@ function words(count: number, stepMs = 300): WordTiming[] {
   return Array.from({ length: count }, (_, i) => ({ word: `w${i}`, startMs: i * stepMs, endMs: i * stepMs + 250 }));
 }
 
+/** Clips here show a face: with the default zoomOnlyOnFaces they keep the zoom moves (see "zoom only on faces"). */
 function clip(sceneIndex: number, path: string, durationSeconds: number): FootageClip {
-  return { sceneIndex, path, kind: "video", durationSeconds, width: 1920, height: 1080, source: "t", sourceUrl: "", creator: "", license: "" };
+  return { sceneIndex, path, kind: "video", durationSeconds, width: 1920, height: 1080, source: "t", sourceUrl: "", creator: "", license: "", hasFace: true };
 }
 
 function image(sceneIndex: number, path: string): FootageClip {
   return { ...clip(sceneIndex, path, 0), kind: "image", width: 1080, height: 1920 };
+}
+
+/** A still of an object or place (no face): never changes scale. */
+function object(sceneIndex: number, path: string): FootageClip {
+  return { ...image(sceneIndex, path), hasFace: false };
 }
 
 const layout = (segments: ClipSegment[]): Array<[string, string, number]> =>
@@ -395,6 +401,140 @@ describe("opening and easing", () => {
     expect(early({ ...motion, easing: "linear" })).toBeCloseTo(0.012, 6);
     const linear = buildRenderPlan(ctx([image(0, "C:/a.jpg"), image(1, "C:/b.jpg")]), VIDEO, style({}, { motionEasing: "linear" })).props;
     expect(linear.scenes.flatMap((s) => s.segments).every((s) => s.motion.easing === "linear")).toBe(true);
+  });
+});
+
+describe("beats: the image switches when the beat's phrase starts", () => {
+  // Scene 1 = [4000, 10000) ms = frame 120 + 8 lead-in (193 visual frames); its words start every second from 4 s.
+  const spoken = ["um", "dois", "tres", "quatro", "cinco", "seis"];
+  const sceneWords: WordTiming[] = spoken.map((word, i) => ({ word, startMs: 4000 + i * 1000, endMs: 4000 + i * 1000 + 500 }));
+  const beat = (phrase: string, footageQuery = "q r") => ({ phrase, footageQuery });
+  function beatCtx(footage: FootageClip[], beats?: Array<{ phrase: string; footageQuery: string }>, sceneZeroBeats?: Array<{ phrase: string; footageQuery: string }>): RunContext {
+    const base = ctx(footage);
+    return {
+      ...base,
+      narration: { ...base.narration!, words: [...base.narration!.words, ...sceneWords] },
+      script: {
+        title: "t", hook: "h", cta: "", language: "pt-BR",
+        scenes: [
+          { narration: "w0 w1 w2 w3 w4 w5 w6 w7 w8 w9", footageQuery: "x y", ...(sceneZeroBeats ? { beats: sceneZeroBeats } : {}) },
+          { narration: "um dois três quatro cinco seis", footageQuery: "q r", ...(beats ? { beats } : {}) },
+        ],
+      },
+    };
+  }
+  const beatClip = (path: string, beatIndex: number): FootageClip => ({ ...object(1, path), beatIndex });
+  const three = [image(0, "C:/z.jpg"), beatClip("C:/a.jpg", 0), beatClip("C:/b.jpg", 1), beatClip("C:/c.jpg", 2)];
+  const scene1 = (run: RunContext) => buildRenderPlan(run, VIDEO).props.scenes[1]!;
+
+  it("cuts to each beat's clip on the word where its phrase starts (a too-short tail merges into the previous beat)", () => {
+    // "quatro" at 7 s = frame 210 -> 98 visual frames in; "seis" at 9 s leaves 35 frames < the 45-frame minimum shot.
+    const segments = scene1(beatCtx(three, [beat("um"), beat("quatro cinco"), beat("seis")])).segments;
+    expect(layout(segments)).toEqual([["image", "a.jpg", 98], ["image", "b.jpg", 95]]);
+    expect(segments.map((s) => s.fromFrame)).toEqual([0, 98]);
+  });
+
+  it("splits the scene evenly between the beats when a phrase is not found in the spoken words", () => {
+    const segments = scene1(beatCtx(three, [beat("um"), beat("palavra inexistente"), beat("seis")])).segments;
+    expect(layout(segments)).toEqual([["image", "a.jpg", 68], ["image", "b.jpg", 60], ["image", "c.jpg", 65]]);
+  });
+
+  it("a beat without an approved clip keeps showing the previous beat's clip", () => {
+    const footage = [image(0, "C:/z.jpg"), beatClip("C:/a.jpg", 0), beatClip("C:/c.jpg", 2)];
+    const segments = scene1(beatCtx(footage, [beat("um"), beat("palavra inexistente"), beat("cinco")])).segments;
+    expect(layout(segments)).toEqual([["image", "a.jpg", 128], ["image", "c.jpg", 65]]);
+  });
+
+  it("a scene whose beats all resolve to the same clips, or without beats, renders exactly as before", () => {
+    const footage = [image(0, "C:/z.jpg"), object(1, "C:/a.jpg")];
+    const legacy = buildRenderPlan(ctx(footage), VIDEO).props.scenes;
+    expect(buildRenderPlan(beatCtx(footage), VIDEO).props.scenes).toEqual(legacy);
+    expect(buildRenderPlan(beatCtx(footage, [beat("um"), beat("quatro"), beat("seis")]), VIDEO).props.scenes).toEqual(legacy);
+  });
+
+  it("only the first beat of the opening scene punches in", () => {
+    const footage = [{ ...image(0, "C:/a.jpg"), beatIndex: 0 }, { ...image(0, "C:/b.jpg"), beatIndex: 1 }, image(1, "C:/z.jpg")];
+    const run = beatCtx(footage, undefined, [beat("w0"), beat("w5")]); // "w5" at 1.5 s = frame 45
+    const [opening] = buildRenderPlan(run, VIDEO).props.scenes;
+    expect(layout(opening!.segments)).toEqual([["image", "a.jpg", 45], ["image", "b.jpg", 75]]);
+    expect(opening!.segments[0]!.motion).toMatchObject({ scaleTo: OPENING_PUNCH_ZOOM, easing: "out" });
+    expect(opening!.segments[1]!.motion).toMatchObject({ scaleFrom: 1, scaleTo: 1.12, easing: "inOut" });
+  });
+
+  it("keeps the render-plan invariants over every beat layout (segments tile the scene, max shot length)", () => {
+    for (const beats of [[beat("um"), beat("dois"), beat("tres")], [beat("um"), beat("seis")], [beat("cinco"), beat("seis")], [beat("um"), beat("nada"), beat("seis")]]) {
+      const scene = scene1(beatCtx(three, beats));
+      let cursor = 0;
+      for (const s of scene.segments) {
+        expect(s.fromFrame).toBe(cursor);
+        expect(s.durationInFrames).toBeGreaterThan(0);
+        expect(s.durationInFrames).toBeLessThanOrEqual(Math.round(VISUAL_DEFAULTS.maxShotSeconds * 30));
+        cursor += s.durationInFrames;
+      }
+      expect(cursor).toBe(scene.leadInFrames + scene.durationInFrames);
+    }
+  });
+});
+
+describe("zoom only on faces (owner's rule: objects and places never change scale)", () => {
+  const FPS = 30;
+  const plan = (sceneFrames: number, clips: FootageClip[], visual: Partial<RenderStyle["visual"]> = {}, sceneOrdinal = 3) =>
+    planSceneShots({ sceneFrames, clips, srcOf: (c) => c.path, fps: FPS, visual: { ...VISUAL_DEFAULTS, ...visual }, sceneOrdinal });
+  const constantScale = (s: ClipSegment) => s.motion.scaleFrom === s.motion.scaleTo;
+
+  it("is on by default; object stills keep a constant scale and only pan", () => {
+    expect(VISUAL_DEFAULTS.zoomOnlyOnFaces).toBe(true);
+    const segments = plan(540, [object(0, "a.jpg")]);
+    expect(segments.length).toBeGreaterThanOrEqual(4);
+    for (const s of segments) {
+      expect(constantScale(s)).toBe(true);
+      expect(s.motion.scaleFrom).toBeCloseTo(1.12);
+      expect(Math.abs(s.motion.panXToPct - s.motion.panXFromPct) + Math.abs(s.motion.panYToPct - s.motion.panYFromPct)).toBeGreaterThan(0);
+    }
+  });
+
+  it("reuses of an object still are visibly reframed by the pan alone and never show an edge", () => {
+    const segments = plan(540, [object(0, "a.jpg")]);
+    segments.slice(1).forEach((next, i) => {
+      const prev = segments[i]!;
+      const end = cameraAt(prev.motion, prev.durationInFrames - 1, prev.durationInFrames);
+      const start = cameraAt(next.motion, 0, next.durationInFrames);
+      expect(Math.max(Math.abs(end.panXPct - start.panXPct), Math.abs(end.panYPct - start.panYPct))).toBeGreaterThanOrEqual(2.5);
+    });
+    for (const imageZoom of [1, 1.05, 1.12, 1.25]) {
+      for (const s of plan(700, [object(0, "a.jpg"), { ...clip(0, "v.mp4", 20), hasFace: false }], { imageZoom })) {
+        for (let f = 0; f < s.durationInFrames; f++) {
+          const cam = cameraAt(s.motion, f, s.durationInFrames);
+          expect(cam.scale).toBeLessThanOrEqual(SAFE_MAX_ZOOM + 1e-9);
+          expect(Math.abs(cam.panXPct)).toBeLessThanOrEqual(maxSafePanPct(cam.scale) + 1e-9);
+          expect(Math.abs(cam.panYPct)).toBeLessThanOrEqual(maxSafePanPct(cam.scale) + 1e-9);
+        }
+      }
+    }
+  });
+
+  it("objects stay still without pan or at zoom 1; videos without a face play without any move", () => {
+    const still = { scaleFrom: 1, scaleTo: 1, panXFromPct: 0, panXToPct: 0, panYFromPct: 0, panYToPct: 0 };
+    expect(plan(300, [object(0, "a.jpg")], { imagePan: false }).every((s) => expect.objectContaining(still).asymmetricMatch(s.motion))).toBe(true);
+    expect(plan(300, [object(0, "a.jpg")], { imageZoom: 1 })[0]!.motion).toMatchObject(still);
+    expect(plan(300, [{ ...clip(0, "v.mp4", 20), hasFace: false }])[0]!.motion).toMatchObject(still);
+  });
+
+  it("the opening shot of an object does not punch in; a face still does", () => {
+    const opening = (footage: FootageClip[]) => buildRenderPlan(ctx(footage), VIDEO).props.scenes[0]!.segments[0]!;
+    expect(constantScale(opening([object(0, "C:/a.jpg"), object(1, "C:/b.jpg")]))).toBe(true);
+    expect(opening([image(0, "C:/a.jpg"), object(1, "C:/b.jpg")]).motion).toMatchObject({ scaleFrom: 1, scaleTo: OPENING_PUNCH_ZOOM });
+    expect(constantScale(opening([{ ...clip(0, "C:/a.mp4", 20), hasFace: false }, object(1, "C:/b.jpg")]))).toBe(true);
+  });
+
+  it("clips without a face verdict (older runs) count as no face; zoomOnlyOnFaces=false restores the zoom for everything", () => {
+    const legacy: FootageClip = { ...image(0, "a.jpg"), hasFace: undefined };
+    expect(constantScale(plan(300, [legacy])[0]!)).toBe(true);
+    const zoomed = plan(540, [object(0, "a.jpg")], { zoomOnlyOnFaces: false });
+    expect(zoomed[0]!.motion).toMatchObject({ scaleFrom: 1, scaleTo: 1.12 });
+    expect(zoomed.some((s) => !constantScale(s))).toBe(true);
+    const openingObject = buildRenderPlan(ctx([object(0, "C:/a.jpg"), object(1, "C:/b.jpg")]), VIDEO, style({}, { zoomOnlyOnFaces: false })).props.scenes[0]!.segments[0]!;
+    expect(openingObject.motion).toMatchObject({ scaleFrom: 1, scaleTo: OPENING_PUNCH_ZOOM });
   });
 });
 

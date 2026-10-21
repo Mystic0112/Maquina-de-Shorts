@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { encodeBeatSlot } from "../../src/orchestrator/lib/beats.js";
 import {
+  annotateClip,
   buildAlternativeQueriesPrompt,
   buildRelevancePrompt,
   classifyClip,
@@ -9,7 +11,7 @@ import {
   selectSceneClips,
   type ScoredClip,
 } from "../../src/orchestrator/lib/relevance.js";
-import { firstRoundQueries, isHookClip, sceneForClip } from "../../src/orchestrator/stages/03-fetchFootage.js";
+import { fillMissingScenes, firstRoundQueries, isHookClip, sceneForClip } from "../../src/orchestrator/stages/03-fetchFootage.js";
 import type { FootageClip, Script } from "../../src/orchestrator/types.js";
 
 const script: Script = {
@@ -72,6 +74,48 @@ describe("hook footage query (scene 0)", () => {
     const best = scored(9, { path: "0_1.mp4" });
     const sel = selectSceneClips(0, [plain, hook, best], settings, false, (s) => isHookClip(s.clip));
     expect(sel.kept.map((s) => s.clip.path)).toEqual(["0_1.mp4", "0_h0.jpg", "0_0.mp4"]);
+  });
+});
+
+describe("beats in the footage stage", () => {
+  const beats = [
+    { phrase: "a multidão de Paris", footageQuery: "Paris crowd 1789 engraving" },
+    { phrase: "invadiu a fortaleza", footageQuery: "Bastille fortress engraving" },
+  ];
+  const beatScript: Script = { ...script, scenes: [{ ...script.scenes[0]!, footageQuery: beats[0]!.footageQuery, beats }, script.scenes[1]!] };
+
+  it("adds one query per extra beat as a pseudo scene, sharing the scene's candidate budget", () => {
+    expect(firstRoundQueries(beatScript)).toEqual([
+      { sceneIndex: 2, query: "storming of the Bastille painting" },
+      { sceneIndex: 0, query: "Paris crowd 1789 engraving" },
+      { sceneIndex: encodeBeatSlot(0, 1, 2), query: "Bastille fortress engraving" },
+      { sceneIndex: 1, query: "Bastille prison cell illustration" },
+    ]);
+    const budgeted = firstRoundQueries(beatScript, { clipsPerQuery: 3, kinds: 2 });
+    expect(budgeted.map((q) => q.clipsPerQuery)).toEqual([undefined, 2, 2, undefined]);
+    expect(firstRoundQueries(script, { clipsPerQuery: 3, kinds: 2 })).toEqual(firstRoundQueries(script));
+  });
+
+  it("the reviewer judges a beat clip against the phrase being said and demands the thing it names", () => {
+    const prompt = buildRelevancePrompt(beatScript.scenes[0]!, 1, script.title, "image", script.hook, beats[1]);
+    expect(prompt).toContain('WHAT IS BEING SAID while this footage is on screen (pt-BR): "invadiu a fortaleza"');
+    expect(prompt).toContain('Search query that found the clip: "Bastille fortress engraving"');
+    expect(prompt).toContain("context only");
+    expect(prompt).toContain("not a burger with ketchup");
+    expect(buildRelevancePrompt(script.scenes[0]!, 1)).not.toContain("WHAT IS BEING SAID");
+  });
+
+  it("records the reviewer's face verdict on the clip (only when given)", () => {
+    expect(annotateClip(scored(8, {}, { showsFace: true })).hasFace).toBe(true);
+    expect(annotateClip(scored(8, {}, { showsFace: false })).hasFace).toBe(false);
+    expect(annotateClip(scored(8))).not.toHaveProperty("hasFace");
+    expect(buildRelevancePrompt(script.scenes[0]!, 1)).toContain("showsFace");
+  });
+
+  it("a borrowed clip loses the donor's beat", () => {
+    const { clips } = fillMissingScenes([clip({ sceneIndex: 0, beatIndex: 1 })], 2);
+    expect(clips[1]).toMatchObject({ sceneIndex: 1, borrowedFromScene: 0 });
+    expect(clips[1]).not.toHaveProperty("beatIndex");
   });
 });
 

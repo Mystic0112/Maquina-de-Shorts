@@ -37,7 +37,11 @@ function scriptWith(sceneCount: number, wordsPerScene: number, extra: Partial<Ll
     overlayText: "UM PLANETA ESTRANHO?",
     hook: "Existe um planeta estranho.",
     hookFootageQuery: "venus planet nasa",
-    scenes: Array.from({ length: sceneCount }, () => ({ narration: `planeta ${words(wordsPerScene - 1)}`, footageQuery: "venus planet nasa" })),
+    scenes: Array.from({ length: sceneCount }, () => ({
+      narration: `planeta ${words(wordsPerScene - 1)}`,
+      footageQuery: "venus planet nasa",
+      beats: [{ phrase: "planeta", footageQuery: "venus planet nasa" }],
+    })),
     ...extra,
   };
 }
@@ -314,6 +318,50 @@ describe("hookFootageQuery and specific queries", () => {
     const script = { ...scriptWith(4, 35), cta: "Segue pra mais.", hookFootageQuery: query };
     expect(findScriptProblems(script, resolveScript()).join()).not.toContain("hookFootageQuery");
     expect(findScriptProblems(script, resolveScript({ specificFootage: false })).join()).toContain("hookFootageQuery");
+  });
+});
+
+describe("beats (one image per concrete thing said)", () => {
+  const narration = "O ketchup era vendido em sachês de vidro, e só depois virou o frasco de plástico.";
+  const beats = [
+    { phrase: "vendido em sachês de vidro", footageQuery: "glass ketchup bottles" },
+    { phrase: "frasco de plástico", footageQuery: "plastic ketchup bottle" },
+  ];
+
+  it("the prompt asks for literal, ordered beats whose query names exactly the thing said", () => {
+    const prompt = buildScriptPrompt(topic, [], resolveScript(), LIBS);
+    expect(prompt).toContain('"beats" (1 a 3 por cena)');
+    expect(prompt).toContain("trecho LITERAL da narração");
+    expect(prompt).toContain('"ketchup sachet packets", NUNCA "hamburger with ketchup"');
+    expect(prompt).toContain("igual à do primeiro beat");
+  });
+
+  it("the schema requires 1-3 beats per scene", () => {
+    const schema = buildLlmScriptSchema(resolveScript());
+    const base = { ...scriptWith(4, 35), cta: "Segue pra mais." };
+    expect(schema.safeParse(base).success).toBe(true);
+    expect(schema.safeParse({ ...base, scenes: base.scenes.map((s) => ({ ...s, beats: [] })) }).success).toBe(false);
+    expect(schema.safeParse({ ...base, scenes: base.scenes.map(({ beats: _b, ...s }) => s) }).success).toBe(false);
+  });
+
+  it("flags non-literal or out-of-order beats as soft issues, and beat queries that are too long", () => {
+    const script = { ...scriptWith(4, 35), cta: "Segue pra mais." };
+    script.scenes[1] = { narration, footageQuery: beats[0]!.footageQuery, beats: [beats[1]!, { phrase: "ketchup em saquinhos", footageQuery: "a b c d e f g" }] };
+    const issues = findScriptIssues(script);
+    expect(issues.filter((i) => i.message.includes("scenes[1].beats[1]")).map((i) => i.hard)).toEqual([false, false]);
+    expect(issues.map((i) => i.message).join()).toContain("trecho literal");
+    expect(issues.map((i) => i.message).join()).toContain("tem 7 palavras");
+    const fixed = { ...script, scenes: script.scenes.map((s) => (s.narration === narration ? { ...s, beats } : s)) };
+    expect(findScriptProblems(fixed).filter((p) => p.includes("beats"))).toEqual([]);
+  });
+
+  it("toScript keeps valid beats, drops broken ones and makes the scene query the first beat's", () => {
+    const script = { ...scriptWith(4, 35), cta: "Segue pra mais." };
+    script.scenes[1] = { narration, footageQuery: "generic query", beats: [{ phrase: "ketchup em saquinhos", footageQuery: "sachets" }, ...beats] };
+    script.scenes[2] = { narration, footageQuery: "generic query", beats: [{ phrase: "nada disso", footageQuery: "x y" }] };
+    const out = toScript(script, resolveScript(), "pt-BR");
+    expect(out.scenes[1]).toEqual({ narration, footageQuery: "glass ketchup bottles", beats });
+    expect(out.scenes[2]).toEqual({ narration, footageQuery: "generic query" });
   });
 });
 

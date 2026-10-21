@@ -11,9 +11,19 @@ export interface TopicPick {
   format?: string;
 }
 
+/** A stretch of a scene's narration that gets its own image (see lib/beats.ts). */
+export interface SceneBeat {
+  /** Literal substring of the scene narration, in narration order; the image switches when it starts being spoken. */
+  phrase: string;
+  /** English search naming exactly the concrete thing the phrase mentions. */
+  footageQuery: string;
+}
+
 export interface ScriptScene {
   narration: string;
-  footageQuery: string; // English search terms for stock footage
+  footageQuery: string; // English search terms for stock footage (= beats[0].footageQuery when beats exist)
+  /** 1-3 beats, narration order. Absent in older runs: the whole scene is one beat. */
+  beats?: SceneBeat[];
 }
 
 export interface Script {
@@ -44,6 +54,10 @@ export interface FootageClip {
   /** Reviewer said the clip fits the narration (verdict.matches). A scene only "passes" with matches + score. */
   relevanceMatches?: boolean;
   borrowedFromScene?: number; // set when this scene had no usable clip and reuses another scene's clip
+  /** Beat of the scene this clip was searched and reviewed for (absent: whole scene / retry / borrowed clip). */
+  beatIndex?: number;
+  /** Reviewer said a human face (photo, statue or painting) is the main subject; only such clips get a zoom. */
+  hasFace?: boolean;
   /** License deed URL from the adapter (e.g. https://creativecommons.org/licenses/by/4.0/), when known. */
   licenseUrl?: string;
   /** Author profile URL (e.g. Commons user page), when the adapter knows it. */

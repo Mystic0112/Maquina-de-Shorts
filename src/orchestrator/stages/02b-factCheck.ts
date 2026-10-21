@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { resolveScript } from "../../shared/settings.js";
+import { sanitizeBeats } from "../lib/beats.js";
 import { loadConfig } from "../lib/config.js";
 import { scriptHash } from "../lib/contentHash.js";
 import { generateGroundedText, generateJson, withCorrection, type GroundedText } from "../lib/llmClient.js";
@@ -124,10 +125,16 @@ export function applyFactCheckRound(
     title,
     ...overlay,
     hook: result.hook.trim(),
-    scenes: result.scenes.map((scene, i) => ({
-      narration: scene.narration.trim(),
-      footageQuery: scene.footageQuery.trim() || script.scenes[i]?.footageQuery || script.scenes[0]?.footageQuery || "",
-    })),
+    scenes: result.scenes.map((scene, i) => {
+      const narration = scene.narration.trim();
+      // Beats survive only where their literal phrase is still in the rewritten line.
+      const beats = sanitizeBeats(narration, script.scenes[i]?.beats);
+      return {
+        narration,
+        footageQuery: scene.footageQuery.trim() || script.scenes[i]?.footageQuery || script.scenes[0]?.footageQuery || "",
+        ...(beats ? { beats } : {}),
+      };
+    }),
   };
   const problems = findScriptProblems(revised, settings);
   if (problems.length > 0 && !isWithinTolerance(revised, settings)) {
