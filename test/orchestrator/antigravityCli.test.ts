@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import * as childProcess from "node:child_process";
 import {
@@ -19,58 +19,73 @@ interface SpawnCall {
   command: string;
   args: string[];
   options: childProcess.SpawnOptions;
+  /** Prompt the provider wrote to the child's stdin. */
+  stdin?: string;
 }
 
-function mockSpawnSuccess(responseObj: { status?: string; response?: string; usage?: Record<string, number> }, exitCode = 0) {
+interface FakeAgy {
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number;
+  delayMs?: number;
+}
+
+/** Fake agy child: records the spawn, waits delayMs after stdin closes, prints stdout/stderr and exits. */
+function mockSpawn(fake: FakeAgy, onStart: () => void = () => undefined, onEnd: () => void = () => undefined): SpawnCall[] {
   const spawnCalls: SpawnCall[] = [];
   vi.mocked(childProcess.spawn).mockImplementation((command, args, options) => {
     spawnCalls.push({ command, args: args as string[], options });
+    onStart();
     const child = new EventEmitter() as any;
     child.stdout = new PassThrough();
     child.stderr = new PassThrough();
     child.stdin = new PassThrough();
-
+    child.kill = vi.fn();
+    let stdinText = "";
+    child.stdin.on("data", (chunk: Buffer) => (stdinText += chunk.toString("utf8")));
     child.stdin.on("finish", () => {
-      process.nextTick(() => {
-        child.stdout.write(JSON.stringify(responseObj));
+      setTimeout(() => {
+        spawnCalls[spawnCalls.length - 1]!.stdin = stdinText;
+        if (fake.stderr) child.stderr.write(fake.stderr);
+        if (fake.stdout) child.stdout.write(fake.stdout);
         child.stdout.end();
         child.stderr.end();
-        child.emit("close", exitCode);
-      });
+        onEnd();
+        child.emit("close", fake.exitCode ?? 0);
+      }, fake.delayMs ?? 0);
     });
-
     return child;
   });
   return spawnCalls;
 }
 
-function mockSpawnFailure(exitCode: number, stderrText = "Process failed") {
-  const spawnCalls: SpawnCall[] = [];
-  vi.mocked(childProcess.spawn).mockImplementation((command, args, options) => {
-    spawnCalls.push({ command, args: args as string[], options });
-    const child = new EventEmitter() as any;
-    child.stdout = new PassThrough();
-    child.stderr = new PassThrough();
-    child.stdin = new PassThrough();
+function mockSpawnSuccess(responseObj: Record<string, unknown>, exitCode = 0): SpawnCall[] {
+  return mockSpawn({ stdout: JSON.stringify(responseObj), exitCode });
+}
 
-    child.stdin.on("finish", () => {
-      process.nextTick(() => {
-        child.stderr.write(stderrText);
-        child.stdout.end();
-        child.stderr.end();
-        child.emit("close", exitCode);
-      });
-    });
+function mockSpawnFailure(exitCode: number, stderrText = "Process failed"): SpawnCall[] {
+  return mockSpawn({ stderr: stderrText, exitCode });
+}
 
-    return child;
-  });
-  return spawnCalls;
+const SUCCESS = { status: "SUCCESS", usage: { input_tokens: 10, output_tokens: 5, thinking_tokens: 1 } };
+
+function fakeFallback(): LlmProvider {
+  return {
+    name: "gemini",
+    model: "gemini-flash-latest",
+    completeJson: vi.fn().mockResolvedValue('{"fallback": true}'),
+    completeGroundedText: vi.fn().mockResolvedValue({ text: "grounded", sources: [], queries: [] }),
+  };
 }
 
 describe("AntigravityCliProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     drainLlmUsage();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("DEFAULT_ANTIGRAVITY_CLI_PATH is simply 'agy' without fixed user paths", () => {
@@ -144,13 +159,7 @@ describe("AntigravityCliProvider", () => {
   it("invokes fallbackProvider when CLI fails and fallback is provided", async () => {
     mockSpawnFailure(1, "Command not found or permission error");
 
-    const fallback: LlmProvider = {
-      name: "gemini",
-      model: "gemini-flash-latest",
-      completeJson: vi.fn().mockResolvedValue('{"fallback": true}'),
-      completeGroundedText: vi.fn().mockResolvedValue({ text: "grounded", sources: [], queries: [] }),
-    };
-
+    const fallback = fakeFallback();
     const provider = new AntigravityCliProvider(undefined, undefined, fallback);
     const result = await provider.completeJson("Prompt", z.any());
 
@@ -165,5 +174,116 @@ describe("AntigravityCliProvider", () => {
     await expect(provider.completeJson("Prompt", z.any())).rejects.toThrow(
       /agy finalizou com código 127/,
     );
+  });
+
+  it("passes --json-schema from zod, prefixes text-only prompts, and returns structured_output as JSON text", async () => {
+    const spawnCalls = mockSpawnSuccess({ ...SUCCESS, response: "ignored", structured_output: { answer: "42" } });
+
+    const provider = new AntigravityCliProvider(undefined, undefined, null);
+    const text = await provider.completeJson("Qual a resposta?", z.object({ answer: z.string() }));
+
+    expect(JSON.parse(text)).toEqual({ answer: "42" });
+    const args = spawnCalls[0]!.args;
+    expect(JSON.parse(args[args.indexOf("--json-schema") + 1]!)).toMatchObject({ type: "object", required: ["answer"] });
+    expect(args).toContain("--disable-slash-commands");
+    expect(args.slice(args.indexOf("--print-timeout"), args.indexOf("--print-timeout") + 2)).toEqual(["--print-timeout", "180s"]);
+    expect(spawnCalls[0]!.stdin).toMatch(/^Responda diretamente, sem executar comandos nem ler arquivos\.\n\nQual a resposta\?$/);
+  });
+
+  it("does not prefix the direct-answer instruction when images are attached", async () => {
+    const spawnCalls = mockSpawnSuccess({ ...SUCCESS, structured_output: { score: 1 } });
+    const provider = new AntigravityCliProvider(undefined, undefined, null);
+    await provider.completeJson("Avalie", z.object({ score: z.number() }), [{ mimeType: "image/png", data: Buffer.from("x") }]);
+    expect(spawnCalls[0]!.stdin).not.toContain("Responda diretamente");
+    expect(spawnCalls[0]!.stdin).toMatch(/view_file[\s\S]*frame_0\.png[\s\S]*Avalie/);
+  });
+
+  it("reads ANTIGRAVITY_CLI_TIMEOUT_S for --print-timeout", async () => {
+    vi.stubEnv("ANTIGRAVITY_CLI_TIMEOUT_S", "45");
+    const spawnCalls = mockSpawnSuccess({ ...SUCCESS, structured_output: {} });
+    await new AntigravityCliProvider(undefined, undefined, null).completeJson("q", z.object({}));
+    expect(spawnCalls[0]!.args).toContain("45s");
+  });
+
+  it("throws LlmOutputError naming denied_actions and the stderr tail on an empty answer", async () => {
+    mockSpawn({
+      stdout: JSON.stringify({ ...SUCCESS, response: "", denied_actions: [{ action: "command", display_name: "RunCommand" }] }),
+      stderr: 'jetski: no output produced — a tool required the "command" permission',
+    });
+    const provider = new AntigravityCliProvider(undefined, undefined, null);
+    const error = await provider.completeJson("q", z.any()).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(LlmOutputError);
+    expect((error as Error).message).toMatch(/resposta vazia.*"display_name":"RunCommand"[\s\S]*no output produced/);
+  });
+
+  it("throws LlmOutputError on an empty answer without denied_actions", async () => {
+    mockSpawnSuccess({ ...SUCCESS, response: "   " });
+    const provider = new AntigravityCliProvider(undefined, undefined, null);
+    await expect(provider.completeJson("q", z.any())).rejects.toThrow(/agy retornou resposta vazia/);
+  });
+
+  it("runs at most ANTIGRAVITY_CLI_CONCURRENCY (default 2) agy processes at once", async () => {
+    let active = 0;
+    let peak = 0;
+    const spawnCalls = mockSpawn(
+      { stdout: JSON.stringify({ ...SUCCESS, structured_output: {} }), delayMs: 30 },
+      () => (peak = Math.max(peak, ++active)),
+      () => active--,
+    );
+    const provider = new AntigravityCliProvider(undefined, undefined, null);
+    await Promise.all([1, 2, 3, 4].map(() => provider.completeJson("q", z.object({}))));
+    expect(spawnCalls).toHaveLength(4);
+    expect(peak).toBe(2);
+  });
+
+  it("completeGroundedText asks for sources/queries via --json-schema and dedupes sources", async () => {
+    const structured_output = {
+      text: "A Voyager 1 foi lançada em 1977.",
+      sources: [{ uri: "https://nasa.gov/voyager", title: "NASA" }, { uri: "https://nasa.gov/voyager" }],
+      queries: ["voyager 1 launch"],
+    };
+    const spawnCalls = mockSpawnSuccess({ ...SUCCESS, structured_output });
+    const provider = new AntigravityCliProvider(undefined, undefined, null);
+    const result = await provider.completeGroundedText("Quando a Voyager 1 foi lançada?");
+
+    expect(result).toEqual({
+      text: "A Voyager 1 foi lançada em 1977.",
+      sources: [{ uri: "https://nasa.gov/voyager", title: "NASA" }],
+      queries: ["voyager 1 launch"],
+    });
+    const args = spawnCalls[0]!.args;
+    expect(JSON.parse(args[args.indexOf("--json-schema") + 1]!)).toMatchObject({ required: ["text", "sources", "queries"] });
+    expect(args).toContain("--sandbox");
+    expect(args).not.toContain("--dangerously-skip-permissions");
+    expect(spawnCalls[0]!.stdin).toMatch(/pesquise na web[\s\S]*Quando a Voyager 1/);
+    expect(spawnCalls[0]!.stdin).not.toContain("Responda diretamente");
+    expect(drainLlmUsage()[0]).toMatchObject({ provider: "antigravity-cli", grounded: true });
+  });
+
+  it("fallback is off by default: CLI errors propagate even with GEMINI_API_KEY set", async () => {
+    vi.stubEnv("GEMINI_API_KEY", "AIzaFAKE_not_a_real_key_000000000000000");
+    vi.stubEnv("ANTIGRAVITY_FALLBACK", "");
+    mockSpawnFailure(1, "boom");
+    const provider = new AntigravityCliProvider();
+    await expect(provider.completeJson("q", z.any())).rejects.toThrow(/agy finalizou com código 1/);
+    await expect(provider.completeGroundedText("q")).rejects.toThrow(/agy finalizou com código 1/);
+  });
+
+  it("ANTIGRAVITY_FALLBACK=gemini without GEMINI_API_KEY creates no fallback", async () => {
+    vi.stubEnv("ANTIGRAVITY_FALLBACK", "gemini");
+    vi.stubEnv("GEMINI_API_KEY", "");
+    mockSpawnFailure(1, "boom");
+    await expect(new AntigravityCliProvider().completeJson("q", z.any())).rejects.toThrow(/agy finalizou com código 1/);
+  });
+
+  it("ANTIGRAVITY_FALLBACK=gemini uses the injected fallback for JSON and grounded calls", async () => {
+    vi.stubEnv("ANTIGRAVITY_FALLBACK", "gemini");
+    mockSpawnFailure(1, "boom");
+    const fallback = fakeFallback();
+    const provider = new AntigravityCliProvider(undefined, undefined, fallback);
+    expect(await provider.completeJson("q", z.any())).toBe('{"fallback": true}');
+    expect(await provider.completeGroundedText("q")).toEqual({ text: "grounded", sources: [], queries: [] });
+    expect(fallback.completeJson).toHaveBeenCalledTimes(1);
+    expect(fallback.completeGroundedText).toHaveBeenCalledTimes(1);
   });
 });

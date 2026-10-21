@@ -11,6 +11,8 @@ const BASE_VARS = [
   "TEMP", "TMP", "TMPDIR",
   // home/cache dirs some libraries resolve (pip caches, matplotlib, etc.)
   "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "HOME", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA",
+  // XDG dirs: CLIs like Antigravity (`agy`) look up their login/config here when set
+  "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME",
   // locale
   "LANG", "LC_ALL", "LC_CTYPE",
   // network setup the user may rely on

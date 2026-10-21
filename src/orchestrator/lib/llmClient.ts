@@ -1,21 +1,18 @@
-import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { GoogleGenAI, ThinkingLevel, type ThinkingConfig } from "@google/genai";
 import { z } from "zod";
 import type { LlmUsage, LlmUsageByModel, LlmUsageTotals, StageName } from "../types.js";
 import { env, paths } from "./config.js";
-import { minimalChildEnv } from "./childEnv.js";
+import { AntigravityCliProvider } from "./antigravityCli.js";
+
+// Re-exported so existing imports keep working after the move to antigravityCli.ts.
+export { AntigravityCliProvider, DEFAULT_ANTIGRAVITY_MODEL, DEFAULT_ANTIGRAVITY_CLI_PATH } from "./antigravityCli.js";
 
 export type LlmProviderName = "gemini" | "anthropic" | "antigravity-cli";
 
 export const DEFAULT_GEMINI_MODEL = "gemini-flash-latest";
 export const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5-5";
-export const DEFAULT_ANTIGRAVITY_MODEL = "gemini-3.8-flash-medium";
-export const DEFAULT_ANTIGRAVITY_CLI_PATH = "agy";
 
 export interface LlmImage {
   mimeType: "image/jpeg" | "image/png" | "image/webp";
@@ -439,202 +436,6 @@ class AnthropicProvider implements LlmProvider {
     }
     const text = message.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");
     return { text, sources, queries };
-  }
-}
-
-export class AntigravityCliProvider implements LlmProvider {
-  readonly name = "antigravity-cli" as const;
-  readonly model: string;
-  private readonly cliPath: string;
-  private readonly fallbackProvider?: LlmProvider;
-
-  constructor(cliPath?: string, model?: string, fallback?: LlmProvider | null) {
-    this.cliPath = cliPath || env("ANTIGRAVITY_CLI_PATH") || DEFAULT_ANTIGRAVITY_CLI_PATH;
-    this.model = model || env("ANTIGRAVITY_MODEL") || DEFAULT_ANTIGRAVITY_MODEL;
-    if (fallback !== null) {
-      if (fallback) {
-        this.fallbackProvider = fallback;
-      } else {
-        const geminiKey = env("GEMINI_API_KEY");
-        if (geminiKey) {
-          this.fallbackProvider = new GeminiProvider(geminiKey, env("GEMINI_MODEL") ?? DEFAULT_GEMINI_MODEL);
-        }
-      }
-    }
-  }
-
-  async completeJson(
-    prompt: string,
-    schema: z.ZodType,
-    images: readonly LlmImage[] = [],
-    options: CallOptions = {},
-  ): Promise<string> {
-    try {
-      return await this.invokeAgy(prompt, schema, images, options);
-    } catch (error) {
-      if (this.fallbackProvider) {
-        console.warn(
-          `[antigravity-cli] Falha no CLI (${error instanceof Error ? error.message : String(error)}). Recorrendo ao fallback ${this.fallbackProvider.name}...`,
-        );
-        return await this.fallbackProvider.completeJson(prompt, schema, images, options);
-      }
-      throw error;
-    }
-  }
-
-  async completeGroundedText(prompt: string, options: CallOptions = {}): Promise<GroundedText> {
-    if (this.fallbackProvider) {
-      return await this.fallbackProvider.completeGroundedText(prompt, options);
-    }
-    const text = await this.invokeAgy(
-      prompt + "\nPesquise na web se necessário e responda com fontes.",
-      z.string(),
-      [],
-      options,
-    );
-    return { text, sources: [], queries: [] };
-  }
-
-  private async invokeAgy(
-    prompt: string,
-    schema: z.ZodType,
-    images: readonly LlmImage[] = [],
-    options: CallOptions = {},
-  ): Promise<string> {
-    const tempDir = await mkdtemp(join(tmpdir(), "agy-img-"));
-    const tempFiles: string[] = [];
-    try {
-      for (let i = 0; i < images.length; i++) {
-        const img = images[i];
-        const ext = img.mimeType === "image/png" ? "png" : img.mimeType === "image/webp" ? "webp" : "jpg";
-        const filePath = join(tempDir, `frame_${i}.${ext}`);
-        await writeFile(filePath, img.data);
-        tempFiles.push(filePath);
-      }
-
-      let promptWithImages = prompt;
-      if (tempFiles.length > 0) {
-        promptWithImages = [
-          "Examine o seguinte arquivo de imagem usando APENAS a ferramenta view_file (não execute comandos no terminal nem use outras ferramentas):",
-          ...tempFiles.map((f) => `- "${f}"`),
-          "",
-          prompt,
-          "",
-          "Responda somente com o JSON correspondente.",
-        ].join("\n");
-      }
-
-      const args = [
-        "--output-format",
-        "json",
-        "--sandbox",
-        "--disable-slash-commands",
-        "--print-timeout",
-        "120s",
-      ];
-      let modelToUse = this.model;
-      if (options.thinking && (!this.model || this.model.startsWith("gemini-3.8-flash"))) {
-        if (options.thinking === "minimal" || options.thinking === "low") {
-          modelToUse = "gemini-3.8-flash-low";
-        } else if (options.thinking === "high") {
-          modelToUse = "gemini-3.8-flash-high";
-        } else {
-          modelToUse = "gemini-3.8-flash-medium";
-        }
-      }
-      if (modelToUse) {
-        args.push("--model", modelToUse);
-      }
-      if (options.thinking && !/-low|-medium|-high|-xhigh|-max$/.test(modelToUse)) {
-        const effortMap: Record<ThinkingSetting, string> = {
-          default: "medium",
-          minimal: "low",
-          low: "low",
-          medium: "medium",
-          high: "high",
-        };
-        args.push("--effort", effortMap[options.thinking] ?? "low");
-      }
-
-      const stdout = await new Promise<string>((resolvePromise, rejectPromise) => {
-        const child = spawn(this.cliPath, args, {
-          cwd: tempDir,
-          env: minimalChildEnv([], process.env),
-          stdio: ["pipe", "pipe", "pipe"],
-          windowsHide: true,
-        });
-
-        let out = "";
-        let err = "";
-
-        child.stdout.on("data", (chunk: Buffer) => {
-          out += chunk.toString("utf8");
-        });
-        child.stderr.on("data", (chunk: Buffer) => {
-          err += chunk.toString("utf8");
-        });
-
-        child.on("error", (err) => rejectPromise(err));
-        child.on("close", (code) => {
-          if (code === 0) resolvePromise(out);
-          else rejectPromise(new Error(`agy finalizou com código ${code}: ${err || out}`));
-        });
-
-        child.stdin.write(promptWithImages, "utf8");
-        child.stdin.end();
-      });
-
-      let rawText = stdout.trim();
-      let wrapper:
-        | {
-            status?: string;
-            response?: string;
-            usage?: {
-              input_tokens?: number;
-              output_tokens?: number;
-              thinking_tokens?: number;
-            };
-          }
-        | undefined;
-      try {
-        wrapper = JSON.parse(rawText) as {
-          status?: string;
-          response?: string;
-          usage?: {
-            input_tokens?: number;
-            output_tokens?: number;
-            thinking_tokens?: number;
-          };
-        };
-      } catch {
-        // Ignora caso stdout não seja o wrapper JSON
-      }
-
-      if (wrapper) {
-        if (wrapper.status && wrapper.status !== "SUCCESS") {
-          throw new LlmOutputError(`agy retornou status ${wrapper.status}`);
-        }
-        if (wrapper.response !== undefined) {
-          rawText = wrapper.response;
-        }
-        if (wrapper.usage) {
-          recordLlmUsage({
-            provider: this.name,
-            model: modelToUse,
-            inputTokens: wrapper.usage.input_tokens ?? 0,
-            outputTokens: wrapper.usage.output_tokens ?? 0,
-            thinkingTokens: wrapper.usage.thinking_tokens ?? 0,
-          });
-        }
-      }
-
-      if (!rawText.trim()) {
-        throw new LlmOutputError("agy retornou resposta vazia");
-      }
-      return rawText;
-    } finally {
-      await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
-    }
   }
 }
 

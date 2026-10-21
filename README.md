@@ -56,10 +56,11 @@ copy .env.example .env                                               # depois pr
 
 | Variável | Obrigatória | Para quê |
 |---|---|---|
-| `LLM_PROVIDER` | não | `gemini` (padrão) ou `anthropic` |
+| `LLM_PROVIDER` | não | `gemini` (padrão), `anthropic` ou `antigravity-cli` |
 | `GEMINI_API_KEY` | sim, com Gemini ou com a voz Gemini (padrão) | Roteiro, checagem visual, metadados e narração (Gemini TTS) |
 | `GEMINI_MODEL` | não | Modelo do Gemini (padrão do projeto: `gemini-3.8-flash`) |
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | só com `anthropic` | Alternativa ao Gemini |
+| `ANTIGRAVITY_CLI_PATH` / `ANTIGRAVITY_MODEL` / `ANTIGRAVITY_CLI_TIMEOUT_S` / `ANTIGRAVITY_CLI_CONCURRENCY` / `ANTIGRAVITY_FALLBACK` | só com `antigravity-cli` | Usa o Antigravity CLI (`agy`) já logado no PC, sem chave de API: binário (padrão `agy`), modelo (padrão `gemini-3.8-flash-medium`), tempo limite por chamada (180 s), processos simultâneos (2) e fallback para a API paga (`none`, padrão, ou `gemini`) |
 | `PEXELS_API_KEY` / `PIXABAY_API_KEY` | não | Mais fontes de vídeo e imagem (recomendado) |
 | `YOUTUBE_API_KEY` | não | Estatísticas públicas no painel (não serve para upload) |
 | `YOUTUBE_CHANNEL_ID` | não | Inscritos e views do canal no painel (o `npm run auth:youtube` mostra o ID) |
