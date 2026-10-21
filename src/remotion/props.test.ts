@@ -1,3 +1,4 @@
+import { sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { FootageClip, RunContext, WordTiming } from "../orchestrator/types.js";
 import { CAPTION_DEFAULTS, VISUAL_DEFAULTS } from "../shared/settings.js";
@@ -115,7 +116,7 @@ describe("buildRenderPlan", () => {
   });
 
   it("stages every input under URL-safe public names", () => {
-    const { assets } = buildRenderPlan(ctx([clip(0, "C:\\dir com espaço\\Clip Ção (1).MP4", 20)]), VIDEO);
+    const { assets } = buildRenderPlan(ctx([clip(0, ["C:", "dir com espaço", "Clip Ção (1).MP4"].join(sep), 20)]), VIDEO);
     for (const asset of assets) expect(asset.publicPath).toMatch(/^[a-z]+\/[A-Za-z0-9_.-]+$/);
     expect(assets.map((a) => a.publicPath)).toEqual(["audio/narration.mp3", "footage/00_Clip_o_1_.mp4"]);
   });

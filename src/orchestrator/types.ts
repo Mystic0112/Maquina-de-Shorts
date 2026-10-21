@@ -59,7 +59,7 @@ export interface WordTiming {
 }
 
 export interface Narration {
-  audioPath: string; // absolute path to narration.mp3
+  audioPath: string; // absolute path to narration.wav (Gemini TTS) or narration.mp3 (legacy edge-tts)
   durationMs: number;
   words: WordTiming[];
 }

@@ -5,10 +5,10 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { rename, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { projectRoot } from "./config.js";
+import { resolveFfmpegBinaries } from "../../src/orchestrator/lib/ffmpeg.js";
 
-/** Remotion ships an ffmpeg build with its compositor; reuse it instead of requiring a system install. */
-const FFMPEG = join(projectRoot, "node_modules", "@remotion", "compositor-win32-x64-msvc", "ffmpeg.exe");
+/** Remotion's bundled ffmpeg for this platform (Windows/Linux/macOS), else ffmpeg on PATH. */
+const { ffmpeg: FFMPEG, dir: FFMPEG_DIR } = resolveFfmpegBinaries();
 const RETRY_AFTER_FAILURE_MS = 10 * 60_000;
 const TIMEOUT_MS = 30_000;
 
@@ -21,7 +21,7 @@ export const thumbPathFor = (videoPath: string): string => join(dirname(videoPat
 function runFfmpeg(args: string[]): Promise<boolean> {
   return new Promise((resolve) => {
     // cwd = ffmpeg's folder so Windows finds the DLLs that sit next to the exe.
-    const child = spawn(FFMPEG, args, { cwd: dirname(FFMPEG), stdio: "ignore", windowsHide: true });
+    const child = spawn(FFMPEG, args, { cwd: FFMPEG_DIR, stdio: "ignore", windowsHide: true });
     const timer = setTimeout(() => child.kill(), TIMEOUT_MS);
     child.on("error", () => resolve(false));
     child.on("close", (code) => {
@@ -77,7 +77,9 @@ export async function ensureThumbnail(videoPath: string): Promise<number | null>
   const stale = videoMtime !== null && (thumbMtime === null || thumbMtime < videoMtime);
   const lastFailure = failedAt.get(videoPath);
   const backingOff = lastFailure !== undefined && Date.now() - lastFailure < RETRY_AFTER_FAILURE_MS;
-  if (stale && !backingOff && existsSync(FFMPEG) && !queue.includes(videoPath)) {
+  // A bare "ffmpeg" (PATH fallback) cannot be stat'ed; a missing binary then fails at spawn and backs off.
+  const available = FFMPEG_DIR === undefined || existsSync(FFMPEG);
+  if (stale && !backingOff && available && !queue.includes(videoPath)) {
     queue.push(videoPath);
     void drain();
   }

@@ -6,6 +6,12 @@
       "runtimeExecutable": "cmd",
       "runtimeArgs": ["/c", "cd dashboard && npm run dev < NUL"],
       "port": 5180
+    },
+    {
+      "name": "dashboard-linux",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "cd dashboard && npm run dev < /dev/null"],
+      "port": 5180
     }
   ]
 }

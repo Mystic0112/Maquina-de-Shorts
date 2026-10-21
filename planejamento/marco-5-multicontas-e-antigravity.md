@@ -56,6 +56,22 @@ Alternativa para o custo das imagens, independente do CLI: triagem local com Sig
 
 **Painel:** seletor de conta, métricas por conta e por rede, fila de produção, alertas por conta.
 
+### Mapa do código para multicontas (grafo do graphify, 2026-10-21)
+
+Tudo o que é "por conta" passa por três pontos globais:
+
+1. **`paths`** (`src/orchestrator/lib/config.ts`): `config/`, `data/`, `logs/`, `render_output/` saem todos de `projectRoot`. São 15 usos de `paths.renderOutput` e 15 de `paths.fromRoot`. Inclui `data/history.json` (limite diário e anti-repetição), `data/upload.lock` e o `context.json` de cada execução (`runContext.ts`).
+2. **`loadConfig()`**: lê um único `config/pipeline.config.json` e guarda em cache. São 27 ligações no grafo; usado pelos 9 estágios.
+3. **Variáveis de ambiente**: `YT_TOKEN_PATH`, `YT_CLIENT_SECRET_PATH` e `YOUTUBE_CHANNEL_ID`, mais `secrets/instagram.token.json` fixo em `instagramAuth.ts`.
+
+**Caminho mais curto:** um processo por conta, com `ACCOUNT=<id>`. Com essa variável, `paths` aponta `config/`, `data/`, `logs/`, `render_output/` e `secrets/` para `accounts/<id>/`. Os estágios, o `RunContext` e as travas não mudam, porque já recebem tudo por `paths` e `loadConfig()`. Não precisa de `accountId` dentro do `RunContext`.
+
+O que continua **global** e precisa de código novo:
+- **Unicidade entre contas**: `recentTopics.loadRecentSubjects()` hoje só lê o `render_output/` e o `history.json` da própria conta. Precisa ler os de todas as contas.
+- **Cota de upload do YouTube**: é por projeto do Google Cloud, compartilhada entre os canais. Precisa de um contador global, além do limite diário por conta.
+- **Despachante e trava de render**: um vídeo por vez no PC. Hoje isso está em `scheduler/run_once.ps1`, que é só para Windows; no Linux falta um equivalente (systemd timer ou cron).
+- **Painel**: `dashboard/server/config.ts` duplica os caminhos; precisa do mesmo `ACCOUNT` ou de um seletor que leia `accounts/*/`.
+
 ## Riscos (o dono decide)
 
 - **Banimento em cadeia:** as três redes punem conteúdo produzido em massa e contas ligadas entre si (mesmo dispositivo, IP, e-mail, cartão). Separar identidades e manter conteúdo realmente diferente por conta reduz, mas não elimina.
