@@ -1,5 +1,5 @@
 // QA (Quinn): invariants of the pure Remotion render plan (props.ts) over seeded random timelines.
-// A violation here means black frames, overlapping captions or a Remotion Sequence error at render time.
+// A violation here means black frames, overlapping captions, a repeated picture or a Remotion Sequence error at render time.
 import { describe, expect, it } from "vitest";
 import { buildRenderPlan } from "../../src/remotion/props.js";
 import { buildCaptions, cueOptionsFor } from "../../src/orchestrator/stages/05-buildCaptions.js";
@@ -78,6 +78,24 @@ describe("buildRenderPlan invariants (seeded fuzz)", () => {
       expect(expectedStart, `seed ${seed}`).toBe(props.durationInFrames);
       // staticFile() must only ever see ASCII, space-free names (Windows paths with accents/spaces).
       for (const a of assets) expect(a.publicPath, `seed ${seed}`).toMatch(/^[A-Za-z0-9_./-]+$/);
+    }
+  });
+
+  it("a clip never comes back after another one while an unseen clip exists (a repeat is flagged `reused`); faceless clips never move", () => {
+    for (let seed = 1; seed <= 300; seed++) {
+      const { props, assets } = buildRenderPlan(randomRun(seed), video);
+      const footageSrcs = assets.slice(1).map((a) => a.publicPath); // assets[0] is the narration
+      const segments = props.scenes.flatMap((s) => s.segments);
+      const seen = new Set<string>();
+      segments.forEach((seg, k) => {
+        const label = `seed ${seed} segment ${k} (${seg.src})`;
+        const comeback = k > 0 && seg.src !== segments[k - 1]!.src && seen.has(seg.src);
+        if (comeback) expect(seg.reused, label).toBe(true);
+        if (seg.reused) expect(footageSrcs.filter((src) => !seen.has(src)), label).toEqual([]);
+        seen.add(seg.src);
+        expect(seg.motion.scaleFrom, label).toBe(seg.motion.scaleTo);
+        expect([seg.motion.panXFromPct, seg.motion.panXToPct, seg.motion.panYFromPct, seg.motion.panYToPct], label).toEqual([0, 0, 0, 0]);
+      });
     }
   });
 

@@ -356,12 +356,12 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
                 onChange={(v) => set("visual.crossfadeFrames", v)}
                 error={errorAt("visual.crossfadeFrames")}
               />
-              <Switch label="Movimento lateral nas imagens" checked={visual.imagePan} onChange={(v) => set("visual.imagePan", v)} help="Além do zoom, desliza a foto suavemente." />
+              <Switch label="Movimento lateral nas imagens" checked={visual.imagePan} onChange={(v) => set("visual.imagePan", v)} help="Além do zoom, desliza a foto suavemente (só nas fotos com rosto, quando 'Zoom só em rostos' está ligado)." />
               <Switch
                 label="Zoom só em rostos"
                 checked={visual.zoomOnlyOnFaces}
                 onChange={(v) => set("visual.zoomOnlyOnFaces", v)}
-                help="Aproxima só quando a imagem mostra um rosto; objetos e cenários ficam parados ou só deslizam."
+                help="Aproxima só quando a imagem mostra um rosto; objetos e cenários ficam totalmente parados."
               />
               <Switch
                 label="Faixa escura atrás das legendas"
@@ -381,7 +381,7 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
                 step={0.5}
                 format={(v) => fmtSeconds(v, 1)}
                 onChange={(v) => set("visual.maxShotSeconds", v)}
-                help="Cenas mais longas são divididas em vários planos (outro clipe ou um novo recorte da mesma imagem). Menos segundos = ritmo mais rápido."
+                help="Vale para vídeos: um clipe longo corta para outro trecho dele a cada tanto. Imagens nunca se repetem, então cada uma fica na tela o tempo da cena dividido entre as imagens."
                 error={errorAt("visual.maxShotSeconds")}
               />
               <Segmented

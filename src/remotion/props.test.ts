@@ -102,24 +102,26 @@ describe("buildRenderPlan", () => {
     expect(lastShot.durationInFrames).toBeGreaterThanOrEqual(45);
   });
 
-  it("chains and loops short clips until the scene (plus lead-in) is filled, never ending on a sliver", () => {
+  it("plays each short clip once and restarts the longest one to fill the scene (never b c b c)", () => {
     const footage = [clip(0, "C:\\a.mp4", 20), clip(1, "C:\\b.mp4", 2), clip(1, "C:\\c.mp4", 3)];
     const scene = buildRenderPlan(ctx(footage), VIDEO).props.scenes[1]!;
     const covered = scene.segments.reduce((sum, s) => sum + s.durationInFrames, 0);
     expect(covered).toBe(scene.leadInFrames + scene.durationInFrames);
-    // 193 frames; playable b = 60 - 2 safety - 8 crossfade = 50, c = 80: b c b + a 13-frame c, grown to 45.
-    expect(scene.segments.map((s) => [s.src.slice(-5), s.durationInFrames])).toEqual([
-      ["b.mp4", 50],
-      ["c.mp4", 53],
-      ["b.mp4", 45],
-      ["c.mp4", 45],
+    // 193 frames; playable b = 60 - 2 safety - 8 crossfade = 50, c = 80: b once, then c in two even takes from its head.
+    expect(scene.segments.map((s) => [s.src.slice(-5), s.durationInFrames, s.trimBeforeFrames])).toEqual([
+      ["b.mp4", 50, 0],
+      ["c.mp4", 72, 0],
+      ["c.mp4", 71, 0],
     ]);
   });
 
-  it("falls back to the nearest earlier scene's footage when a scene has none", () => {
-    const scene = buildRenderPlan(ctx([clip(0, "C:\\a.mp4", 20)]), VIDEO).props.scenes[1]!;
-    expect(scene.segments[0]!.src).toMatch(/a\.mp4$/);
+  it("a scene without clips borrows one not shown yet; only when none is left it repeats the nearest scene's, flagged `reused`", () => {
+    const fresh = buildRenderPlan(ctx([clip(0, "C:\\a.mp4", 20), object(7, "C:/x.jpg")]), VIDEO).props.scenes[1]!;
+    expect(fresh.segments.map((s) => [s.src.slice(-5), s.reused])).toEqual([["x.jpg", undefined]]);
+    const repeat = buildRenderPlan(ctx([clip(0, "C:\\a.mp4", 20)]), VIDEO).props.scenes[1]!;
+    expect(repeat.segments.map((s) => [s.src.slice(-5), s.reused])).toEqual([["a.mp4", true], ["a.mp4", true]]);
   });
+
 
   it("stages every input under URL-safe public names", () => {
     const { assets } = buildRenderPlan(ctx([clip(0, ["C:", "dir com espaço", "Clip Ção (1).MP4"].join(sep), 20)]), VIDEO);
@@ -223,11 +225,10 @@ describe("scenes with still images", () => {
   const scene1 = (footage: FootageClip[], visual: Partial<RenderStyle["visual"]> = {}) =>
     buildRenderPlan(ctx(footage), VIDEO, style({}, visual)).props.scenes[1]!;
 
-  it("splits a single image that outlasts the max shot into reframed shots", () => {
-    const segments = scene1([image(0, "C:/a.jpg"), image(1, "C:/b.jpg")]).segments;
-    expect(layout(segments)).toEqual([["image", "b.jpg", 97], ["image", "b.jpg", 96]]);
-    expect(segments[1]!.motion).not.toEqual(segments[0]!.motion);
-    expect(layout(scene1([image(0, "C:/a.jpg"), image(1, "C:/b.jpg")], { maxShotSeconds: 12 }).segments)).toEqual([["image", "b.jpg", 193]]);
+  it("holds a lone still for the whole scene in one shot, past maxShotSeconds (a cut back to it would read as a repeat)", () => {
+    for (const maxShotSeconds of [2, 4.5, 12]) {
+      expect(layout(scene1([image(0, "C:/a.jpg"), image(1, "C:/b.jpg")], { maxShotSeconds }).segments)).toEqual([["image", "b.jpg", 193]]);
+    }
   });
 
   it("splits a scene evenly between two images", () => {
@@ -238,17 +239,16 @@ describe("scenes with still images", () => {
 
   it("splits image + video evenly when the video is long enough", () => {
     expect(layout(scene1([image(0, "C:/a.jpg"), image(1, "C:/b.jpg"), clip(1, "C:/v.mp4", 20)]).segments)).toEqual([
-      ["image", "b.jpg", 97],
-      ["video", "v.mp4", 96],
+      ["image", "b.jpg", 96],
+      ["video", "v.mp4", 97],
     ]);
   });
 
   it("plays a short video once and gives the leftover to the image instead of looping", () => {
-    // playable v = 60 - 2 safety - 8 crossfade = 50; the image's 143 frames become two shots.
+    // playable v = 60 - 2 safety - 8 crossfade = 50; the image holds the remaining 143 frames in one shot.
     expect(layout(scene1([image(0, "C:/a.jpg"), clip(1, "C:/v.mp4", 2), image(1, "C:/b.jpg")]).segments)).toEqual([
       ["video", "v.mp4", 50],
-      ["image", "b.jpg", 72],
-      ["image", "b.jpg", 71],
+      ["image", "b.jpg", 143],
     ]);
   });
 
@@ -298,7 +298,7 @@ describe("shot planning", () => {
     }
   }
 
-  it("never holds one framing longer than maxShotSeconds, for any scene length, and tiles the scene", () => {
+  it("tiles the scene, shows every still exactly once, cuts videos within maxShotSeconds and never returns to a clip", () => {
     for (const maxShotSeconds of [2, 4.5, 12]) {
       const maxFrames = Math.round(maxShotSeconds * FPS);
       for (const [name, clips] of Object.entries(CLIP_SETS)) {
@@ -310,36 +310,30 @@ describe("shot planning", () => {
             for (const s of segments) {
               expect(s.fromFrame, label).toBe(cursor);
               expect(s.durationInFrames, label).toBeGreaterThan(0);
-              expect(s.durationInFrames, label).toBeLessThanOrEqual(maxFrames);
+              if (s.kind === "video") expect(s.durationInFrames, label).toBeLessThanOrEqual(maxFrames);
               cursor += s.durationInFrames;
             }
             expect(cursor, label).toBe(sceneFrames);
+            const srcs = segments.map((s) => s.src);
+            expect(srcs.filter((src, i) => segments[i]!.kind === "image" && srcs.indexOf(src) !== i), label).toEqual([]);
+            expect(srcs.filter((src, i) => i > 0 && src !== srcs[i - 1] && srcs.slice(0, i).includes(src)), label).toEqual([]);
           }
         }
       }
     }
   });
 
-  it("splits an 18 s single-image scene into >= 4 shots, each visibly reframed from the previous one", () => {
+  it("an 18 s single still is one 18 s shot with a single slow move, edges hidden throughout", () => {
     for (const visual of [{}, { imagePan: false }, { imageZoom: 1.2 }, { imageZoom: 1.25 }, { motionEasing: "linear" as const }]) {
       const segments = plan(540, CLIP_SETS.oneImage!, visual);
-      expect(segments.length).toBeGreaterThanOrEqual(4);
-      segments.slice(1).forEach((next, i) => {
-        const prev = segments[i]!;
-        const end = cameraAt(prev.motion, prev.durationInFrames - 1, prev.durationInFrames);
-        const start = cameraAt(next.motion, 0, next.durationInFrames);
-        const zoomJump = Math.abs(end.scale - start.scale);
-        const panJump = Math.max(Math.abs(end.panXPct - start.panXPct), Math.abs(end.panYPct - start.panYPct));
-        expect(zoomJump >= 0.05 || panJump >= 2.5, `${JSON.stringify(visual)} cut ${i + 1}`).toBe(true);
-        expect(next.fadeInFrames).toBe(0); // same picture: punch-in jump cut, no ghosting dissolve
-      });
-      segments.forEach((s, i) => expectEdgesHidden(s, `${JSON.stringify(visual)} shot ${i}`));
+      expect(layout(segments), JSON.stringify(visual)).toEqual([["image", "a.jpg", 540]]);
+      expectEdgesHidden(segments[0]!, JSON.stringify(visual));
     }
   });
 
-  it("cycles the scene's clips (A B C A ...) and dissolves between different media", () => {
+  it("shows the scene's clips once each (A B C, never A B C A ...) and dissolves between them", () => {
     const segments = plan(600, CLIP_SETS.threeImages!);
-    expect(segments.map((s) => s.src)).toEqual(["a.jpg", "b.jpg", "c.jpg", "a.jpg", "b.jpg", "c.jpg"]);
+    expect(layout(segments)).toEqual([["image", "a.jpg", 200], ["image", "b.jpg", 200], ["image", "c.jpg", 200]]);
     expect(segments.slice(1).every((s) => s.fadeInFrames === CROSSFADE_FRAMES)).toBe(true);
     expect(plan(600, CLIP_SETS.threeImages!, { crossfadeFrames: 0 }).every((s) => s.fadeInFrames === 0)).toBe(true);
   });
@@ -374,11 +368,12 @@ describe("opening and easing", () => {
   const openingShot = (visual: Partial<RenderStyle["visual"]> = {}, footage = [image(0, "C:/a.jpg"), image(1, "C:/b.jpg")]) =>
     buildRenderPlan(ctx(footage), VIDEO, style({}, visual)).props.scenes[0]!.segments[0]!;
 
-  it("punches in 1.0 -> 1.2 on the opening shot, cut within ~3 s, fast from the first frames", () => {
+  it("punches in 1.0 -> 1.2 on the opening shot, fast from the first frames; an opening video is cut within ~3 s", () => {
     for (const footage of [[image(0, "C:/a.jpg")], [clip(0, "C:/a.mp4", 20)]]) {
       const shot = openingShot({}, footage);
       expect(shot.motion).toMatchObject({ scaleFrom: 1, scaleTo: OPENING_PUNCH_ZOOM, easing: "out" });
-      expect(shot.durationInFrames).toBeLessThanOrEqual(OPENING_PUNCH_SECONDS * 30);
+      // A lone still holds the whole 4 s opening scene: a cut would bring the same picture back.
+      expect(shot.durationInFrames).toBe(shot.kind === "video" ? 60 : 120); // video: 120 frames split 60/60 under the 90 cap
       const third = cameraAt(shot.motion, Math.round(shot.durationInFrames / 3), shot.durationInFrames);
       expect(third.scale - 1).toBeGreaterThan(0.5 * (OPENING_PUNCH_ZOOM - 1));
     }
@@ -461,18 +456,39 @@ describe("beats: the image switches when the beat's phrase starts", () => {
     expect(opening!.segments[1]!.motion).toMatchObject({ scaleFrom: 1, scaleTo: 1.12, easing: "inOut" });
   });
 
-  it("keeps the render-plan invariants over every beat layout (segments tile the scene, max shot length)", () => {
+  it("keeps the render-plan invariants over every beat layout (segments tile the scene, each still once)", () => {
     for (const beats of [[beat("um"), beat("dois"), beat("tres")], [beat("um"), beat("seis")], [beat("cinco"), beat("seis")], [beat("um"), beat("nada"), beat("seis")]]) {
       const scene = scene1(beatCtx(three, beats));
       let cursor = 0;
       for (const s of scene.segments) {
         expect(s.fromFrame).toBe(cursor);
         expect(s.durationInFrames).toBeGreaterThan(0);
-        expect(s.durationInFrames).toBeLessThanOrEqual(Math.round(VISUAL_DEFAULTS.maxShotSeconds * 30));
         cursor += s.durationInFrames;
       }
       expect(cursor).toBe(scene.leadInFrames + scene.durationInFrames);
+      expect(new Set(scene.segments.map((s) => s.src)).size).toBe(scene.segments.length);
     }
+  });
+
+  it("a beat without a clip shows a scene clip without beat not seen yet, else extends the previous shot", () => {
+    const loose = { ...object(1, "C:/l.jpg") };
+    const footage = [image(0, "C:/z.jpg"), beatClip("C:/a.jpg", 0), loose, beatClip("C:/c.jpg", 2)];
+    const segments = scene1(beatCtx(footage, [beat("um"), beat("tres"), beat("cinco")])).segments;
+    expect(layout(segments)).toEqual([["image", "a.jpg", 68], ["image", "l.jpg", 60], ["image", "c.jpg", 65]]);
+    // Beat 1 takes the loose still; beat 2 has nothing left and keeps beat 1's picture on screen (no cut back to a).
+    const twoGaps = scene1(beatCtx([image(0, "C:/z.jpg"), beatClip("C:/a.jpg", 0), loose], [beat("um"), beat("tres"), beat("cinco")])).segments;
+    expect(layout(twoGaps)).toEqual([["image", "a.jpg", 68], ["image", "l.jpg", 125]]);
+  });
+
+  it("the same picture picked for two beats shows once; the later beat keeps the previous shot instead of cutting back", () => {
+    const footage = [image(0, "C:/z.jpg"), beatClip("C:/a.jpg", 0), beatClip("C:/b.jpg", 1), beatClip("C:/a.jpg", 2)];
+    expect(layout(scene1(beatCtx(footage, [beat("um"), beat("tres"), beat("cinco")])).segments)).toEqual([["image", "a.jpg", 68], ["image", "b.jpg", 125]]);
+  });
+
+  it("the opening beat without a clip shows the next beat's clip early instead of a borrowed repeat", () => {
+    const footage = [image(0, "C:/z.jpg"), beatClip("C:/b.jpg", 1), beatClip("C:/c.jpg", 2)];
+    const segments = scene1(beatCtx(footage, [beat("um"), beat("tres"), beat("cinco")])).segments;
+    expect(layout(segments)).toEqual([["image", "b.jpg", 128], ["image", "c.jpg", 65]]);
   });
 });
 
@@ -482,25 +498,14 @@ describe("zoom only on faces (owner's rule: objects and places never change scal
     planSceneShots({ sceneFrames, clips, srcOf: (c) => c.path, fps: FPS, visual: { ...VISUAL_DEFAULTS, ...visual }, sceneOrdinal });
   const constantScale = (s: ClipSegment) => s.motion.scaleFrom === s.motion.scaleTo;
 
-  it("is on by default; object stills keep a constant scale and only pan", () => {
+  it("is on by default; object stills are completely still (no zoom, no pan) for the whole scene", () => {
     expect(VISUAL_DEFAULTS.zoomOnlyOnFaces).toBe(true);
     const segments = plan(540, [object(0, "a.jpg")]);
-    expect(segments.length).toBeGreaterThanOrEqual(4);
-    for (const s of segments) {
-      expect(constantScale(s)).toBe(true);
-      expect(s.motion.scaleFrom).toBeCloseTo(1.12);
-      expect(Math.abs(s.motion.panXToPct - s.motion.panXFromPct) + Math.abs(s.motion.panYToPct - s.motion.panYFromPct)).toBeGreaterThan(0);
-    }
+    expect(layout(segments)).toEqual([["image", "a.jpg", 540]]);
+    expect(segments[0]!.motion).toMatchObject({ scaleFrom: 1, scaleTo: 1, panXFromPct: 0, panXToPct: 0, panYFromPct: 0, panYToPct: 0 });
   });
 
-  it("reuses of an object still are visibly reframed by the pan alone and never show an edge", () => {
-    const segments = plan(540, [object(0, "a.jpg")]);
-    segments.slice(1).forEach((next, i) => {
-      const prev = segments[i]!;
-      const end = cameraAt(prev.motion, prev.durationInFrames - 1, prev.durationInFrames);
-      const start = cameraAt(next.motion, 0, next.durationInFrames);
-      expect(Math.max(Math.abs(end.panXPct - start.panXPct), Math.abs(end.panYPct - start.panYPct))).toBeGreaterThanOrEqual(2.5);
-    });
+  it("object stills and faceless videos never show an edge at any zoom setting", () => {
     for (const imageZoom of [1, 1.05, 1.12, 1.25]) {
       for (const s of plan(700, [object(0, "a.jpg"), { ...clip(0, "v.mp4", 20), hasFace: false }], { imageZoom })) {
         for (let f = 0; f < s.durationInFrames; f++) {
@@ -643,7 +648,7 @@ describe("render style (Configurações)", () => {
         s.segments.map((seg) => seg.motion),
       );
     const still: SegmentMotion = { scaleFrom: 1, scaleTo: 1, panXFromPct: 0, panXToPct: 0, panYFromPct: 0, panYToPct: 0, easing: "linear" };
-    expect(motions({ imageZoom: 1, videoZoom: 1 })).toEqual([still, still, still]);
+    expect(motions({ imageZoom: 1, videoZoom: 1 })).toEqual([still, still]);
     const noPan = motions({ imagePan: false });
     expect(noPan[1]).toEqual({ ...still, scaleTo: 1.12 });
     for (const m of noPan) expect([m.panXFromPct, m.panXToPct, m.panYFromPct, m.panYToPct]).toEqual([0, 0, 0, 0]);

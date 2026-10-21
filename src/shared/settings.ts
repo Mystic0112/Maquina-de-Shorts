@@ -68,7 +68,7 @@ export const VisualSettingsSchema = z.object({
   crossfadeFrames: z.number().int().min(0).max(20).optional(),
   /** Dark gradient behind the caption area for legibility. */
   captionBackdrop: z.boolean().optional(),
-  /** Longest time one framing stays on screen; longer scenes are split into shots (other clip or a new crop). */
+  /** Longest a video plays before cutting to another part of it. Stills are never cut: each shows once, for its whole share of the scene. */
   maxShotSeconds: z.number().min(2).max(12).optional(),
   /** On-screen hook/cover text (Script.overlayText) at the top in the first seconds. */
   overlayHook: z.boolean().optional(),

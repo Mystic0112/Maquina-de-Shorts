@@ -1,7 +1,9 @@
 // Pure shot planning for one scene: which media, for how long, from which point of a video and with
-// which camera move. No single framing stays on screen longer than visual.maxShotSeconds: long scenes
-// cycle their clips, then reuse a still with a new framing (another region / zoom) or cut to another
-// part of a video. Node-free (only types), so it could run in the browser bundle too.
+// which camera move. Every clip of the scene shows exactly once, splitting the scene evenly: a lone
+// still holds the whole scene however long it is (cutting back to the same picture reads as a repeat).
+// Only videos are cut: a long one jumps ahead every visual.maxShotSeconds, and a video-only scene that
+// outlasts all its clips restarts the longest one. Node-free (only types), so it could run in the
+// browser bundle too.
 
 import type { FootageClip } from "../orchestrator/types.js";
 import type { VisualSettings } from "../shared/settings.js";
@@ -9,16 +11,14 @@ import type { ClipSegment, MotionEasing, SegmentMotion } from "./shared.js";
 
 type Visual = Required<VisualSettings>;
 
-/** Preferred pan of a still at the end of its first move, in % of frame width (clamped to the zoom's slack). */
+/** Preferred pan of a face still at the end of its move, in % of frame width (clamped to the zoom's slack). */
 export const IMAGE_PAN_PCT = 4;
 /** Fraction of the zoom's edge slack a pan may use, leaving margin for rounding/subpixel sampling. */
 const PAN_SLACK_USAGE = 0.75;
 /** Never magnify footage (normalized to the frame size) beyond this. */
 export const SAFE_MAX_ZOOM = 1.25;
-/** A reused still is reframed this much tighter than the configured zoom (capped at SAFE_MAX_ZOOM). */
-const REFRAME_EXTRA_ZOOM = 0.1;
 export const OPENING_PUNCH_ZOOM = 1.2;
-/** The opening shot is cut at most this long, so its punch-in is fast and the first cut lands early. */
+/** An opening video is cut at most this long, so its punch-in is fast and the first cut lands early. */
 export const OPENING_PUNCH_SECONDS = 3;
 /** Shorter shots read as flashes; tiny videos are skipped when the scene has other footage. */
 const MIN_SHOT_SECONDS = 1.5;
@@ -53,7 +53,7 @@ export const maxShotFrames = (visual: Visual, fps: number): number => Math.max(1
 
 export const minShotFrames = (visual: Visual, fps: number): number => Math.min(Math.round(MIN_SHOT_SECONDS * fps), maxShotFrames(visual, fps));
 
-/** Owner's rule: a zoom (scale change) only when a face is the subject; objects and places never change scale. */
+/** Owner's rule: a camera move only when a face is the subject; objects and places stay completely still. */
 const mayZoom = (clip: FootageClip, visual: Visual): boolean => !visual.zoomOnlyOnFaces || clip.hasFace === true;
 
 /** Frames of a video that can be shown, keeping room for the next shot's dissolve over its end. */
@@ -63,50 +63,6 @@ function playableFrames(clip: FootageClip, fps: number, visual: Visual): number 
 }
 
 // ---------------------------------------------------------------- time per clip (slots)
-
-/** Video-only scene: chain the clips in order and loop the chain; never end on a sliver of a clip. */
-function loopVideoSlots(sceneFrames: number, clips: FootageClip[], playable: (c: FootageClip) => number, minShot: number): Slot[] {
-  const slots: Slot[] = [];
-  for (let i = 0, cursor = 0; cursor < sceneFrames; i++) {
-    const clip = clips[i % clips.length]!;
-    const frames = Math.min(playable(clip), sceneFrames - cursor);
-    slots.push({ clip, frames });
-    cursor += frames;
-  }
-  growLastSlot(slots, Math.min(minShot, playable(slots[slots.length - 1]!.clip)), minShot);
-  return slots;
-}
-
-/** Lengthens a too-short last slot to `target` by shortening earlier slots (each kept >= minShot). */
-function growLastSlot(slots: Slot[], target: number, minShot: number): void {
-  const last = slots[slots.length - 1]!;
-  for (let i = slots.length - 2; i >= 0 && last.frames < target; i--) {
-    const give = Math.min(target - last.frames, Math.max(0, slots[i]!.frames - minShot));
-    slots[i]!.frames -= give;
-    last.frames += give;
-  }
-}
-
-/**
- * Scene containing stills: every clip gets an even share. A video shorter than its share plays once
- * and the leftover goes to the stills (never loop a video when a still can hold the shot).
- */
-function splitSlotsWithImages(sceneFrames: number, clips: FootageClip[], playable: (c: FootageClip) => number): Slot[] {
-  const share = Math.floor(sceneFrames / clips.length);
-  const videoFrames = new Map(clips.filter((c) => c.kind === "video").map((c) => [c, Math.min(playable(c), share)]));
-  let budgetLeft = sceneFrames - [...videoFrames.values()].reduce((sum, f) => sum + f, 0);
-  let imagesLeft = clips.length - videoFrames.size;
-  return clips.map((clip) => {
-    const fixed = videoFrames.get(clip);
-    if (fixed !== undefined) return { clip, frames: fixed };
-    const frames = Math.ceil(budgetLeft / imagesLeft);
-    imagesLeft -= 1;
-    budgetLeft -= frames;
-    return { clip, frames };
-  });
-}
-
-// ---------------------------------------------------------------- slot -> shots
 
 /** Splits `total` into lengths within `caps`, as evenly as possible (smallest caps are served first). */
 export function waterFill(total: number, caps: number[]): number[] {
@@ -120,6 +76,21 @@ export function waterFill(total: number, caps: number[]): number[] {
   });
   return lengths;
 }
+
+/**
+ * Every clip gets an even share of the scene; a video shorter than its share plays once and the leftover
+ * goes to the others (stills can hold any length). A video-only scene that outlasts all its clips put
+ * together gives the excess to the longest video, which restarts (never A B A B).
+ */
+function splitSlots(sceneFrames: number, clips: FootageClip[], playable: (c: FootageClip) => number): Slot[] {
+  const caps = clips.map(playable);
+  const lengths = waterFill(sceneFrames, caps);
+  const leftover = sceneFrames - lengths.reduce((sum, l) => sum + l, 0);
+  if (leftover > 0) lengths[caps.indexOf(Math.max(...caps))]! += leftover;
+  return clips.map((clip, i) => ({ clip, frames: lengths[i]! }));
+}
+
+// ---------------------------------------------------------------- slot -> shots
 
 /** Fewest shots of <= maxShot frames covering `total`, the first one capped at `firstCap`. */
 function shotLengths(total: number, maxShot: number, firstCap: number): number[] {
@@ -150,56 +121,12 @@ const STILL: Omit<SegmentMotion, "easing"> = { scaleFrom: 1, scaleTo: 1, panXFro
 /** Applies a pan direction without producing -0 (props stay comparable/serializable as plain 0). */
 const signed = (sign: number, value: number): number => (value === 0 ? 0 : sign * value);
 
-/** Zoom a reused still starts at: tighter than the configured zoom, or looser when that would pass SAFE_MAX_ZOOM. */
-function reframeZoom(zoom: number): number {
-  const tighter = zoom + REFRAME_EXTRA_ZOOM;
-  return tighter <= SAFE_MAX_ZOOM + 1e-9 ? tighter : Math.max(1, zoom - REFRAME_EXTRA_ZOOM);
-}
-
-/**
- * Framing of the `variant`-th shot of the same still. 0: push-in with a sideways pan. Reuses alternate
- * 1: starts on another crop (zoom ±0.1) of the top of the picture and settles at the configured zoom,
- * 2: pushes in from wide towards its bottom. Every variant starts at a visibly different zoom/region
- * than the previous variant ended on, so each cut reads as a new shot.
- */
-export function imageMotion(variant: number, direction: 1 | -1, visual: Visual): Omit<SegmentMotion, "easing"> {
+/** A face still: slow push-in to the configured zoom with a sideways pan. */
+export function imageMotion(direction: 1 | -1, visual: Visual): Omit<SegmentMotion, "easing"> {
   const zoom = Math.min(visual.imageZoom, SAFE_MAX_ZOOM);
   if (zoom <= 1) return STILL; // zoom 1 = camera moves turned off in Configurações
   const share = visual.imagePan ? 1 : 0;
-  if (variant === 0) return { ...STILL, scaleTo: zoom, panXToPct: signed(direction, Math.min(IMAGE_PAN_PCT, panPct(zoom, share))) };
-  if (variant % 2 === 1) {
-    const crop = reframeZoom(zoom);
-    return {
-      scaleFrom: crop,
-      scaleTo: zoom,
-      panXFromPct: signed(direction, panPct(crop, share / 2)),
-      panXToPct: signed(direction, panPct(zoom, share / 2)),
-      panYFromPct: panPct(crop, share),
-      panYToPct: panPct(zoom, share / 2),
-    };
-  }
-  const wide = 1 + (zoom - 1) * 0.25;
-  return {
-    scaleFrom: wide,
-    scaleTo: zoom,
-    panXFromPct: signed(-direction, panPct(wide, share / 2)),
-    panXToPct: signed(-direction, panPct(zoom, share / 2)),
-    panYFromPct: 0,
-    panYToPct: signed(-1, panPct(zoom, share)),
-  };
-}
-
-/**
- * Fixed-scale move for a still that may not zoom: a gentle pan inside the configured zoom's slack, sideways on
- * even reuses and vertical on odd ones (so each cut still lands on another region). Still at zoom 1 or without pan.
- */
-export function panOnlyMotion(variant: number, direction: 1 | -1, visual: Visual): Omit<SegmentMotion, "easing"> {
-  const zoom = Math.min(visual.imageZoom, SAFE_MAX_ZOOM);
-  const pan = visual.imagePan ? Math.min(IMAGE_PAN_PCT, panPct(zoom, 1)) : 0;
-  if (pan === 0) return STILL;
-  const fixed = { ...STILL, scaleFrom: zoom, scaleTo: zoom };
-  if (variant % 2 === 0) return { ...fixed, panXFromPct: signed(-direction, pan), panXToPct: signed(direction, pan) };
-  return { ...fixed, panYFromPct: signed(direction, pan), panYToPct: signed(-direction, pan) };
+  return { ...STILL, scaleTo: zoom, panXToPct: signed(direction, Math.min(IMAGE_PAN_PCT, panPct(zoom, share))) };
 }
 
 /** Videos: gentle push-in; a later part of the same clip alternates with a pull-out. */
@@ -214,36 +141,25 @@ const easingFor = (visual: Visual, opening: boolean): MotionEasing => (visual.mo
 
 // ---------------------------------------------------------------- scene
 
+/**
+ * A still is a single shot whatever its length. A video jumps ahead every maxShot while it has footage
+ * left; a slot longer than the video restarts it from the head in even pieces (no sliver at the end).
+ */
 function slotShots(slot: Slot, slotIndex: number, input: ScenePlanInput, firstCap: number): Shot[] {
   const { fps, visual, sceneOrdinal } = input;
-  const lengths = shotLengths(slot.frames, maxShotFrames(visual, fps), firstCap);
-  const trims = slot.clip.kind === "video" ? spreadTrims(lengths, playableFrames(slot.clip, fps, visual)) : lengths.map(() => 0);
+  const isImage = slot.clip.kind === "image";
+  const playable = playableFrames(slot.clip, fps, visual);
+  const lengths = isImage ? [slot.frames] : shotLengths(slot.frames, Math.min(maxShotFrames(visual, fps), playable), firstCap);
+  const trims = isImage || slot.frames > playable ? lengths.map(() => 0) : spreadTrims(lengths, playable);
+  const direction = (sceneOrdinal + slotIndex) % 2 === 0 ? 1 : -1;
   return lengths.map((frames, variant) => {
     const opening = Number.isFinite(firstCap) && variant === 0;
-    const direction = (sceneOrdinal + slotIndex + variant) % 2 === 0 ? 1 : -1;
-    const isImage = slot.clip.kind === "image";
-    const move = !mayZoom(slot.clip, visual)
-      ? isImage
-        ? panOnlyMotion(variant, direction, visual)
-        : STILL
-      : opening
-        ? openingMotion()
-        : isImage
-          ? imageMotion(variant, direction, visual)
-          : videoMotion(variant, visual);
+    const move = !mayZoom(slot.clip, visual) ? STILL : opening ? openingMotion() : isImage ? imageMotion(direction, visual) : videoMotion(variant, visual);
     return { clip: slot.clip, frames, trimBeforeFrames: trims[variant]!, motion: { ...move, easing: easingFor(visual, opening) } };
   });
 }
 
-/** Round-robin across the clips' shot lists (A1 B1 A2 B2 ...) so a long scene keeps cycling its clips. */
-function interleave<T>(lists: T[][]): T[] {
-  const out: T[] = [];
-  const longest = Math.max(0, ...lists.map((l) => l.length));
-  for (let round = 0; round < longest; round++) for (const list of lists) if (round < list.length) out.push(list[round]!);
-  return out;
-}
-
-/** Same media back to back is a punch-in jump cut; different media dissolve like scene changes. */
+/** Same media back to back is a jump cut (another part of a video); different media dissolve like scene changes. */
 function toSegments(shots: Shot[], srcOf: (clip: FootageClip) => string, crossfadeFrames: number): ClipSegment[] {
   let cursor = 0;
   return shots.map((shot, i) => {
@@ -264,21 +180,15 @@ function toSegments(shots: Shot[], srcOf: (clip: FootageClip) => string, crossfa
   });
 }
 
-/** Lays the scene's clips out over `sceneFrames` as shots of at most visual.maxShotSeconds each. */
+/** Lays the scene's clips out over `sceneFrames`, each clip once, in order. */
 export function planSceneShots(input: ScenePlanInput): ClipSegment[] {
   const { sceneFrames, fps, visual } = input;
   if (input.clips.length === 0 || sceneFrames <= 0) return [];
-  const minShot = minShotFrames(visual, fps);
   const playable = (clip: FootageClip): number => playableFrames(clip, fps, visual);
-  const long = input.clips.filter((c) => playable(c) >= minShot);
+  const long = input.clips.filter((c) => playable(c) >= minShotFrames(visual, fps));
   const clips = long.length > 0 ? long : input.clips;
-  const hasImage = clips.some((c) => c.kind === "image");
-  const slots = (hasImage ? splitSlotsWithImages(sceneFrames, clips, playable) : loopVideoSlots(sceneFrames, clips, playable, minShot)).filter(
-    (slot) => slot.frames > 0,
-  );
+  const slots = splitSlots(sceneFrames, clips, playable).filter((slot) => slot.frames > 0);
   const openingCap = input.sceneOrdinal === 0 && visual.openingPunchIn ? Math.round(OPENING_PUNCH_SECONDS * fps) : Number.POSITIVE_INFINITY;
-  const perSlot = slots.map((slot, i) => slotShots(slot, i, input, i === 0 ? openingCap : Number.POSITIVE_INFINITY));
-  // Stills appear once each, so cycling them is safe; a looped video chain keeps its playback order.
-  const shots = hasImage ? interleave(perSlot) : perSlot.flat();
+  const shots = slots.flatMap((slot, i) => slotShots(slot, i, input, i === 0 ? openingCap : Number.POSITIVE_INFINITY));
   return toSegments(shots, input.srcOf, visual.crossfadeFrames);
 }

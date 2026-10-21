@@ -43,6 +43,8 @@ export type ClipSegment = {
   trimBeforeFrames: number;
   fadeInFrames: number;
   motion: SegmentMotion;
+  /** Every clip was already on screen, so this one comes back (never set while an unseen clip exists). */
+  reused?: boolean;
 };
 
 /**

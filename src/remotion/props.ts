@@ -67,29 +67,50 @@ export function planFootageAssets(footage: FootageClip[], publicPrefix?: string)
   return assets;
 }
 
-/** The scene's own clips; otherwise the nearest earlier scene's clips; otherwise any clip. */
-function clipsForScene(sceneIndex: number, footage: FootageClip[]): FootageClip[] {
-  const own = footage.filter((c) => c.sceneIndex === sceneIndex);
+type SceneClips = { clips: FootageClip[]; reused: boolean };
+
+/** Nearest scene first; on a tie the earlier one. */
+const byDistanceTo =
+  (sceneIndex: number) =>
+  (a: FootageClip, b: FootageClip): number =>
+    Math.abs(a.sceneIndex - sceneIndex) - Math.abs(b.sceneIndex - sceneIndex) || a.sceneIndex - b.sceneIndex;
+
+/**
+ * The scene's own clips not shown yet; otherwise one clip no scene has shown (leftovers of earlier scenes
+ * first, so later scenes keep theirs, then the nearest later scene's); only when every clip is spent, the
+ * nearest scene's clips come back (`reused`, for the log).
+ */
+function clipsForScene(sceneIndex: number, footage: FootageClip[], used: ReadonlySet<string>): SceneClips {
+  const own = footage
+    .filter((c) => c.sceneIndex === sceneIndex && !used.has(c.path))
+    .filter((c, i, all) => all.findIndex((d) => d.path === c.path) === i); // same picture picked twice (two beats): first entry wins
+  if (own.length > 0) return { clips: own, reused: false };
+  const nearest = byDistanceTo(sceneIndex);
+  const unused = footage
+    .filter((c) => !used.has(c.path))
+    .sort((a, b) => Number(a.sceneIndex > sceneIndex) - Number(b.sceneIndex > sceneIndex) || nearest(a, b));
+  if (unused.length > 0) return { clips: [unused[0]!], reused: false };
+  const donor = [...footage].sort(nearest)[0];
+  return { clips: donor ? footage.filter((c) => c.sceneIndex === donor.sceneIndex) : [], reused: true };
+}
+
+/**
+ * The beat's own clips; else a scene clip without beat (retry) not shown yet; else the previous beat's
+ * (its shot simply extends, never a cut back to it); else the next beat's, shown early.
+ */
+function clipsForBeat(sceneClips: FootageClip[], beatIndex: number, previousParts: ScenePart[]): FootageClip[] {
+  const shown = new Set(previousParts.flatMap((p) => p.clips.map((c) => c.path)));
+  const own = sceneClips.filter((c) => c.beatIndex === beatIndex && !shown.has(c.path));
   if (own.length > 0) return own;
-  const earlier = footage.filter((c) => c.sceneIndex < sceneIndex).map((c) => c.sceneIndex);
-  if (earlier.length > 0) {
-    const nearest = Math.max(...earlier);
-    return footage.filter((c) => c.sceneIndex === nearest);
-  }
-  return footage.length > 0 ? [footage[sceneIndex % footage.length]!] : [];
+  const loose = sceneClips.find((c) => c.beatIndex === undefined && !shown.has(c.path));
+  if (loose) return [loose];
+  const previous = previousParts[previousParts.length - 1];
+  if (previous) return previous.clips;
+  const next = Math.min(...sceneClips.map((c) => c.beatIndex ?? Number.POSITIVE_INFINITY).filter((b) => b > beatIndex));
+  return Number.isFinite(next) ? sceneClips.filter((c) => c.beatIndex === next) : sceneClips;
 }
 
-/** The beat's own clips; else the nearest earlier beat's; else the scene's beat-less clips (retry/borrowed); else all. */
-function clipsForBeat(sceneClips: FootageClip[], beatIndex: number): FootageClip[] {
-  for (let b = beatIndex; b >= 0; b--) {
-    const own = sceneClips.filter((c) => c.beatIndex === b);
-    if (own.length > 0) return own;
-  }
-  const loose = sceneClips.filter((c) => c.beatIndex === undefined);
-  return loose.length > 0 ? loose : sceneClips;
-}
-
-type ScenePart = { frames: number; clips: FootageClip[] };
+type ScenePart = { frames: number; clips: FootageClip[]; reused: boolean };
 
 /**
  * Splits the scene's visual frames at the instants its beats start being spoken. Parts shorter than a minimum
@@ -100,20 +121,22 @@ export function beatParts(
   scene: SceneTiming,
   frames: { startFrame: number; leadInFrames: number; sceneFrames: number; minShot: number },
   input: Pick<SceneBuildInput, "footage" | "script" | "words" | "fps">,
+  used: ReadonlySet<string> = new Set(),
 ): ScenePart[] {
-  const sceneClips = clipsForScene(scene.sceneIndex, input.footage);
+  const { clips: sceneClips, reused } = clipsForScene(scene.sceneIndex, input.footage, used);
   const beats = input.script?.scenes[scene.sceneIndex]?.beats ?? [];
-  if (beats.length < 2) return [{ frames: frames.sceneFrames, clips: sceneClips }];
+  if (beats.length < 2) return [{ frames: frames.sceneFrames, clips: sceneClips, reused }];
   const bounds = beatStartsMs(input.words, scene, beats).map((ms, k) =>
     k === 0 ? 0 : Math.min(frames.sceneFrames, Math.max(0, frames.leadInFrames + msToFrame(ms, input.fps) - frames.startFrame)),
   );
-  const parts = beats.map((_, k) => ({ frames: (bounds[k + 1] ?? frames.sceneFrames) - bounds[k]!, clips: clipsForBeat(sceneClips, k) }));
+  const parts: ScenePart[] = [];
+  beats.forEach((_, k) => parts.push({ frames: (bounds[k + 1] ?? frames.sceneFrames) - bounds[k]!, clips: clipsForBeat(sceneClips, k, parts), reused }));
   const merged: ScenePart[] = [];
   for (const part of parts) {
     const previous = merged[merged.length - 1];
     const sameClips = previous && previous.clips.map((c) => c.path).join("\n") === part.clips.map((c) => c.path).join("\n");
     if (previous && (sameClips || part.frames < frames.minShot)) previous.frames += part.frames;
-    else if (previous && previous.frames < frames.minShot) merged[merged.length - 1] = { frames: previous.frames + part.frames, clips: part.clips };
+    else if (previous && previous.frames < frames.minShot) merged[merged.length - 1] = { ...part, frames: previous.frames + part.frames };
     else merged.push({ ...part });
   }
   return merged.filter((p) => p.frames > 0);
@@ -131,7 +154,9 @@ type SceneBuildInput = {
 
 function buildScenes(scenes: SceneTiming[], input: SceneBuildInput): SceneProps[] {
   const { assets, fps, totalFrames, visual } = input;
+  const srcOf = (clip: FootageClip): string => assets.get(clip.path)!.publicPath;
   const sorted = [...scenes].sort((a, b) => a.startMs - b.startMs);
+  const used = new Set<string>(); // clip paths already on screen: a picture never comes back after another one
   let previousStart = 0;
   return sorted.map((scene, i) => {
     const startFrame = i === 0 ? 0 : Math.min(msToFrame(scene.startMs, fps), totalFrames - 1);
@@ -142,20 +167,21 @@ function buildScenes(scenes: SceneTiming[], input: SceneBuildInput): SceneProps[
     const leadInFrames = i === 0 ? 0 : Math.max(0, Math.min(visual.crossfadeFrames, startFrame - previousStart - 1));
     previousStart = startFrame;
     const sceneFrames = leadInFrames + durationInFrames;
-    const parts = beatParts(scene, { startFrame, leadInFrames, sceneFrames, minShot: minShotFrames(visual, fps) }, input);
+    const parts = beatParts(scene, { startFrame, leadInFrames, sceneFrames, minShot: minShotFrames(visual, fps) }, input, used);
     let offset = 0;
     const segments = parts.flatMap((part, k) => {
       const planned = planSceneShots({
         sceneFrames: part.frames,
         clips: part.clips,
-        srcOf: (clip) => assets.get(clip.path)!.publicPath,
+        srcOf,
         fps,
         visual,
         sceneOrdinal: i + k, // later beats of the opening scene are never ordinal 0 (no second punch-in)
       });
+      for (const clip of part.clips) if (planned.some((s) => s.src === srcOf(clip))) used.add(clip.path);
       const from = offset;
       offset += part.frames;
-      return planned.map((s) => ({ ...s, fromFrame: s.fromFrame + from }));
+      return planned.map((s) => ({ ...s, fromFrame: s.fromFrame + from, ...(part.reused ? { reused: true } : {}) }));
     });
     return { sceneIndex: scene.sceneIndex, startFrame, durationInFrames, leadInFrames, segments };
   });
