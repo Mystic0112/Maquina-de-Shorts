@@ -125,3 +125,32 @@ describe("usage accounting", () => {
     ]);
   });
 });
+
+describe("withRateLimitRetry and timeouts", () => {
+  it("retries a timed-out call once without consuming rate-limit retries, then gives up", async () => {
+    const { withRateLimitRetry, isTimeoutError } = await import("../../src/orchestrator/lib/llmClient.js");
+    expect(isTimeoutError(new Error("agy excedeu o tempo limite de 400 s"))).toBe(true);
+    expect(isTimeoutError(new Error("agy retornou status ERROR"))).toBe(false);
+
+    let calls = 0;
+    const okOnSecond = vi.fn(async () => {
+      calls++;
+      if (calls === 1) throw new Error("agy excedeu o tempo limite de 400 s");
+      return "ok";
+    });
+    await expect(withRateLimitRetry(okOnSecond, 0, () => 0)).resolves.toBe("ok");
+    expect(okOnSecond).toHaveBeenCalledTimes(2);
+
+    const alwaysTimesOut = vi.fn(async () => {
+      throw new Error("agy excedeu o tempo limite de 400 s");
+    });
+    await expect(withRateLimitRetry(alwaysTimesOut, 4, () => 0)).rejects.toThrow(/tempo limite/);
+    expect(alwaysTimesOut).toHaveBeenCalledTimes(2); // original + one timeout retry, no backoff loop
+
+    const otherError = vi.fn(async () => {
+      throw new Error("JSON inválido");
+    });
+    await expect(withRateLimitRetry(otherError, 4, () => 0)).rejects.toThrow(/JSON/);
+    expect(otherError).toHaveBeenCalledTimes(1);
+  });
+});

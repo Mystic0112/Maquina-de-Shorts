@@ -87,12 +87,28 @@ export function backoffDelayMs(retry: number, baseMs = 4000, capMs = 60_000, ran
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-/** Retries `fn` on rate-limit errors with jittered backoff; other errors propagate immediately. */
+/** A CLI/agent call killed by our own timeout (antigravityCli.ts) or an SDK timeout. */
+export function isTimeoutError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /excedeu o tempo limite|timed out|\btimeout\b/i.test(message);
+}
+
+/**
+ * Retries `fn` on rate-limit errors with jittered backoff, and once (no backoff) on a timeout: a slow agent
+ * turn is usually a one-off, and failing the whole video for it costs far more than one more try.
+ * Other errors propagate immediately.
+ */
 export async function withRateLimitRetry<T>(fn: () => Promise<T>, retries = 4, delay = backoffDelayMs): Promise<T> {
+  let timeoutRetried = false;
   for (let retry = 0; ; retry++) {
     try {
       return await fn();
     } catch (error) {
+      if (isTimeoutError(error) && !timeoutRetried) {
+        timeoutRetried = true;
+        retry--; // a timeout retry does not consume a rate-limit retry
+        continue;
+      }
       if (!isRateLimitError(error) || retry >= retries) throw error;
       await sleep(delay(retry));
     }
