@@ -19,6 +19,7 @@ import {
   unwrapData,
   type HttpFetch,
 } from "../lib/instagramApi.js";
+import { serveVideoTunnel, type VideoTunnel } from "../lib/cloudflaredTunnel.js";
 import { UploadSessionLostError } from "../lib/youtubeUpload.js";
 import type { RunContext } from "../types.js";
 import { buildInstagramCaption } from "./instagramCaption.js";
@@ -30,6 +31,8 @@ import type { PublishableContext, Publisher, PublisherConnection, SessionHooks }
  *   content_publishing_limit -> POST /<IG_ID>/media (media_type=REELS, upload_type=resumable) ->
  *   POST rupload.facebook.com/ig-api-upload/<ver>/<container> (whole file, offset + file_size headers) ->
  *   GET /<container>?fields=status_code until FINISHED -> POST /<IG_ID>/media_publish -> GET permalink.
+ * Default outside tests: instead of rupload, the container gets `video_url` pointing at a temporary cloudflared
+ * tunnel (lib/cloudflaredTunnel.ts) that stays open only until the container leaves IN_PROGRESS.
  * The container id is journaled (SessionHooks.onSession) BEFORE any byte is sent, so a retry inspects and
  * resumes that same container and never creates a second post.
  * https://developers.facebook.com/documentation/instagram-platform/content-publishing
@@ -81,7 +84,7 @@ export interface MediaSummary {
 
 export interface InstagramClient {
   publishingLimit(): Promise<{ usage: number; total: number }>;
-  createReelContainer(caption: string, coverOffsetMs?: number): Promise<{ id: string; uploadUri?: string }>;
+  createReelContainer(caption: string, coverOffsetMs?: number, videoUrl?: string): Promise<{ id: string; uploadUri?: string }>;
   getContainer(containerId: string): Promise<ContainerState>;
   /** Best effort (video_status); undefined when the API does not tell. */
   uploadState(containerId: string): Promise<UploadState | undefined>;
@@ -138,8 +141,13 @@ export function createGraphClient(token: Pick<InstagramToken, "accessToken" | "u
       const config = json.config && typeof json.config === "object" ? (json.config as Record<string, unknown>) : {};
       return { usage: numberField(json.quota_usage) ?? 0, total: numberField(config.quota_total) ?? DEFAULT_QUOTA_TOTAL };
     },
-    async createReelContainer(caption, coverOffsetMs) {
-      const params: Record<string, string> = { media_type: "REELS", upload_type: "resumable", caption };
+    async createReelContainer(caption, coverOffsetMs, videoUrl) {
+      const params: Record<string, string> = { media_type: "REELS", caption };
+      if (videoUrl) {
+        params.video_url = videoUrl;
+      } else {
+        params.upload_type = "resumable";
+      }
       if (coverOffsetMs !== undefined && coverOffsetMs >= 0) params.thumb_offset = String(Math.round(coverOffsetMs));
       const json = await post(`${userId}/media`, params);
       const id = stringField(json, "id");
@@ -204,7 +212,14 @@ export interface PublishReelOptions {
   pollDelaysMs?: readonly number[];
   maxUploadAttempts?: number;
   readVideo?: (filePath: string) => Promise<Uint8Array>;
+  /**
+   * Serves the video at a temporary public URL for `video_url` (default: cloudflared quick tunnel; none under
+   * NODE_ENV=test). `null` forces the resumable upload to rupload.facebook.com.
+   */
+  serveTunnel?: ServeTunnel | null;
 }
+
+export type ServeTunnel = (filePath: string) => Promise<VideoTunnel>;
 
 export const DEFAULT_POLL_TIMEOUT_MS = 5 * 60 * 1000;
 export const DEFAULT_POLL_DELAYS_MS = [5_000, 10_000, 15_000, 30_000, 30_000, 60_000] as const;
@@ -220,6 +235,7 @@ interface Resolved {
   pollDelaysMs: readonly number[];
   maxUploadAttempts: number;
   readVideo: (filePath: string) => Promise<Uint8Array>;
+  serveTunnel?: ServeTunnel;
 }
 
 function resolveOptions(o: PublishReelOptions): Resolved {
@@ -230,6 +246,7 @@ function resolveOptions(o: PublishReelOptions): Resolved {
     pollDelaysMs: o.pollDelaysMs ?? DEFAULT_POLL_DELAYS_MS,
     maxUploadAttempts: o.maxUploadAttempts ?? 3,
     readVideo: o.readVideo ?? readFile,
+    serveTunnel: o.serveTunnel === null ? undefined : (o.serveTunnel ?? (process.env.NODE_ENV === "test" ? undefined : serveVideoTunnel)),
   };
 }
 
@@ -373,15 +390,50 @@ export async function publishReel(
   if (resume.kind === "published") return { id: resume.mediaId };
   await assertQuota(client, log);
   let container: { id: string; uploadUri?: string } = { id: session.sessionUri ?? "" };
-  if (resume.kind === "new") {
-    container = await client.createReelContainer(post.caption, post.coverOffsetMs);
-    await session.onSession(container.id); // journaled before the first byte is sent
-    log.info(`Created Instagram container ${container.id}`);
+  let state: "FINISHED" | "PUBLISHED";
+  if (resume.kind === "new" && o.serveTunnel) {
+    ({ container, state } = await publishViaTunnel(client, o.serveTunnel, filePath, post, session, o, log));
+  } else {
+    if (resume.kind === "new") {
+      container = await createContainer(client, post, session, log);
+      await uploadFile(client, container, filePath, 0, onProgress, o, log);
+    }
+    if (resume.kind === "upload") await resendFile(client, container, filePath, resume.offset, onProgress, o, log);
+    state = await waitForContainer(client, container.id, o);
   }
-  if (resume.kind === "new") await uploadFile(client, container, filePath, 0, onProgress, o, log);
-  if (resume.kind === "upload") await resendFile(client, container, filePath, resume.offset, onProgress, o, log);
-  if ((await waitForContainer(client, container.id, o)) === "PUBLISHED") return { id: await findPublishedMedia(client, container.id, post.caption) };
+  if (state === "PUBLISHED") return { id: await findPublishedMedia(client, container.id, post.caption) };
   return { id: await publishContainer(client, container.id, post.caption) };
+}
+
+async function createContainer(client: InstagramClient, post: InstagramPost, session: SessionHooks, log: Log, videoUrl?: string): Promise<{ id: string; uploadUri?: string }> {
+  const container = await client.createReelContainer(post.caption, post.coverOffsetMs, videoUrl);
+  await session.onSession(container.id); // journaled right away: a retry resumes this container
+  log.info(`Created Instagram container ${container.id}`);
+  return container;
+}
+
+/**
+ * `video_url` flow: Meta downloads the video from a temporary public tunnel while the container is
+ * IN_PROGRESS. The tunnel is closed as soon as processing ends (or anything fails), before media_publish.
+ */
+async function publishViaTunnel(
+  client: InstagramClient,
+  serveTunnel: ServeTunnel,
+  filePath: string,
+  post: InstagramPost,
+  session: SessionHooks,
+  o: Resolved,
+  log: Log,
+): Promise<{ container: { id: string; uploadUri?: string }; state: "FINISHED" | "PUBLISHED" }> {
+  log.info("Opening a temporary HTTPS tunnel so Instagram can download the video");
+  const tunnel = await serveTunnel(filePath);
+  try {
+    const container = await createContainer(client, post, session, log, tunnel.url);
+    return { container, state: await waitForContainer(client, container.id, o) };
+  } finally {
+    await tunnel.close().catch((error: unknown) => log.warn(`Could not close the temporary tunnel: ${error instanceof Error ? error.message : String(error)}`));
+    log.info("Temporary tunnel closed");
+  }
 }
 
 // ---------------------------------------------------------------------------------------------

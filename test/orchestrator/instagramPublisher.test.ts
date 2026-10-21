@@ -13,6 +13,7 @@ import { StageFailedError } from "../../src/orchestrator/lib/rejection.js";
 import { buildTitle, fitDescription, MODIFIED_NOTE } from "../../src/orchestrator/stages/07-generateMetadata.js";
 import { buildInstagramCaption, CAPTION_MAX, countHashtags, HASHTAGS_MAX, missingAttributions } from "../../src/orchestrator/publishers/instagramCaption.js";
 import { createInstagramPublisher, REEL_COVER_OFFSET_MS, ruploadUrl, type PublishReelOptions } from "../../src/orchestrator/publishers/instagram.js";
+import { TunnelError, type VideoTunnel } from "../../src/orchestrator/lib/cloudflaredTunnel.js";
 import { VISUAL_DEFAULTS } from "../../src/shared/settings.js";
 import { journalFile, publishAll, type PublishDeps } from "../../src/orchestrator/publishers/runner.js";
 import { createYouTubePublisher, type YouTubeUploader } from "../../src/orchestrator/publishers/youtube.js";
@@ -149,9 +150,12 @@ function fakeGraph(opts: GraphOptions = {}) {
     if (init.method === "POST" && path === `${IG_USER}/media`) {
       if (opts.failContainerCreate) return fail(500, `boom for url https://graph.instagram.com/x?access_token=${TOKEN}`, 2);
       const body = form(init);
-      expect(body).toMatchObject({ media_type: "REELS", upload_type: "resumable" });
+      if (body.video_url) expect(body.upload_type).toBeUndefined();
+      expect(body).toMatchObject(body.video_url ? { media_type: "REELS" } : { media_type: "REELS", upload_type: "resumable" });
       const id = String(nextContainer++);
-      containers.set(id, { id, caption: body.caption ?? "", statusCode: "IN_PROGRESS", uploadedBytes: 0, pollsUntilFinished: opts.processingPolls ?? 1 });
+      // video_url: Meta downloads the file itself, so processing starts right away.
+      const fetched = body.video_url ? 1 : 0;
+      containers.set(id, { id, caption: body.caption ?? "", statusCode: "IN_PROGRESS", uploadedBytes: fetched, pollsUntilFinished: opts.processingPolls ?? 1 });
       return ok({ id, uri: `https://rupload.facebook.com/ig-api-upload/v25.0/${id}` });
     }
     if (init.method === "POST" && path === `${IG_USER}/media_publish`) {
@@ -428,6 +432,114 @@ describe("Instagram publisher", () => {
     expect(ctx.publications?.instagram?.reason).toContain("access_token=***");
     expect(JSON.stringify(ctx)).not.toContain(TOKEN);
     expect(lines.join("\n")).not.toContain(TOKEN);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// video_url through a temporary tunnel (fake tunnel; no cloudflared, no network)
+// ---------------------------------------------------------------------------------------------
+
+describe("Instagram via temporary tunnel", () => {
+  const TUNNEL_URL = "https://quiet-river-blue-moon.trycloudflare.com/video.mp4";
+
+  function fakeTunnel(fail?: Error) {
+    const events: string[] = [];
+    const serveTunnel = async (filePath: string): Promise<VideoTunnel> => {
+      events.push(`open ${filePath.endsWith("final.mp4") ? "final.mp4" : filePath}`);
+      if (fail) throw fail;
+      return { url: TUNNEL_URL, close: async () => void events.push("close") };
+    };
+    return { serveTunnel, events };
+  }
+
+  function youtubeOk() {
+    const posted: string[] = [];
+    const uploader: YouTubeUploader = {
+      upload: async (_f, _r, _p, session) => (await session?.onSession("https://upload/yt"), posted.push("yt"), { id: "yt1" }),
+      getPrivacyStatus: async () => "public",
+      close: async () => undefined,
+    };
+    const publisher = createYouTubePublisher({ enabled: true, privacyStatus: "public", categoryId: "27", maxUploadsPerDay: 3, containsSyntheticMedia: false }, async () => uploader);
+    return { publisher, posted };
+  }
+
+  it("creates the container with video_url (no rupload) and closes the tunnel before media_publish", async () => {
+    const graph = fakeGraph({ processingPolls: 1 });
+    const tunnel = fakeTunnel();
+    const order: string[] = [];
+    const http: HttpFetch = async (raw, init) => {
+      if (new URL(raw).pathname.endsWith("/media_publish")) order.push(`publish (tunnel events: ${tunnel.events.join(",")})`);
+      return graph.http(raw, init);
+    };
+    const publisher = createInstagramPublisher({ enabled: true, maxPostsPerDay: 3 }, { tokenFile: tokenFile(), now: () => NOW, http, publishOptions: { ...FAST, serveTunnel: tunnel.serveTunnel } });
+    const out = await publishAll(publishable(), [publisher], {}, world().deps, recordingLog().log);
+    const create = graph.calls.find((c) => c.method === "POST" && c.url.pathname.endsWith(`${IG_USER}/media`))!;
+    expect(Object.fromEntries(new URLSearchParams(String(create.init.body)))).toMatchObject({ media_type: "REELS", video_url: TUNNEL_URL });
+    expect(graph.calls.some((c) => c.url.host === "rupload.facebook.com")).toBe(false);
+    expect(tunnel.events).toEqual(["open final.mp4", "close"]);
+    expect(order).toEqual(["publish (tunnel events: open final.mp4,close)"]);
+    expect(out.publications?.instagram).toMatchObject({ status: "uploaded", videoId: graph.media[0]!.id });
+  });
+
+  it("the tunnel is closed when processing fails (container ERROR)", async () => {
+    const graph = fakeGraph();
+    const tunnel = fakeTunnel();
+    const http: HttpFetch = async (raw, init) => {
+      const res = await graph.http(raw, init);
+      graph.containers.forEach((c) => (c.statusCode = "ERROR")); // Meta could not process the video
+      return res;
+    };
+    const publisher = createInstagramPublisher({ enabled: true, maxPostsPerDay: 3 }, { tokenFile: tokenFile(), now: () => NOW, http, publishOptions: { ...FAST, serveTunnel: tunnel.serveTunnel } });
+    const error = await publishAll(publishable(), [publisher], {}, world().deps, recordingLog().log).catch((e: unknown) => e);
+    expect((error as StageFailedError).ctx.publications?.instagram).toMatchObject({ status: "failed", reason: expect.stringMatching(/is ERROR/) });
+    expect(tunnel.events).toEqual(["open final.mp4", "close"]);
+    expect(graph.media).toEqual([]);
+  });
+
+  it("cloudflared missing: Instagram fails with a clear reason, no container is created, YouTube still publishes", async () => {
+    const graph = fakeGraph();
+    const tunnel = fakeTunnel(new TunnelError("cloudflared não foi encontrado (cloudflared). Instale o Cloudflare Tunnel"));
+    const yt = youtubeOk();
+    const w = world();
+    const ctx = publishable();
+    const { log, lines } = recordingLog();
+    const ig = instagram(graph, { publishOptions: { ...FAST, serveTunnel: tunnel.serveTunnel } });
+    const error = await publishAll(ctx, [ig, yt.publisher], {}, w.deps, log).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(StageFailedError);
+    const out = (error as StageFailedError).ctx;
+    expect(out.publications?.youtube).toMatchObject({ status: "uploaded", videoId: "yt1" });
+    expect(out.publications?.instagram).toMatchObject({ status: "failed", reason: expect.stringMatching(/cloudflared não foi encontrado/) });
+    expect(yt.posted).toEqual(["yt"]);
+    expect(graph.created()).toBe(0);
+    expect(w.history.map((r) => r.platform)).toEqual(["youtube"]);
+    const journal = JSON.parse(readFileSync(join(ctx.runDir, journalFile("instagram")), "utf8")) as { sessionUri?: string };
+    expect(journal.sessionUri).toBeUndefined(); // nothing to resume: the next run starts clean
+    expect(lines.some((l) => l.startsWith("E [instagram] Publishing failed: cloudflared não foi encontrado"))).toBe(true);
+  });
+
+  it("serveTunnel: null keeps the resumable rupload path", async () => {
+    const graph = fakeGraph();
+    const out = await publishAll(publishable(), [instagram(graph, { publishOptions: { ...FAST, serveTunnel: null } })], {}, world().deps, recordingLog().log);
+    expect(graph.calls.filter((c) => c.url.host === "rupload.facebook.com")).toHaveLength(1);
+    expect(out.publications?.instagram?.status).toBe("uploaded");
+  });
+
+  it("a journaled container is resumed without opening a new tunnel", async () => {
+    const graph = fakeGraph({ processingPolls: Infinity });
+    const ctx = publishable();
+    const w = world();
+    let clock = 0;
+    const first = fakeTunnel();
+    const timed: PublishReelOptions = { now: () => clock, sleep: async (ms) => void (clock += ms), pollTimeoutMs: 3000, pollDelaysMs: [1000], serveTunnel: first.serveTunnel };
+    await publishAll(ctx, [instagram(graph, { publishOptions: timed })], {}, w.deps, recordingLog().log).catch(() => undefined);
+    expect(first.events).toEqual(["open final.mp4", "close"]); // closed on the poll timeout too
+    const journal = JSON.parse(readFileSync(join(ctx.runDir, journalFile("instagram")), "utf8")) as { sessionUri: string };
+    graph.containers.get(journal.sessionUri)!.pollsUntilFinished = 0;
+    const second = fakeTunnel();
+    const out = await publishAll(ctx, [instagram(graph, { publishOptions: { ...FAST, serveTunnel: second.serveTunnel } })], {}, w.deps, recordingLog().log);
+    expect(second.events).toEqual([]);
+    expect(graph.created()).toBe(1);
+    expect(out.publications?.instagram?.status).toBe("uploaded");
   });
 });
 
