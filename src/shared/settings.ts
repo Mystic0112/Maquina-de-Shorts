@@ -13,8 +13,11 @@ export const CAPTION_FONTS = {
 } as const;
 export type CaptionFont = keyof typeof CAPTION_FONTS;
 
-/** TTS engines: Gemini TTS (default) or edge-tts (Microsoft's unofficial endpoint; 403 since Oct 2026). */
-export const VOICE_ENGINES = ["gemini", "edge-tts"] as const;
+/**
+ * TTS engines: Gemini TTS (default), Kokoro (local model, free; needs its own venv, see KOKORO_PYTHON)
+ * or edge-tts (Microsoft's unofficial endpoint; 403 since Oct 2026).
+ */
+export const VOICE_ENGINES = ["gemini", "kokoro", "edge-tts"] as const;
 export type VoiceEngine = (typeof VOICE_ENGINES)[number];
 
 export const VoiceExtrasSchema = z.object({
@@ -33,6 +36,10 @@ export const VoiceExtrasSchema = z.object({
   geminiVoice: z.string().min(1).optional(),
   /** Gemini delivery instruction (speech_metadata.style), in pt-BR. */
   style: z.string().max(500).optional(),
+  /** Kokoro voice id: pt-BR voices are pm_alex, pf_dora and pm_santa. */
+  kokoroVoice: z.string().min(1).optional(),
+  /** Kokoro speaking speed multiplier. */
+  kokoroSpeed: z.number().min(0.5).max(2).optional(),
 });
 
 export const CaptionSettingsSchema = z.object({
@@ -160,6 +167,8 @@ export const VOICE_EXTRAS_DEFAULTS: Required<VoiceExtras> = {
   geminiModel: "gemini-3.8-flash-tts",
   geminiVoice: "Fenrir",
   style: "Narre em português do Brasil, tom curioso e envolvente, ritmo ágil de vídeo curto, sem pausas longas",
+  kokoroVoice: "pm_alex",
+  kokoroSpeed: 1,
 };
 
 export const INSTAGRAM_DEFAULTS: Required<InstagramSettings> = { enabled: false, maxPostsPerDay: 3 };

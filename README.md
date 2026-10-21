@@ -187,12 +187,14 @@ A seção `voice` do `config/pipeline.config.json` escolhe o motor em `voice.eng
   A saída é `narration.wav`; o áudio original do Gemini fica em `narration.source.wav`. O modelo do Whisper fica em `models/whisper/` (fora do Git): baixe uma vez com `--download-only`. Se ele faltar, a primeira execução baixa o modelo e avisa no log.
 
   Os tokens de áudio entram em `llmUsage` como modelo `gemini-3.8-flash-tts`, a 25 tokens por segundo de áudio; um minuto de narração custa cerca de US$ 0,014 ([preços](https://ai.google.dev/gemini-api/docs/pricing)).
+- **`kokoro`**: [Kokoro](https://github.com/hexgrad/kokoro) (Apache-2.0), roda no próprio PC sem API: vozes pt-BR `pm_alex`, `pf_dora` e `pm_santa`, sintetizadas frase a frase e alinhadas pelo mesmo `align_narration.py`. Como depende do torch, fica num venv separado, fora do projeto: `uv venv --python 3.12 <pasta>` e `uv pip install --python <pasta>/Scripts/python.exe torch kokoro soundfile` (no Linux sem GPU, acrescente `--index-url https://download.pytorch.org/whl/cpu`); depois aponte `KOKORO_PYTHON=<pasta>/Scripts/python.exe` no `.env`.
 - **`edge-tts`**: serviço não oficial da Microsoft (retorna 403 desde outubro de 2026). Gera `narration.mp3` com o tempo de cada palavra e encurta as pausas removendo quadros MP3 silenciosos (`python/tts/mp3_pauses.py`).
 
 | Campo | Motor | Padrão | Para quê |
 |---|---|---|---|
-| `engine` | os dois | `gemini` | `gemini` ou `edge-tts` |
-| `maxPauseMs` | os dois | `250` | maior pausa mantida entre palavras/frases, em ms (`0` não corta nada) |
+| `engine` | todos | `gemini` | `gemini`, `kokoro` ou `edge-tts` |
+| `maxPauseMs` | todos | `250` | maior pausa mantida entre palavras/frases, em ms (`0` não corta nada) |
+| `kokoroVoice` / `kokoroSpeed` | kokoro | `pm_alex` / `1` | voz (`pm_alex`, `pf_dora`, `pm_santa`) e velocidade (0,5–2) |
 | `geminiModel` | gemini | `gemini-3.8-flash-tts` | também existe o `gemini-3.8-flash-lite-tts`, mais barato |
 | `geminiVoice` | gemini | `Fenrir` | voz pré-pronta (`Fenrir`, `Puck`, ...), da biblioteca (`pt-br-podcaster-12`, ...) ou criada (`voice_...`) |
 | `style` | gemini | "Narre em português do Brasil, tom curioso e envolvente, ritmo ágil de vídeo curto, sem pausas longas" | instrução de entrega (`speech_metadata.style`); o texto do roteiro é lido literalmente |

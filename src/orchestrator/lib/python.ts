@@ -18,6 +18,8 @@ export interface PythonJsonOptions<T> {
   onStderrLine?: (line: string) => void;
   /** Secret env vars this script needs; everything else is withheld (see childEnv.ts). */
   envKeys?: readonly string[];
+  /** Interpreter to use instead of the project's .venv (e.g. the separate Kokoro venv). */
+  python?: string;
 }
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
@@ -88,7 +90,7 @@ export async function runPythonJson<T>(options: PythonJsonOptions<T>): Promise<T
 }
 
 function spawnPython<T>(scriptPath: string, options: PythonJsonOptions<T>): Promise<ProcessOutput> {
-  const exe = resolvePythonExecutable();
+  const exe = options.python || resolvePythonExecutable();
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   return new Promise((resolvePromise, reject) => {
     const child = spawn(exe, ["-X", "utf8", scriptPath, ...(options.args ?? [])], {

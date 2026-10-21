@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
-import { loadConfig, paths } from "../lib/config.js";
+import { env, loadConfig, paths } from "../lib/config.js";
 import { pcmToWav, synthesizeGeminiSpeech, type GeminiSpeechRequest, type SpeechAudio } from "../lib/geminiTts.js";
 import { getLogger, type Logger } from "../lib/logger.js";
 import { runPythonJson, scriptSupportsFlag } from "../lib/python.js";
@@ -10,13 +10,16 @@ import { resolveVoiceExtras, type VoiceEngine, type VoiceExtras } from "../../sh
 import type { Narration, RunContext, Script } from "../types.js";
 
 const EDGE_TTS_SCRIPT = "python/tts/synthesize.py";
+const KOKORO_SCRIPT = "python/tts/synthesize_kokoro.py";
 const ALIGN_SCRIPT = "python/tts/align_narration.py";
+/** Linux only: lets the child find the distro's espeak-ng when the bundled one lacks its data files. */
+const KOKORO_ENV_KEYS = ["ESPEAK_DATA_PATH", "PHONEMIZER_ESPEAK_LIBRARY"];
 const TTS_TIMEOUT_MS = 5 * 60 * 1000;
 /** Pause trimming + Whisper alignment take ~6 s per minute of audio; the first run also downloads the model. */
 const ALIGN_TIMEOUT_MS = 10 * 60 * 1000;
 /** synthesize.py stops retrying after this, leaving 20 s before the subprocess timeout. */
 export const TTS_DEADLINE_SECONDS = 280;
-/** Raw Gemini audio kept next to the trimmed narration.wav (for debugging and re-alignment). */
+/** Raw Gemini/Kokoro audio kept next to the trimmed narration.wav (for debugging and re-alignment). */
 export const GEMINI_SOURCE_AUDIO = "narration.source.wav";
 
 const NarrationSchema = z.object({
@@ -65,9 +68,14 @@ export function buildTtsArgs(textFile: string, voiceName: string, outDir: string
   ];
 }
 
-/** align_narration.py CLI args: trims pauses in the Gemini audio and times every script word. */
+/** align_narration.py CLI args: trims pauses in the Gemini/Kokoro audio and times every script word. */
 export function buildAlignArgs(audioFile: string, textFile: string, outDir: string, maxPauseMs: number): string[] {
   return ["--audio-in", audioFile, "--text-file", textFile, "--out-dir", outDir, `--max-pause-ms=${maxPauseMs}`];
+}
+
+/** synthesize_kokoro.py CLI args. */
+export function buildKokoroArgs(textFile: string, outFile: string, voice: Pick<ResolvedVoice, "kokoroVoice" | "kokoroSpeed">): string[] {
+  return ["--text-file", textFile, "--out", outFile, "--voice", voice.kokoroVoice, "--speed", String(voice.kokoroSpeed), "--lang", "p"];
 }
 
 /** The exact text the TTS speaks; 05-buildCaptions aligns against the same segments. */
@@ -102,30 +110,66 @@ export const edgeTtsEngine: TtsEngine = {
 
 export type SpeechSynthesizer = (request: GeminiSpeechRequest) => Promise<SpeechAudio>;
 
-/** Gemini TTS -> narration.source.wav -> align_narration.py (pause trimming + Whisper word timings). */
+/** narration.source.wav -> align_narration.py (pause trimming + Whisper word timings) -> narration.wav. */
+function alignSourceAudio(sourceFile: string, { textFile, runDir, voice, log }: TtsJob): Promise<TtsResult> {
+  return runPythonJson({
+    script: ALIGN_SCRIPT,
+    args: buildAlignArgs(sourceFile, textFile, runDir, voice.maxPauseMs),
+    timeoutMs: ALIGN_TIMEOUT_MS,
+    schema: NarrationSchema,
+    onStderrLine: stderrLogger(log, "align"),
+    envKeys: [],
+  });
+}
+
+/** Gemini TTS -> narration.source.wav -> alignSourceAudio. */
 export function createGeminiEngine(speak: SpeechSynthesizer = (request) => synthesizeGeminiSpeech(request)): TtsEngine {
   return {
     name: "gemini",
     describe: (v) => `Gemini ${v.geminiModel} voice ${v.geminiVoice} (max pause ${v.maxPauseMs} ms)`,
-    async synthesize({ text, textFile, runDir, voice, log }) {
+    async synthesize(job) {
+      const { text, runDir, voice, log } = job;
       const audio = await speak({ text, model: voice.geminiModel, voice: voice.geminiVoice, style: voice.style });
       const sourceFile = join(runDir, GEMINI_SOURCE_AUDIO);
       await writeFile(sourceFile, pcmToWav(audio));
       log.info(`Gemini audio: ${(audio.pcm.length / 2 / audio.sampleRate).toFixed(1)} s; trimming pauses and aligning words`);
-      return runPythonJson({
-        script: ALIGN_SCRIPT,
-        args: buildAlignArgs(sourceFile, textFile, runDir, voice.maxPauseMs),
-        timeoutMs: ALIGN_TIMEOUT_MS,
-        schema: NarrationSchema,
-        onStderrLine: stderrLogger(log, "align"),
-        envKeys: [],
+      return alignSourceAudio(sourceFile, job);
+    },
+  };
+}
+
+const KokoroOutputSchema = z.object({ audioPath: z.string().min(1), durationMs: z.number().positive(), sentences: z.number() });
+
+/**
+ * Kokoro (local, free) in its own venv (KOKORO_PYTHON; empty = project .venv) -> narration.source.wav
+ * -> alignSourceAudio with the project .venv, exactly like Gemini.
+ */
+export function createKokoroEngine(python: string | undefined = env("KOKORO_PYTHON")): TtsEngine {
+  return {
+    name: "kokoro",
+    describe: (v) => `Kokoro voice ${v.kokoroVoice} (speed ${v.kokoroSpeed}, max pause ${v.maxPauseMs} ms)`,
+    async synthesize(job) {
+      const { textFile, runDir, voice, log } = job;
+      const sourceFile = join(runDir, GEMINI_SOURCE_AUDIO);
+      const out = await runPythonJson({
+        script: KOKORO_SCRIPT,
+        args: buildKokoroArgs(textFile, sourceFile, voice),
+        timeoutMs: TTS_TIMEOUT_MS,
+        schema: KokoroOutputSchema,
+        onStderrLine: stderrLogger(log, "kokoro"),
+        envKeys: KOKORO_ENV_KEYS,
+        python,
       });
+      log.info(`Kokoro audio: ${(out.durationMs / 1000).toFixed(1)} s in ${out.sentences} sentences; trimming pauses and aligning words`);
+      return alignSourceAudio(sourceFile, job);
     },
   };
 }
 
 export function selectTtsEngine(engine: VoiceEngine): TtsEngine {
-  return engine === "edge-tts" ? edgeTtsEngine : createGeminiEngine();
+  if (engine === "edge-tts") return edgeTtsEngine;
+  if (engine === "kokoro") return createKokoroEngine();
+  return createGeminiEngine();
 }
 
 export async function run(ctx: RunContext, engineFor: (engine: VoiceEngine) => TtsEngine = selectTtsEngine): Promise<RunContext> {

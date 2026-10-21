@@ -196,7 +196,7 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
   const captions = overlay(settings.defaults.captions, draft.captions) as Required<CaptionSettings>;
   const visual = overlay(settings.defaults.visual, draft.visual) as Required<VisualSettings>;
   const script = overlay(settings.defaults.script, draft.script);
-  const voice = (draft.voice ?? {}) as { name?: string; language?: string; rate?: string; pitch?: string; volume?: string };
+  const voice = (draft.voice ?? {}) as VoiceDraft;
   const fps = (getPath(draft, "video.fps") as number | undefined) ?? FPS_FALLBACK;
   const styleInvalid = clientErrors.some((e) => e.path.startsWith("captions") || e.path.startsWith("visual"));
 
@@ -704,13 +704,27 @@ function bounds(schema: unknown, path: string): { min?: number; max?: number } {
 }
 
 /* ---------- Voz ---------- */
+type VoiceEngineId = "gemini" | "kokoro" | "edge-tts";
+type VoiceDraft = { engine?: VoiceEngineId; name?: string; language?: string; rate?: string; pitch?: string; volume?: string; kokoroVoice?: string; kokoroSpeed?: number };
+const VOICE_ENGINE_OPTIONS: { value: VoiceEngineId; label: string }[] = [
+  { value: "gemini", label: "Gemini (API)" },
+  { value: "kokoro", label: "Kokoro (local, grátis)" },
+  { value: "edge-tts", label: "edge-tts" },
+];
+const KOKORO_VOICES = [
+  { value: "pm_alex", label: "Alex (masculina)" },
+  { value: "pf_dora", label: "Dora (feminina)" },
+  { value: "pm_santa", label: "Santa (masculina)" },
+];
+
 function VoiceSection(props: {
-  voice: { name?: string; language?: string; rate?: string; pitch?: string; volume?: string };
-  defaults: { rate: string; pitch: string; volume: string };
+  voice: VoiceDraft;
+  defaults: { engine: VoiceEngineId; rate: string; pitch: string; volume: string; kokoroVoice: string; kokoroSpeed: number };
   set: (path: string, value: unknown) => void;
   errorAt: (path: string) => string | undefined;
 }) {
   const { voice, set, errorAt } = props;
+  const engine = voice.engine ?? props.defaults.engine;
   const [voices, setVoices] = useState<VoiceInfo[] | null>(null);
   const [voicesError, setVoicesError] = useState<string | null>(null);
   const [locale, setLocale] = useState("pt-BR");
@@ -767,15 +781,43 @@ function VoiceSection(props: {
       id="cfg-voz"
       icon={Mic}
       title="Voz da narração"
-      description="Voz neural do Microsoft Edge (gratuita). Ouça antes de salvar."
+      description="Motor da narração. A lista de vozes e a amostra abaixo são do edge-tts; o Kokoro roda no PC sem API paga."
       onReset={() => {
+        set("voice.engine", undefined);
         set("voice.name", "pt-BR-AntonioNeural");
         set("voice.language", "pt-BR");
         set("voice.rate", undefined);
         set("voice.pitch", undefined);
         set("voice.volume", undefined);
+        set("voice.kokoroVoice", undefined);
+        set("voice.kokoroSpeed", undefined);
       }}
     >
+      <div className="cfg-grid" style={{ marginBottom: 14 }}>
+        <Segmented label="Motor" value={engine} options={VOICE_ENGINE_OPTIONS} onChange={(v) => set("voice.engine", v)} error={errorAt("voice.engine")} />
+        {engine === "kokoro" && (
+          <>
+            <Segmented
+              label="Voz do Kokoro"
+              value={voice.kokoroVoice ?? props.defaults.kokoroVoice}
+              options={KOKORO_VOICES}
+              onChange={(v) => set("voice.kokoroVoice", v)}
+              error={errorAt("voice.kokoroVoice")}
+              help="Precisa do venv do Kokoro apontado em KOKORO_PYTHON (veja o README)."
+            />
+            <NumberInput
+              label="Velocidade do Kokoro"
+              value={voice.kokoroSpeed ?? props.defaults.kokoroSpeed}
+              min={0.5}
+              max={2}
+              step={0.05}
+              suffix="x"
+              onChange={(v) => set("voice.kokoroSpeed", v)}
+              error={errorAt("voice.kokoroSpeed")}
+            />
+          </>
+        )}
+      </div>
       <div className="voice-tools">
         <div className="chips-row" role="radiogroup" aria-label="Idioma">
           {LOCALES.map((l) => (

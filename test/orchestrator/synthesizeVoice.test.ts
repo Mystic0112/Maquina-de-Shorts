@@ -22,9 +22,8 @@ vi.mock("../../src/orchestrator/lib/logger.js", () => ({
   getLogger: () => ({ debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }),
 }));
 
-const { buildAlignArgs, buildTtsArgs, createGeminiEngine, GEMINI_SOURCE_AUDIO, run, selectTtsEngine } = await import(
-  "../../src/orchestrator/stages/04-synthesizeVoice.js"
-);
+const { buildAlignArgs, buildKokoroArgs, buildTtsArgs, createGeminiEngine, createKokoroEngine, GEMINI_SOURCE_AUDIO, run, selectTtsEngine } =
+  await import("../../src/orchestrator/stages/04-synthesizeVoice.js");
 
 describe("buildTtsArgs (edge-tts)", () => {
   it("passes the default max pause (250 ms) next to the prosody flags", () => {
@@ -59,6 +58,18 @@ describe("buildAlignArgs (Gemini)", () => {
   });
 });
 
+describe("buildKokoroArgs", () => {
+  it("passes text, output WAV, voice, speed and the pt-BR lang code", () => {
+    expect(buildKokoroArgs("C:/run/narration.txt", "C:/run/narration.source.wav", resolveVoiceExtras({ kokoroVoice: "pf_dora", kokoroSpeed: 1.1 }))).toEqual([
+      "--text-file", "C:/run/narration.txt",
+      "--out", "C:/run/narration.source.wav",
+      "--voice", "pf_dora",
+      "--speed", "1.1",
+      "--lang", "p",
+    ]);
+  });
+});
+
 describe("voice defaults", () => {
   it("default to Gemini TTS with a pt-BR style", () => {
     const voice = resolveVoiceExtras(undefined);
@@ -66,8 +77,12 @@ describe("voice defaults", () => {
     expect(voice.geminiModel).toBe("gemini-3.8-flash-tts");
     expect(voice.geminiVoice).toBeTruthy();
     expect(voice.style).toMatch(/português do Brasil/);
+    expect(voice.kokoroVoice).toBe("pm_alex");
+    expect(voice.kokoroSpeed).toBe(1);
     expect(selectTtsEngine("gemini").name).toBe("gemini");
     expect(selectTtsEngine("edge-tts").name).toBe("edge-tts");
+    expect(selectTtsEngine("kokoro").name).toBe("kokoro");
+    expect(selectTtsEngine("kokoro").describe(voice as never)).toContain("pm_alex");
   });
 });
 
@@ -130,6 +145,33 @@ describe("04-synthesizeVoice run", () => {
       durationMs: 50_000,
       words: [{ word: "Olá", startMs: 50, endMs: 400 }],
     });
+  });
+
+  it("kokoro: synthesizes with the Kokoro interpreter, then aligns with the project venv", async () => {
+    voiceConfig.current = { name: "x", language: "pt-BR", engine: "kokoro", kokoroVoice: "pm_santa", maxPauseMs: 200 };
+    runPythonJson.mockReset();
+    runPythonJson
+      .mockResolvedValueOnce({ audioPath: join(runDir, GEMINI_SOURCE_AUDIO), durationMs: 17_000, sentences: 3 })
+      .mockResolvedValueOnce({ audioPath: join(runDir, "narration.wav"), durationMs: 16_000, words: [{ word: "Olá", startMs: 50, endMs: 400 }] });
+    const next = await run(ctx(), () => createKokoroEngine("/opt/kokoro/bin/python"));
+    expect(runPythonJson).toHaveBeenCalledTimes(2);
+    const first = runPythonJson.mock.calls[0]![0] as { script: string; args: string[]; python?: string; envKeys: string[] };
+    expect(first.script).toBe("python/tts/synthesize_kokoro.py");
+    expect(first.python).toBe("/opt/kokoro/bin/python");
+    expect(first.envKeys).toEqual(["ESPEAK_DATA_PATH", "PHONEMIZER_ESPEAK_LIBRARY"]);
+    expect(first.args).toEqual(buildKokoroArgs(join(runDir, "narration.txt"), join(runDir, GEMINI_SOURCE_AUDIO), { kokoroVoice: "pm_santa", kokoroSpeed: 1 }));
+    const second = runPythonJson.mock.calls[1]![0] as { script: string; args: string[]; python?: string };
+    expect(second.script).toBe("python/tts/align_narration.py");
+    expect(second.python).toBeUndefined();
+    expect(second.args).toEqual(buildAlignArgs(join(runDir, GEMINI_SOURCE_AUDIO), join(runDir, "narration.txt"), runDir, 200));
+    expect(next.narration?.durationMs).toBe(16_000);
+  });
+
+  it("kokoro: a synthesis failure fails the stage before any alignment", async () => {
+    voiceConfig.current = { name: "x", language: "pt-BR", engine: "kokoro" };
+    runPythonJson.mockRejectedValueOnce(new Error("Python exited with 1"));
+    await expect(run(ctx(), () => createKokoroEngine(undefined))).rejects.toThrow(/exited with 1/);
+    expect(runPythonJson).toHaveBeenCalledTimes(1);
   });
 
   it("gemini: a TTS failure fails the stage before any alignment", async () => {
