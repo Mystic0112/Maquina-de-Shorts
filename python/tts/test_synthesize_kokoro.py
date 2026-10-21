@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import array
 import io
+import tempfile
 import unittest
 import wave
+from pathlib import Path
 
 import synthesize_kokoro as sk
 
@@ -64,6 +66,20 @@ class EspeakTest(unittest.TestCase):
         env = {}
         sk.configure_espeak(env, platform="win32")
         self.assertEqual(env, {})
+
+
+class OfflineHubTest(unittest.TestCase):
+    def test_offline_only_when_weights_are_cached(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {"HF_HUB_CACHE": tmp}
+            sk.prefer_offline_hub(env)
+            self.assertNotIn("HF_HUB_OFFLINE", env)  # first run must download
+            Path(tmp, "models--hexgrad--Kokoro-82M", "snapshots").mkdir(parents=True)
+            sk.prefer_offline_hub(env)
+            self.assertEqual(env["HF_HUB_OFFLINE"], "1")
+            env = {"HF_HUB_CACHE": tmp, "HF_HUB_OFFLINE": "0"}
+            sk.prefer_offline_hub(env)
+            self.assertEqual(env["HF_HUB_OFFLINE"], "0")  # caller's choice wins
 
 
 if __name__ == "__main__":

@@ -13,7 +13,8 @@ const EDGE_TTS_SCRIPT = "python/tts/synthesize.py";
 const KOKORO_SCRIPT = "python/tts/synthesize_kokoro.py";
 const ALIGN_SCRIPT = "python/tts/align_narration.py";
 /** Linux only: lets the child find the distro's espeak-ng when the bundled one lacks its data files. */
-const KOKORO_ENV_KEYS = ["ESPEAK_DATA_PATH", "PHONEMIZER_ESPEAK_LIBRARY"];
+// HF_* so the child finds the cached Kokoro weights where the parent keeps them (synthesize_kokoro.py goes offline once cached).
+const KOKORO_ENV_KEYS = ["ESPEAK_DATA_PATH", "PHONEMIZER_ESPEAK_LIBRARY", "HF_HOME", "HF_HUB_CACHE", "HF_HUB_OFFLINE"];
 const TTS_TIMEOUT_MS = 5 * 60 * 1000;
 /** Pause trimming + Whisper alignment take ~6 s per minute of audio; the first run also downloads the model. */
 const ALIGN_TIMEOUT_MS = 10 * 60 * 1000;

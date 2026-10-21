@@ -158,7 +158,7 @@ describe("04-synthesizeVoice run", () => {
     const first = runPythonJson.mock.calls[0]![0] as { script: string; args: string[]; python?: string; envKeys: string[] };
     expect(first.script).toBe("python/tts/synthesize_kokoro.py");
     expect(first.python).toBe("/opt/kokoro/bin/python");
-    expect(first.envKeys).toEqual(["ESPEAK_DATA_PATH", "PHONEMIZER_ESPEAK_LIBRARY"]);
+    expect(first.envKeys).toEqual(["ESPEAK_DATA_PATH", "PHONEMIZER_ESPEAK_LIBRARY", "HF_HOME", "HF_HUB_CACHE", "HF_HUB_OFFLINE"]);
     expect(first.args).toEqual(buildKokoroArgs(join(runDir, "narration.txt"), join(runDir, GEMINI_SOURCE_AUDIO), { kokoroVoice: "pm_santa", kokoroSpeed: 1 }));
     const second = runPythonJson.mock.calls[1]![0] as { script: string; args: string[]; python?: string };
     expect(second.script).toBe("python/tts/align_narration.py");

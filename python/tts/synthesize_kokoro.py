@@ -136,6 +136,22 @@ def configure_espeak(environ: dict[str, str] = os.environ, platform: str = sys.p
             environ["PHONEMIZER_ESPEAK_LIBRARY"] = lib
 
 
+KOKORO_REPO = "hexgrad/Kokoro-82M"
+
+
+def prefer_offline_hub(environ: dict[str, str] = os.environ) -> None:
+    """Use the cached Kokoro weights without contacting the Hub once they are downloaded.
+
+    Online, huggingface_hub logs "set a HF_TOKEN to enable higher rate limits" as a WARNING, which the
+    pipeline's log watchers read as a quota error. The first run (nothing cached yet) stays online.
+    """
+    if "HF_HUB_OFFLINE" in environ:
+        return
+    hub = Path(environ.get("HF_HUB_CACHE") or Path(environ.get("HF_HOME") or Path.home() / ".cache" / "huggingface") / "hub")
+    if (hub / f"models--{KOKORO_REPO.replace('/', '--')}" / "snapshots").is_dir():
+        environ["HF_HUB_OFFLINE"] = "1"
+
+
 # --- main --------------------------------------------------------------------------------------
 
 
@@ -165,6 +181,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     if not sentences:
         raise InputError(f"text file has no words: {args.text_file}")
     configure_espeak()
+    prefer_offline_hub()
     chunks = synthesize(sentences, args.voice, args.speed, args.lang)
     if not chunks:
         raise RuntimeError("Kokoro produced no audio")
