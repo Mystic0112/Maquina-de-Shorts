@@ -258,10 +258,15 @@ async function writeImages(dir: string, images: readonly LlmImage[]): Promise<st
   return files;
 }
 
+/** Files are listed in the order the images were passed: "image N" in the prompt is the N-th file. */
 function imagePrompt(files: readonly string[], prompt: string): string {
+  const header =
+    files.length === 1
+      ? "Examine o seguinte arquivo de imagem usando APENAS a ferramenta view_file (não execute comandos no terminal nem use outras ferramentas):"
+      : `Examine TODOS os ${files.length} arquivos de imagem abaixo usando APENAS a ferramenta view_file (não execute comandos no terminal nem use outras ferramentas). Eles estão na ordem em que são numerados nas instruções ("image 1" = o primeiro arquivo, "image 2" = o segundo, e assim por diante); arquivos diferentes podem pertencer a candidatos diferentes:`;
   return [
-    "Examine o seguinte arquivo de imagem usando APENAS a ferramenta view_file (não execute comandos no terminal nem use outras ferramentas):",
-    ...files.map((f) => `- "${f}"`),
+    header,
+    ...files.map((f, i) => `- image ${i + 1}: "${f}"`),
     "",
     prompt,
     "",

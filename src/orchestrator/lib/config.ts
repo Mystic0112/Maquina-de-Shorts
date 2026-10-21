@@ -133,6 +133,8 @@ export const PipelineConfigSchema = z.object({
           concurrency: z.number().int().positive().optional(),
           /** Reasoning effort for scoring calls; default "low" (gemini-3.8-flash rejects "minimal"). */
           thinking: z.enum(["default", "minimal", "low", "medium", "high"]).optional(),
+          /** Clips of the same scene/beat reviewed per vision call; default 1 (raise for antigravity-cli, whose per-call overhead is large). */
+          batchSize: z.number().int().min(1).max(6).optional(),
         })
         .optional(),
     })

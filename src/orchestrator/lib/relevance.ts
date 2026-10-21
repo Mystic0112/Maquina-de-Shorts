@@ -2,11 +2,12 @@ import { basename, extname } from "node:path";
 import { z } from "zod";
 import type { FootageClip, QualitySummary, SceneBeat, ScriptScene } from "../types.js";
 import type { PipelineConfig } from "./config.js";
-import { extractFrames } from "./ffmpeg.js";
+import { DEFAULT_FRAME_FRACTIONS, extractFrames } from "./ffmpeg.js";
 import {
   generateJson,
   generateJsonWithImages,
   type CallOptions,
+  type LlmImage,
   type LlmProvider,
   type LlmProviderName,
   type ThinkingSetting,
@@ -25,9 +26,14 @@ export interface RelevanceSettings {
   concurrency: number;
   thinking: ThinkingSetting;
   provider?: LlmProviderName;
+  /** Clips of the same scene/beat reviewed in one vision call (1 = one clip per call). */
+  batchSize: number;
 }
 
 export const DEFAULT_KEEP_PER_SCENE = 3;
+export const MAX_BATCH_SIZE = 6;
+/** Frames a single vision call may carry; a batch over this is split. */
+export const MAX_IMAGES_PER_CALL = 12;
 
 export function resolveRelevanceSettings(footage: PipelineConfig["footage"]): RelevanceSettings {
   const r = footage?.relevance;
@@ -40,6 +46,7 @@ export function resolveRelevanceSettings(footage: PipelineConfig["footage"]): Re
     concurrency: r?.concurrency ?? 4,
     thinking: r?.thinking ?? "low",
     provider: r?.provider,
+    batchSize: Math.min(MAX_BATCH_SIZE, Math.max(1, r?.batchSize ?? 1)),
   };
 }
 
@@ -229,38 +236,28 @@ export function assessQuality(
 // Prompts
 // ---------------------------------------------------------------------------------------------
 
-export function buildRelevancePrompt(
-  scene: ScriptScene,
-  frameCount: number,
-  title?: string,
-  kind: FootageClip["kind"] = "video",
-  hook?: string,
-  beat?: SceneBeat,
-): string {
-  const subject =
-    kind === "image"
-      ? "The image is ONE still picture, already cropped to vertical 9:16, that would be shown (with a slow zoom)"
-      : `The ${frameCount} image(s) are frames sampled from ONE stock clip, already cropped to vertical 9:16, that would play`;
+const REVIEWER_ROLE = `You are the automated footage reviewer for a faceless YouTube Shorts channel that narrates curiosities
+about history, science and space in Brazilian Portuguese. No human reviews the videos before publishing, so be strict.`;
+
+/** Title, hook and what is spoken while the footage is on screen (shared by single and batch prompts). */
+function spokenContext(scene: ScriptScene, title?: string, hook?: string, beat?: SceneBeat): string {
   const spoken = beat
     ? `Narration of the whole scene (pt-BR, context only): "${scene.narration}"
 WHAT IS BEING SAID while this footage is on screen (pt-BR): "${beat.phrase}"
 Search query that found the clip: "${beat.footageQuery}"`
     : `Narration for this scene (pt-BR): "${scene.narration}"
 Search query that found the clip: "${scene.footageQuery}"`;
+  return `${title ? `Video title: "${title}"\n` : ""}${hook ? `Opening line of the video (pt-BR): "${hook}"\n` : ""}${spoken}`;
+}
+
+/** The verdict fields and scoring rules (identical for single-clip and batch reviews). */
+function verdictRules(beat?: SceneBeat): string {
   const beatRule = beat
     ? `
   The footage MUST show the concrete thing named in the phrase being said (the phrase mentions sachets -> the frames
   show sachets, not a burger with ketchup); showing something else from the scene is at most 5 and matches=false.`
     : "";
-  return `You are the automated footage reviewer for a faceless YouTube Shorts channel that narrates curiosities
-about history, science and space in Brazilian Portuguese. No human reviews the videos before publishing, so be strict.
-
-${subject}
-while the narrator speaks the line below.
-${title ? `Video title: "${title}"\n` : ""}${hook ? `Opening line of the video (pt-BR): "${hook}"\n` : ""}${spoken}
-
-Return JSON with:
-- score (0-10): how well the footage visually illustrates ${beat ? "the phrase being said" : "THIS narration"} for a viewer.
+  return `- score (0-10): how well the footage visually illustrates ${beat ? "the phrase being said" : "THIS narration"} for a viewer.
   9-10 = directly shows the subject being narrated; 7-8 = clearly related and fitting (e.g. generic space imagery
   for an astronomy line); 4-6 = only a loose mood match; 0-3 = unrelated or misleading (e.g. an office building or
   a zoo animal for a line about planets, or a different celestial body than the one named).${beatRule}
@@ -282,6 +279,69 @@ Return JSON with:
 - Visibly blurry, pixelated, heavily compressed or upscaled-looking frames lower the score by 2 or more.
 - reason: one short English sentence describing what the frames show and why you gave that score.`;
 }
+
+export function buildRelevancePrompt(
+  scene: ScriptScene,
+  frameCount: number,
+  title?: string,
+  kind: FootageClip["kind"] = "video",
+  hook?: string,
+  beat?: SceneBeat,
+): string {
+  const subject =
+    kind === "image"
+      ? "The image is ONE still picture, already cropped to vertical 9:16, that would be shown (with a slow zoom)"
+      : `The ${frameCount} image(s) are frames sampled from ONE stock clip, already cropped to vertical 9:16, that would play`;
+  return `${REVIEWER_ROLE}
+
+${subject}
+while the narrator speaks the line below.
+${spokenContext(scene, title, hook, beat)}
+
+Return JSON with:
+${verdictRules(beat)}`;
+}
+
+export interface BatchCandidate {
+  kind: FootageClip["kind"];
+  frameCount: number;
+}
+
+/**
+ * Several DIFFERENT clips of the same scene/beat in one call. Images are attached in candidate order
+ * (image 1 = first frame of candidate 1, ...), which is also the order the agy provider lists its files.
+ */
+export function buildRelevanceBatchPrompt(
+  scene: ScriptScene,
+  candidates: readonly BatchCandidate[],
+  title?: string,
+  hook?: string,
+  beat?: SceneBeat,
+): string {
+  let next = 1;
+  const list = candidates.map((c, i) => {
+    const first = next;
+    next += c.frameCount;
+    const range = c.frameCount === 1 ? `image ${first}` : `images ${first}-${next - 1}`;
+    const what = c.kind === "image" ? "one still picture" : `${c.frameCount} frames sampled from one stock clip`;
+    return `- Candidate ${i + 1}: ${range} (${what})`;
+  });
+  return `${REVIEWER_ROLE}
+
+The ${next - 1} attached images belong to ${candidates.length} DIFFERENT candidate clips, all already cropped to vertical 9:16,
+each of which could be shown while the narrator speaks the line below. Images are numbered in the order they are attached:
+${list.join("\n")}
+Judge every candidate independently, with the same criteria, looking only at its own images.
+${spokenContext(scene, title, hook, beat)}
+
+Return JSON {"verdicts": [...]} with exactly one entry per candidate (${candidates.length} entries, candidate = 1..${candidates.length},
+none missing, none repeated). Each entry has candidate (its number) plus:
+${verdictRules(beat)}`;
+}
+
+export const BatchVerdictsSchema = z.object({
+  verdicts: z.array(RelevanceVerdictSchema.extend({ candidate: z.number().int().min(1).describe("candidate number, 1-based") })),
+});
 
 export const AlternativeQueriesSchema = z.object({
   scenes: z.array(
@@ -346,6 +406,17 @@ export function normalizeAlternatives(
 // LLM calls
 // ---------------------------------------------------------------------------------------------
 
+// Low temperature: a reviewer should give the same clip the same score on every run.
+const REVIEW_TEMPERATURE = 0.2;
+
+const errorLine = (error: unknown): string => (error instanceof Error ? error.message.split("\n")[0]! : String(error));
+
+async function clipImages(clip: FootageClip, framesDir: string): Promise<LlmImage[]> {
+  const duration = clip.kind === "image" ? 0 : clip.durationSeconds;
+  const frames = await extractFrames(clip.path, duration, framesDir, basename(clip.path, extname(clip.path)));
+  return frames.map((data) => ({ mimeType: "image/jpeg" as const, data }));
+}
+
 /** Samples frames from a (normalized) clip and asks the vision model for a verdict. Never throws. */
 export async function scoreClip(
   clip: FootageClip,
@@ -358,20 +429,116 @@ export async function scoreClip(
   beat?: SceneBeat,
 ): Promise<ScoredClip> {
   try {
-    const duration = clip.kind === "image" ? 0 : clip.durationSeconds;
-    const frames = await extractFrames(clip.path, duration, framesDir, basename(clip.path, extname(clip.path)));
-    const images = frames.map((data) => ({ mimeType: "image/jpeg" as const, data }));
+    const images = await clipImages(clip, framesDir);
     const prompt = buildRelevancePrompt(scene, images.length, title, clip.kind, hook, beat);
-    // Low temperature: a reviewer should give the same clip the same score on every run.
     const verdict = await generateJsonWithImages(prompt, images, RelevanceVerdictSchema, {
       thinking,
-      temperature: 0.2,
+      temperature: REVIEW_TEMPERATURE,
       ...(provider ? { provider } : {}),
     });
     return { clip, verdict };
   } catch (error) {
-    return { clip, error: error instanceof Error ? error.message.split("\n")[0] : String(error) };
+    return { clip, error: errorLine(error) };
   }
+}
+
+/**
+ * Reviews several clips that share the same scene/beat context in ONE vision call (see
+ * `buildRelevanceBatchPrompt`). One clip -> `scoreClip` (unchanged single-clip prompt). A clip whose
+ * frames cannot be extracted, or whose verdict is missing/duplicated in the answer, gets `error`
+ * without affecting the others; an LLM failure marks the whole batch. Never throws. Callers keep
+ * batches within `MAX_IMAGES_PER_CALL` (see `planBatches`).
+ */
+export async function scoreClipBatch(
+  clips: readonly FootageClip[],
+  scene: ScriptScene,
+  framesDir: string,
+  title?: string,
+  thinking: ThinkingSetting = "low",
+  hook?: string,
+  provider?: LlmProvider,
+  beat?: SceneBeat,
+): Promise<ScoredClip[]> {
+  if (clips.length === 1) return [await scoreClip(clips[0]!, scene, framesDir, title, thinking, hook, provider, beat)];
+  const extracted = await Promise.all(
+    clips.map(async (clip) => {
+      try {
+        return { clip, images: await clipImages(clip, framesDir) };
+      } catch (error) {
+        return { clip, error: errorLine(error) };
+      }
+    }),
+  );
+  const ready = extracted.filter((e): e is { clip: FootageClip; images: LlmImage[] } => "images" in e);
+  const verdicts = new Map<FootageClip, ScoredClip>();
+  if (ready.length > 0) {
+    try {
+      const prompt = buildRelevanceBatchPrompt(
+        scene,
+        ready.map((e) => ({ kind: e.clip.kind, frameCount: e.images.length })),
+        title,
+        hook,
+        beat,
+      );
+      const images = ready.flatMap((e) => e.images);
+      const answer = await generateJsonWithImages(prompt, images, BatchVerdictsSchema, {
+        thinking,
+        temperature: REVIEW_TEMPERATURE,
+        ...(provider ? { provider } : {}),
+      });
+      for (const [i, { clip }] of ready.entries()) verdicts.set(clip, pickVerdict(clip, answer.verdicts, i + 1));
+    } catch (error) {
+      const message = errorLine(error);
+      for (const { clip } of ready) verdicts.set(clip, { clip, error: message });
+    }
+  }
+  return extracted.map((e) => ("images" in e ? verdicts.get(e.clip)! : { clip: e.clip, error: e.error }));
+}
+
+function pickVerdict(clip: FootageClip, verdicts: z.infer<typeof BatchVerdictsSchema>["verdicts"], candidate: number): ScoredClip {
+  const own = verdicts.filter((v) => v.candidate === candidate);
+  if (own.length !== 1) return { clip, error: `batch answer had ${own.length} verdicts for candidate ${candidate} (expected 1)` };
+  const { candidate: _n, ...verdict } = own[0]!;
+  return { clip, verdict };
+}
+
+/** Frames `scoreClip` samples: stills give one, videos one per DEFAULT_FRAME_FRACTIONS entry. */
+export function expectedFrameCount(clip: Pick<FootageClip, "kind" | "durationSeconds">): number {
+  return clip.kind === "image" || !(clip.durationSeconds > 0) ? 1 : DEFAULT_FRAME_FRACTIONS.length;
+}
+
+/**
+ * Groups clip indexes into review batches: only clips with the same `contextKey` share a batch, at most
+ * `batchSize` per batch and at most `MAX_IMAGES_PER_CALL` frames per call. Input order is kept.
+ */
+export function planBatches(
+  clips: readonly FootageClip[],
+  contextKey: (clip: FootageClip, index: number) => string,
+  batchSize: number,
+  maxImages = MAX_IMAGES_PER_CALL,
+): number[][] {
+  const byContext = new Map<string, number[]>();
+  clips.forEach((clip, i) => {
+    const key = contextKey(clip, i);
+    byContext.set(key, [...(byContext.get(key) ?? []), i]);
+  });
+  const batches: number[][] = [];
+  for (const indexes of byContext.values()) {
+    let current: number[] = [];
+    let frames = 0;
+    for (const i of indexes) {
+      const need = expectedFrameCount(clips[i]!);
+      if (current.length > 0 && (current.length >= batchSize || frames + need > maxImages)) {
+        batches.push(current);
+        current = [];
+        frames = 0;
+      }
+      current.push(i);
+      frames += need;
+    }
+    if (current.length > 0) batches.push(current);
+  }
+  return batches;
 }
 
 export async function proposeAlternativeQueries(

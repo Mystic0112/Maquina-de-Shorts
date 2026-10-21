@@ -19,9 +19,10 @@ import {
   describeScored,
   normalizeAlternatives,
   penalizeLowResolution,
+  planBatches,
   proposeAlternativeQueries,
   resolveRelevanceSettings,
-  scoreClip,
+  scoreClipBatch,
   selectSceneClips,
   type FailedScene,
   type RelevanceSettings,
@@ -313,7 +314,10 @@ interface FootageStats {
   downloaded: number;
   rawBytes: number;
   normalizedBytes: number;
+  /** Vision calls made (one per review batch). */
   visionCalls: number;
+  /** Clips those calls reviewed. */
+  clipsScored: number;
   textCalls: number;
 }
 
@@ -433,24 +437,41 @@ export function sceneForClip(
   return alts && isRetryClip ? { ...scene, footageQuery: alts.join(" / ") } : scene;
 }
 
+/** Clips share a review batch only when the reviewer would see the same context (scene text, query, beat). */
+export function reviewContextKey(script: Script, clip: FootageClip, altQueries: ReadonlyMap<number, string[]>): string {
+  const scene = sceneForClip(script, clip, altQueries);
+  return JSON.stringify([clip.sceneIndex, clip.beatIndex ?? null, scene.footageQuery, scene.narration]);
+}
+
+/** One vision call per batch (`settings.batchSize` clips of the same context); results keep input order. */
 async function scoreAll(clips: readonly FootageClip[], gate: GateContext): Promise<ScoredClip[]> {
   const { settings, stats, log } = gate;
   const relevanceProvider = settings.provider ? getProviderByName(settings.provider) : undefined;
-  return mapWithConcurrency(clips, settings.concurrency, async (clip) => {
+  const batches = planBatches(clips, (clip) => reviewContextKey(gate.script, clip, gate.altQueries), settings.batchSize);
+  const results = new Array<ScoredClip>(clips.length);
+  await mapWithConcurrency(batches, settings.concurrency, async (indexes) => {
     const started = performance.now();
-    const scene = sceneForClip(gate.script, clip, gate.altQueries);
-    const beat = beatForClip(gate.script, clip);
-    const raw = await scoreClip(clip, scene, gate.dirs.frames, gate.script.title, settings.thinking, gate.script.hook, relevanceProvider, beat);
-    const scored = penalizeLowResolution(raw, gate.sourceSizes.get(clip.path));
+    const batch = indexes.map((i) => clips[i]!);
+    const first = batch[0]!;
+    const scene = sceneForClip(gate.script, first, gate.altQueries);
+    const beat = beatForClip(gate.script, first);
+    const raw = await scoreClipBatch(batch, scene, gate.dirs.frames, gate.script.title, settings.thinking, gate.script.hook, relevanceProvider, beat);
     stats.visionCalls++;
-    const where = `scene ${clip.sceneIndex}${beat ? ` beat ${clip.beatIndex}` : ""}`;
-    if (scored.verdict) {
-      log.info(`Scored ${basename(clip.path)} (${where}): ${describeScored(scored, settings.minScore)} in ${seconds(started)} - ${scored.verdict.reason}`);
-    } else {
-      log.warn(`Could not score ${basename(clip.path)} (${where}): ${scored.error ?? "unknown error"}`);
+    stats.clipsScored += batch.length;
+    const took = batch.length > 1 ? `${seconds(started)} (batch of ${batch.length})` : seconds(started);
+    const where = `scene ${first.sceneIndex}${beat ? ` beat ${first.beatIndex}` : ""}`;
+    for (const [k, i] of indexes.entries()) {
+      const scored = penalizeLowResolution(raw[k]!, gate.sourceSizes.get(raw[k]!.clip.path));
+      results[i] = scored;
+      const name = basename(scored.clip.path);
+      if (scored.verdict) {
+        log.info(`Scored ${name} (${where}): ${describeScored(scored, settings.minScore)} in ${took} - ${scored.verdict.reason}`);
+      } else {
+        log.warn(`Could not score ${name} (${where}): ${scored.error ?? "unknown error"}`);
+      }
     }
-    return scored;
   });
+  return results;
 }
 
 async function alternativeQueries(failed: readonly FailedScene[], gate: GateContext): Promise<Map<number, string[]>> {
@@ -576,7 +597,7 @@ export async function run(ctx: RunContext): Promise<RunContext> {
     sourceSizes: new Map(),
     dirs: { footage: footageDir, frames: join(footageDir, "frames") },
     seen: new Set<string>(),
-    stats: { downloaded: 0, rawBytes: 0, normalizedBytes: 0, visionCalls: 0, textCalls: 0 },
+    stats: { downloaded: 0, rawBytes: 0, normalizedBytes: 0, visionCalls: 0, clipsScored: 0, textCalls: 0 },
     log,
     altQueries: new Map(),
   };
@@ -614,7 +635,7 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   log.info(
     `Footage: ${stats.downloaded} downloaded (${toMb(stats.rawBytes)}), normalized ${toMb(stats.normalizedBytes)}, ` +
       `kept ${kept.length}, rejected for text/logo/people/era ${rejected}, ` +
-      `LLM calls ${stats.visionCalls} vision + ${stats.textCalls} text`,
+      `LLM calls ${stats.visionCalls} vision (${stats.clipsScored} clips) + ${stats.textCalls} text`,
   );
   if (kept.length === 0) throw new RunRejectedError("No clip survived the relevance gate for any scene", ctx);
   const { clips, borrowed } = fillMissingScenes(kept, script.scenes.length);
