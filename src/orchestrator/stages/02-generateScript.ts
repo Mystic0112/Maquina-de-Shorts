@@ -27,8 +27,11 @@ export const HOOK_MAX_WORDS = 12;
 export const HOOK_MAX_SECONDS = 3.5;
 /** The concrete subject must be named this early in the hook (~5 words, counted as tokens). */
 export const HOOK_LEAD_WORDS = 6;
-/** edge-tts pt-BR measured ~15 letters/s at rate +0% (default rate is +10%); punctuation adds a short pause. */
-const LETTERS_PER_SECOND = 16;
+/**
+ * Gemini TTS (Fenrir) measured 15.2 letters/s (letters only, no spaces) on the one real run so far
+ * (2026-10-12); edge-tts was ~15-16. Re-measure from narration.words once more runs exist.
+ */
+const LETTERS_PER_SECOND = 15;
 const PAUSE_SECONDS = 0.25;
 export const OVERLAY_WORDS = { min: 3, max: 5 } as const;
 export const OVERLAY_MAX_CHARS = 32;
