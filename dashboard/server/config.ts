@@ -43,9 +43,15 @@ function positiveNumber(name: string, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+/** Extra Host header values accepted besides localhost, e.g. the Tailscale name when served via `tailscale serve`. */
+function allowedHostsFromEnv(): string[] {
+  return (env("DASHBOARD_ALLOWED_HOSTS") ?? "").split(",").map((h) => h.trim().toLowerCase()).filter(Boolean);
+}
+
 export const config = {
   host: "127.0.0.1",
   port: positiveNumber("DASHBOARD_PORT", 5180),
+  allowedHosts: allowedHostsFromEnv(),
   production: process.argv.includes("--prod"),
   youtube: {
     apiKey: env("YOUTUBE_API_KEY"),

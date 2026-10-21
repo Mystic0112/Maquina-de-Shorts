@@ -83,6 +83,13 @@ npm run auth:instagram                                 # autoriza a conta do Ins
 npm run dashboard                                      # painel em http://localhost:5180
 ```
 
+### Painel de outro aparelho (Tailscale)
+
+O painel só responde a `localhost`. Para abri-lo do trabalho ou do celular sem expor nada na internet, instale o
+[Tailscale](https://tailscale.com) nos aparelhos (mesma conta), rode no PC da máquina
+`tailscale serve --bg 5180` e coloque o nome do PC na rede (ex.: `pc-casa.tail1234.ts.net`) em
+`DASHBOARD_ALLOWED_HOSTS` no `.env`. Nunca use um túnel público: o painel não tem login e a tela Configurações grava.
+
 ### Upload para o YouTube
 
 1. Rode `npm run auth:youtube`. O navegador abre o login do Google. Como o app ainda não foi verificado pelo Google, aparece **"O Google não verificou este app"**: clique em **Avançado** e depois em **Acessar Máquina de Shorts (não seguro)**. Escolha o canal e marque todas as permissões.

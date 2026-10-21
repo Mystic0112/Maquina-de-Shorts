@@ -17,9 +17,11 @@ app.disable("x-powered-by");
 app.set("etag", false);
 
 // Only answer requests addressed to this machine (blocks DNS-rebinding pages from reading the API).
-const allowedHosts = new Set([`127.0.0.1:${config.port}`, `localhost:${config.port}`]);
+// DASHBOARD_ALLOWED_HOSTS adds names used through a private tunnel (Tailscale); the dashboard has no login,
+// so never put a public hostname here.
+const allowedHosts = new Set([`127.0.0.1:${config.port}`, `localhost:${config.port}`, ...config.allowedHosts]);
 app.use((req, res, next) => {
-  if (allowedHosts.has(req.headers.host ?? "")) return next();
+  if (allowedHosts.has((req.headers.host ?? "").toLowerCase())) return next();
   res.status(403).send("Forbidden host");
 });
 
@@ -187,7 +189,8 @@ if (config.production) {
     configFile: `${dashboardDir}/vite.config.ts`,
     appType: "spa",
     // HMR websocket shares the same HTTP server, so dev is one process on one port.
-    server: { middlewareMode: true, ws: { server } },
+    // Vite has its own host check; mirror ours (hostnames only, Vite ignores the port).
+    server: { middlewareMode: true, ws: { server }, allowedHosts: config.allowedHosts.map((h) => h.split(":")[0]!) },
   });
   app.use(vite.middlewares);
   const shutdown = (): void => {
