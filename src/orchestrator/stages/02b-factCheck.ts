@@ -254,10 +254,13 @@ export interface FactCheckDeps {
   log?(message: string): void;
 }
 
-export const defaultFactCheckDeps: FactCheckDeps = {
-  grounded: (prompt) => generateGroundedText(prompt, { thinking: "low", temperature: 0.2 }),
-  structured: (prompt, schema) => generateJson(prompt, schema, { thinking: "low", temperature: 0.2 }),
-};
+/** `model` = per-stage override from config `llm.models.factCheck` (both the grounded and the structured call). */
+export function defaultFactCheckDeps(model?: string): FactCheckDeps {
+  return {
+    grounded: (prompt) => generateGroundedText(prompt, { thinking: "low", temperature: 0.2, model }),
+    structured: (prompt, schema) => generateJson(prompt, schema, { thinking: "low", temperature: 0.2, model }),
+  };
+}
 
 interface ReviewRound {
   outcome: RoundOutcome;
@@ -306,7 +309,7 @@ export interface FactCheckRun {
 export async function factCheckScript(
   original: Script,
   settings: ResolvedScriptSettings,
-  deps: FactCheckDeps = defaultFactCheckDeps,
+  deps: FactCheckDeps = defaultFactCheckDeps(),
 ): Promise<FactCheckRun> {
   let script = original;
   const claims: FactCheckClaim[] = [];
@@ -396,7 +399,8 @@ function uniqueSources(sources: GroundedText["sources"]): GroundedText["sources"
 export async function run(ctx: RunContext): Promise<RunContext> {
   if (!ctx.script) throw new Error("02b-factCheck requires ctx.script (run 02-generateScript first)");
   const log = getLogger(ctx.runId);
-  const settings = resolveScript(loadConfig().script);
+  const config = loadConfig();
+  const settings = resolveScript(config.script);
   if (!settings.factCheck) {
     log.warn("Fact-check disabled (script.factCheck=false); the script is NOT verified");
     const skipped: FactCheckSummary = {
@@ -404,7 +408,8 @@ export async function run(ctx: RunContext): Promise<RunContext> {
     };
     return { ...ctx, factCheck: { ...skipped, scriptHash: scriptHash(ctx.script) } };
   }
-  const { script, summary } = await factCheckScript(ctx.script, settings, { ...defaultFactCheckDeps, log: (m) => log.warn(m) });
+  const deps = { ...defaultFactCheckDeps(config.llm?.models?.factCheck), log: (m: string) => log.warn(m) };
+  const { script, summary } = await factCheckScript(ctx.script, settings, deps);
   const failing = summary.claims.filter((c) => c.verdict !== "supported");
   for (const c of failing) log.info(`Fact-check r${c.round} ${c.verdict}: "${c.claim}"${c.correction ? ` -> ${c.correction}` : ""}`);
   for (const change of summary.corrections) log.info(`Fact-check change: ${change}`);

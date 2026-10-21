@@ -102,6 +102,22 @@ export const PipelineConfigSchema = z.object({
       keepUploadedVideosDays: z.number().nonnegative().optional(),
     })
     .optional(),
+  llm: z
+    .object({
+      /**
+       * Model name per stage (agy names such as "claude-sonnet-5-5-low", "gemini-4-argon-medium"), so the
+       * load spreads across the plan's separate quotas. Absent = provider default (ANTIGRAVITY_MODEL etc.).
+       */
+      models: z
+        .object({
+          script: z.string().min(1).optional(),
+          factCheck: z.string().min(1).optional(),
+          metadata: z.string().min(1).optional(),
+          relevance: z.string().min(1).optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   pipeline: z
     .object({
       /** Extra topic/script attempts after a quality-gate failure; default 2. */

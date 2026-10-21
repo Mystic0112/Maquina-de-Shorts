@@ -414,7 +414,11 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   const categoryLabel = ctx.topic?.categoryLabel ?? "curiosidades";
   let draft: MetadataDraft;
   try {
-    draft = await generateJson(buildMetadataPrompt(ctx.script, categoryLabel), MetadataDraftSchema, { thinking: "low", temperature: 0.3 });
+    draft = await generateJson(buildMetadataPrompt(ctx.script, categoryLabel), MetadataDraftSchema, {
+      thinking: "low",
+      temperature: 0.3,
+      model: config.llm?.models?.metadata,
+    });
   } catch (error) {
     log.warn(`Metadata LLM call failed, using the script title: ${error instanceof Error ? error.message : String(error)}`);
     draft = fallbackDraft(ctx.script, categoryLabel);

@@ -28,6 +28,8 @@ export type ThinkingSetting = "default" | "minimal" | "low" | "medium" | "high";
 export interface CallOptions {
   thinking?: ThinkingSetting;
   temperature?: number;
+  /** Model for this call only (per-stage routing, see config `llm.models`); overrides the provider's default. */
+  model?: string;
 }
 
 export interface WebSource {
@@ -171,7 +173,7 @@ export async function generateGroundedText(
   options: CallOptions & { provider?: LlmProvider; rateLimitRetries?: number } = {},
 ): Promise<GroundedText> {
   const provider = options.provider ?? getDefaultProvider();
-  const callOptions: CallOptions = { thinking: options.thinking, temperature: options.temperature };
+  const callOptions: CallOptions = { thinking: options.thinking, temperature: options.temperature, model: options.model };
   const result = await withRateLimitRetry(
     () => provider.completeGroundedText(prompt, callOptions),
     options.rateLimitRetries ?? 4,
@@ -197,7 +199,7 @@ export async function generateJsonWithImages<T>(
   let currentPrompt = prompt;
   let lastError = "";
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const callOptions: CallOptions = { thinking: options.thinking, temperature: options.temperature };
+    const callOptions: CallOptions = { thinking: options.thinking, temperature: options.temperature, model: options.model };
     const promptForAttempt = currentPrompt;
     const text = await withRateLimitRetry(
       () => provider.completeJson(promptForAttempt, schema, images, callOptions),
@@ -296,8 +298,8 @@ class GeminiProvider implements LlmProvider {
   }
 
   /** Sends the request at the requested level, stepping up (minimal -> low -> ... -> default) on rejection. */
-  private generateWithThinking<T>(requested: ThinkingSetting, send: (cfg: ThinkingConfig | undefined) => Promise<T>): Promise<T> {
-    return thinkingLevels.run(this.model, requested, (level) => send(toGeminiThinking(level)));
+  private generateWithThinking<T>(model: string, requested: ThinkingSetting, send: (cfg: ThinkingConfig | undefined) => Promise<T>): Promise<T> {
+    return thinkingLevels.run(model, requested, (level) => send(toGeminiThinking(level)));
   }
 
   async completeJson(
@@ -311,9 +313,11 @@ class GeminiProvider implements LlmProvider {
       ...images.map((img) => ({ inlineData: { mimeType: img.mimeType, data: img.data.toString("base64") } })),
     ];
     const thinkingSetting = options.thinking ?? "default";
+    // options.model is taken as-is: it must be a Gemini API model id, not an agy alias.
+    const model = options.model ?? this.model;
     const request = (thinkingConfig: ThinkingConfig | undefined) =>
       this.client.models.generateContent({
-        model: this.model,
+        model,
         contents: [{ role: "user", parts }],
         config: {
           responseMimeType: "application/json",
@@ -322,12 +326,12 @@ class GeminiProvider implements LlmProvider {
           ...(thinkingConfig ? { thinkingConfig } : {}),
         },
       });
-    const response = await this.generateWithThinking(thinkingSetting, request);
+    const response = await this.generateWithThinking(model, thinkingSetting, request);
     const meta = response.usageMetadata;
     const thinking = meta?.thoughtsTokenCount ?? 0;
     recordLlmUsage({
       provider: this.name,
-      model: response.modelVersion ?? this.model,
+      model: response.modelVersion ?? model,
       inputTokens: (meta?.promptTokenCount ?? 0) + (meta?.toolUsePromptTokenCount ?? 0),
       outputTokens: (meta?.candidatesTokenCount ?? 0) + thinking,
       ...(thinking > 0 ? { thinkingTokens: thinking } : {}),
@@ -342,9 +346,10 @@ class GeminiProvider implements LlmProvider {
 
   async completeGroundedText(prompt: string, options: CallOptions = {}): Promise<GroundedText> {
     const thinkingSetting = options.thinking ?? "default";
+    const model = options.model ?? this.model;
     const request = (thinkingConfig: ThinkingConfig | undefined) =>
       this.client.models.generateContent({
-        model: this.model,
+        model,
         contents: prompt,
         config: {
           tools: [{ googleSearch: {} }],
@@ -352,12 +357,12 @@ class GeminiProvider implements LlmProvider {
           ...(thinkingConfig ? { thinkingConfig } : {}),
         },
       });
-    const response = await this.generateWithThinking(thinkingSetting, request);
+    const response = await this.generateWithThinking(model, thinkingSetting, request);
     const meta = response.usageMetadata;
     const thinking = meta?.thoughtsTokenCount ?? 0;
     recordLlmUsage({
       provider: this.name,
-      model: response.modelVersion ?? this.model,
+      model: response.modelVersion ?? model,
       inputTokens: (meta?.promptTokenCount ?? 0) + (meta?.toolUsePromptTokenCount ?? 0),
       outputTokens: (meta?.candidatesTokenCount ?? 0) + thinking,
       ...(thinking > 0 ? { thinkingTokens: thinking } : {}),
@@ -379,7 +384,7 @@ class AnthropicProvider implements LlmProvider {
     this.client = new Anthropic({ apiKey, maxRetries: 3 });
   }
 
-  async completeJson(prompt: string, schema: z.ZodType, images: readonly LlmImage[] = []): Promise<string> {
+  async completeJson(prompt: string, schema: z.ZodType, images: readonly LlmImage[] = [], options: CallOptions = {}): Promise<string> {
     const content: Anthropic.ContentBlockParam[] = [
       ...images.map(
         (img): Anthropic.ImageBlockParam => ({
@@ -390,7 +395,8 @@ class AnthropicProvider implements LlmProvider {
       { type: "text", text: prompt },
     ];
     const message = await this.client.messages.create({
-      model: this.model,
+      // options.model must be an Anthropic API model id (agy aliases like "claude-sonnet-5-5-low" are not).
+      model: options.model ?? this.model,
       max_tokens: 4096,
       messages: [{ role: "user", content }],
       output_config: { format: zodOutputFormat(schema) },
@@ -409,9 +415,9 @@ class AnthropicProvider implements LlmProvider {
   }
 
   /** Claude's server-side web search tool; sources come from its web_search_tool_result blocks. */
-  async completeGroundedText(prompt: string): Promise<GroundedText> {
+  async completeGroundedText(prompt: string, options: CallOptions = {}): Promise<GroundedText> {
     const message = await this.client.messages.create({
-      model: this.model,
+      model: options.model ?? this.model,
       max_tokens: 4096,
       messages: [{ role: "user", content: prompt }],
       tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 8 }],

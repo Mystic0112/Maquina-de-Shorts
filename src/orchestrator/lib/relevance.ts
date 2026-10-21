@@ -26,6 +26,8 @@ export interface RelevanceSettings {
   concurrency: number;
   thinking: ThinkingSetting;
   provider?: LlmProviderName;
+  /** Per-call model override (config `llm.models.relevance`). */
+  model?: string;
   /** Clips of the same scene/beat reviewed in one vision call (1 = one clip per call). */
   batchSize: number;
 }
@@ -35,7 +37,7 @@ export const MAX_BATCH_SIZE = 6;
 /** Frames a single vision call may carry; a batch over this is split. */
 export const MAX_IMAGES_PER_CALL = 12;
 
-export function resolveRelevanceSettings(footage: PipelineConfig["footage"]): RelevanceSettings {
+export function resolveRelevanceSettings(footage: PipelineConfig["footage"], llm?: PipelineConfig["llm"]): RelevanceSettings {
   const r = footage?.relevance;
   return {
     enabled: r?.enabled ?? true,
@@ -46,6 +48,7 @@ export function resolveRelevanceSettings(footage: PipelineConfig["footage"]): Re
     concurrency: r?.concurrency ?? 4,
     thinking: r?.thinking ?? "low",
     provider: r?.provider,
+    model: llm?.models?.relevance,
     batchSize: Math.min(MAX_BATCH_SIZE, Math.max(1, r?.batchSize ?? 1)),
   };
 }
@@ -427,6 +430,7 @@ export async function scoreClip(
   hook?: string,
   provider?: LlmProvider,
   beat?: SceneBeat,
+  model?: string,
 ): Promise<ScoredClip> {
   try {
     const images = await clipImages(clip, framesDir);
@@ -434,6 +438,7 @@ export async function scoreClip(
     const verdict = await generateJsonWithImages(prompt, images, RelevanceVerdictSchema, {
       thinking,
       temperature: REVIEW_TEMPERATURE,
+      model,
       ...(provider ? { provider } : {}),
     });
     return { clip, verdict };
@@ -458,8 +463,9 @@ export async function scoreClipBatch(
   hook?: string,
   provider?: LlmProvider,
   beat?: SceneBeat,
+  model?: string,
 ): Promise<ScoredClip[]> {
-  if (clips.length === 1) return [await scoreClip(clips[0]!, scene, framesDir, title, thinking, hook, provider, beat)];
+  if (clips.length === 1) return [await scoreClip(clips[0]!, scene, framesDir, title, thinking, hook, provider, beat, model)];
   const extracted = await Promise.all(
     clips.map(async (clip) => {
       try {
@@ -484,6 +490,7 @@ export async function scoreClipBatch(
       const answer = await generateJsonWithImages(prompt, images, BatchVerdictsSchema, {
         thinking,
         temperature: REVIEW_TEMPERATURE,
+        model,
         ...(provider ? { provider } : {}),
       });
       for (const [i, { clip }] of ready.entries()) verdicts.set(clip, pickVerdict(clip, answer.verdicts, i + 1));

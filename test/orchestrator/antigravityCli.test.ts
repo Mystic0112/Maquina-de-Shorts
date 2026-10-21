@@ -144,6 +144,34 @@ describe("AntigravityCliProvider", () => {
     expect(usage[0]!.thinkingTokens).toBe(40);
   });
 
+  it("options.model wins over the constructor model and the thinking mapping; suffixed models get no --effort", async () => {
+    const spawnCalls = mockSpawnSuccess({ ...SUCCESS, structured_output: {} });
+    const provider = new AntigravityCliProvider(undefined, "gemini-3.8-flash", null);
+    await provider.completeJson("q", z.object({}), [], { thinking: "high", model: "claude-sonnet-5-5-low" });
+    const args = spawnCalls[0]!.args;
+    expect(args[args.indexOf("--model") + 1]).toBe("claude-sonnet-5-5-low");
+    expect(args).not.toContain("--effort");
+    expect(drainLlmUsage()[0]!.model).toBe("claude-sonnet-5-5-low");
+  });
+
+  it("options.model without a -low/-medium/-high suffix maps thinking to --effort", async () => {
+    const spawnCalls = mockSpawnSuccess({ ...SUCCESS, structured_output: {} });
+    const provider = new AntigravityCliProvider(undefined, undefined, null);
+    await provider.completeJson("q", z.object({}), [], { thinking: "high", model: "gemini-4-argon" });
+    const args = spawnCalls[0]!.args;
+    expect(args[args.indexOf("--model") + 1]).toBe("gemini-4-argon");
+    expect(args.slice(args.indexOf("--effort"), args.indexOf("--effort") + 2)).toEqual(["--effort", "high"]);
+  });
+
+  it("options.model also applies to completeGroundedText", async () => {
+    const spawnCalls = mockSpawnSuccess({ ...SUCCESS, structured_output: { text: "t", sources: [], queries: [] } });
+    const provider = new AntigravityCliProvider(undefined, undefined, null);
+    await provider.completeGroundedText("q", { model: "claude-sonnet-5-5-medium" });
+    const args = spawnCalls[0]!.args;
+    expect(args[args.indexOf("--model") + 1]).toBe("claude-sonnet-5-5-medium");
+    expect(args).not.toContain("--effort");
+  });
+
   it("throws LlmOutputError when agy returns status !== SUCCESS instead of swallowing it", async () => {
     mockSpawnSuccess({
       status: "ERROR",

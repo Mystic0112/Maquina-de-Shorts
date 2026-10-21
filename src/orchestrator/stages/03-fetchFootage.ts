@@ -455,7 +455,7 @@ async function scoreAll(clips: readonly FootageClip[], gate: GateContext): Promi
     const first = batch[0]!;
     const scene = sceneForClip(gate.script, first, gate.altQueries);
     const beat = beatForClip(gate.script, first);
-    const raw = await scoreClipBatch(batch, scene, gate.dirs.frames, gate.script.title, settings.thinking, gate.script.hook, relevanceProvider, beat);
+    const raw = await scoreClipBatch(batch, scene, gate.dirs.frames, gate.script.title, settings.thinking, gate.script.hook, relevanceProvider, beat, settings.model);
     stats.visionCalls++;
     stats.clipsScored += batch.length;
     const took = batch.length > 1 ? `${seconds(started)} (batch of ${batch.length})` : seconds(started);
@@ -588,7 +588,7 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   const log = getLogger(ctx.runId);
   const config = loadConfig();
   const footageConfig = config.footage;
-  const settings = resolveRelevanceSettings(footageConfig);
+  const settings = resolveRelevanceSettings(footageConfig, config.llm);
   const footageDir = join(ctx.runDir, "footage");
   const gate: GateContext = {
     script,

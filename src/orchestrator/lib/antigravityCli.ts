@@ -169,8 +169,9 @@ export class AntigravityCliProvider implements LlmProvider {
       "--print-timeout", `${this.timeoutS}s`,
       "--json-schema", JSON.stringify(toGeminiJsonSchema(schema)),
     ];
-    let modelToUse = this.model;
-    if (options.thinking && (!this.model || this.model.startsWith("gemini-3.8-flash"))) {
+    // An explicit per-call model wins over ANTIGRAVITY_MODEL and over the thinking -> flash-suffix mapping.
+    let modelToUse = options.model ?? this.model;
+    if (!options.model && options.thinking && (!this.model || this.model.startsWith("gemini-3.8-flash"))) {
       if (options.thinking === "minimal" || options.thinking === "low") modelToUse = "gemini-3.8-flash-low";
       else if (options.thinking === "high") modelToUse = "gemini-3.8-flash-high";
       else modelToUse = "gemini-3.8-flash-medium";
