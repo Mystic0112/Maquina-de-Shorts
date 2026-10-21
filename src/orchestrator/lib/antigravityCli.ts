@@ -40,6 +40,17 @@ const STDERR_TAIL_CHARS = 1500;
 
 /** Without --dangerously-skip-permissions any tool call is refused and the answer comes back empty. */
 const DIRECT_ANSWER_INSTRUCTION = "Responda diretamente, sem executar comandos nem ler arquivos.";
+/** Prepended on the one retry after the sandbox refused a tool call (the model tried a terminal command). */
+const DENIED_RETRY_REMINDER =
+  "IMPORTANTE: na tentativa anterior você tentou executar um comando e ele foi negado. NÃO execute comandos de terminal " +
+  "nem abra arquivos que não foram indicados; use apenas a ferramenta de busca na web (quando pedida) e responda com o JSON.";
+
+/**
+ * Marks an LlmOutputError caused by the sandbox refusing a tool call (recoverable with a reminder). A symbol
+ * instead of a subclass: llmClient.ts imports this module, so LlmOutputError is not constructed yet at load time.
+ */
+const DENIED_TOOL = Symbol("deniedTool");
+export const isDeniedToolError = (error: unknown): boolean => typeof error === "object" && error !== null && DENIED_TOOL in error;
 
 const EFFORT: Record<ThinkingSetting, string> = { default: "medium", minimal: "low", low: "low", medium: "medium", high: "high" };
 
@@ -147,6 +158,7 @@ export class AntigravityCliProvider implements LlmProvider {
   async completeGroundedText(prompt: string, options: CallOptions = {}): Promise<GroundedText> {
     const wrapped = [
       "Antes de responder, pesquise na web (use sua ferramenta de busca) para fundamentar a resposta.",
+      "Não execute comandos de terminal nem abra arquivos: só a ferramenta de busca na web e a sua resposta.",
       "Responda em JSON com: text (a resposta completa), sources (as páginas consultadas, cada uma com uri = URL completa e title)",
       "e queries (as buscas que você fez). Se não conseguir pesquisar, responda mesmo assim com sources vazio.",
       "",
@@ -182,8 +194,15 @@ export class AntigravityCliProvider implements LlmProvider {
       const tempFiles = await writeImages(tempDir, images);
       const fullPrompt = tempFiles.length > 0 ? imagePrompt(tempFiles, prompt) : prompt;
       const { args, modelToUse } = this.buildArgs(schema, options);
-      const { stdout, stderr } = await this.semaphore.run(() => this.spawnCli(args, tempDir, fullPrompt));
-      return this.parseResult(stdout, stderr, modelToUse, grounded);
+      try {
+        const { stdout, stderr } = await this.semaphore.run(() => this.spawnCli(args, tempDir, fullPrompt));
+        return this.parseResult(stdout, stderr, modelToUse, grounded);
+      } catch (error) {
+        if (!isDeniedToolError(error)) throw error;
+        // One retry: the model usually answers directly once told the tool is off-limits (seen in fact checks).
+        const { stdout, stderr } = await this.semaphore.run(() => this.spawnCli(args, tempDir, `${DENIED_RETRY_REMINDER}\n\n${fullPrompt}`));
+        return this.parseResult(stdout, stderr, modelToUse, grounded);
+      }
     } finally {
       await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
     }
@@ -339,8 +358,11 @@ export class AntigravityCliProvider implements LlmProvider {
     }
     // A refused tool call ends as SUCCESS with an empty response; surface what was denied.
     if (wrapper.structured_output === undefined && !wrapper.response?.trim()) {
-      const denied = wrapper.denied_actions?.length ? ` (ações negadas: ${JSON.stringify(wrapper.denied_actions)})` : "";
-      throw new LlmOutputError(`agy retornou resposta vazia${denied}${tail(stderr)}`);
+      if (wrapper.denied_actions?.length) {
+        const error = new LlmOutputError(`agy retornou resposta vazia (ações negadas: ${JSON.stringify(wrapper.denied_actions)})${tail(stderr)}`);
+        throw Object.assign(error, { [DENIED_TOOL]: true });
+      }
+      throw new LlmOutputError(`agy retornou resposta vazia${tail(stderr)}`);
     }
     return wrapper;
   }

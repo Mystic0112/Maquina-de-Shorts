@@ -31,9 +31,12 @@ interface FakeAgy {
 }
 
 /** Fake agy child: records the spawn, waits delayMs after stdin closes, prints stdout/stderr and exits. */
-function mockSpawn(fake: FakeAgy, onStart: () => void = () => undefined, onEnd: () => void = () => undefined): SpawnCall[] {
+function mockSpawn(fakeOrSequence: FakeAgy | FakeAgy[], onStart: () => void = () => undefined, onEnd: () => void = () => undefined): SpawnCall[] {
   const spawnCalls: SpawnCall[] = [];
+  const sequence = Array.isArray(fakeOrSequence) ? [...fakeOrSequence] : [fakeOrSequence];
   vi.mocked(childProcess.spawn).mockImplementation((command, args, options) => {
+    // One fake per spawn, in order; the last one repeats for any further spawn.
+    const fake = sequence.length > 1 ? sequence.shift()! : sequence[0]!;
     spawnCalls.push({ command, args: args as string[], options });
     onStart();
     const child = new EventEmitter() as any;
@@ -233,8 +236,8 @@ describe("AntigravityCliProvider", () => {
     expect(spawnCalls[0]!.args).toContain("45s");
   });
 
-  it("throws LlmOutputError naming denied_actions and the stderr tail on an empty answer", async () => {
-    mockSpawn({
+  it("retries once with a reminder after a denied tool call, then throws naming denied_actions and the stderr tail", async () => {
+    const spawnCalls = mockSpawn({
       stdout: JSON.stringify({ ...SUCCESS, response: "", denied_actions: [{ action: "command", display_name: "RunCommand" }] }),
       stderr: 'jetski: no output produced — a tool required the "command" permission',
     });
@@ -242,6 +245,25 @@ describe("AntigravityCliProvider", () => {
     const error = await provider.completeJson("q", z.any()).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(LlmOutputError);
     expect((error as Error).message).toMatch(/resposta vazia.*"display_name":"RunCommand"[\s\S]*no output produced/);
+    expect(spawnCalls).toHaveLength(2);
+    expect(spawnCalls[0]!.stdin).not.toContain("IMPORTANTE: na tentativa anterior");
+    expect(spawnCalls[1]!.stdin).toMatch(/^IMPORTANTE: na tentativa anterior[\s\S]*NÃO execute comandos[\s\S]*\nq$/);
+  });
+
+  it("recovers when the retry after a denied tool call answers", async () => {
+    const spawnCalls = mockSpawn([
+      { stdout: JSON.stringify({ ...SUCCESS, response: "", denied_actions: [{ action: "command", display_name: "RunCommand" }] }) },
+      { stdout: JSON.stringify({ ...SUCCESS, structured_output: { answer: "42" } }) },
+    ]);
+    const provider = new AntigravityCliProvider(undefined, undefined, null);
+    await expect(provider.completeJson("q", z.object({ answer: z.string() }))).resolves.toBe(JSON.stringify({ answer: "42" }));
+    expect(spawnCalls).toHaveLength(2);
+  });
+
+  it("grounded prompt forbids terminal commands and file access", async () => {
+    const spawnCalls = mockSpawnSuccess({ ...SUCCESS, structured_output: { text: "t", sources: [], queries: [] } });
+    await new AntigravityCliProvider(undefined, undefined, null).completeGroundedText("pergunta");
+    expect(spawnCalls[0]!.stdin).toMatch(/Não execute comandos de terminal nem abra arquivos/);
   });
 
   it("throws LlmOutputError on an empty answer without denied_actions", async () => {
