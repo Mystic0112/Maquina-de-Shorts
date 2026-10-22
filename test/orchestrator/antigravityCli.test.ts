@@ -85,6 +85,10 @@ describe("AntigravityCliProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     drainLlmUsage();
+    // scripts/loop.ps1 runs vitest with the production env exported; session mode would bypass the spawn mocks.
+    for (const name of ["ANTIGRAVITY_CLI_SESSION_TURNS", "ANTIGRAVITY_CLI_CONCURRENCY", "ANTIGRAVITY_CLI_TIMEOUT_S", "ANTIGRAVITY_FALLBACK", "ANTIGRAVITY_MODEL", "ANTIGRAVITY_CLI_PATH"]) {
+      vi.stubEnv(name, "");
+    }
   });
 
   afterEach(() => {
