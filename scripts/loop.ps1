@@ -35,6 +35,7 @@ $ContextPattern = 'xx |ERROR|WARN|agy|antigravity|LlmOutputError|status'
 function Write-Event([hashtable]$Data) {
     # A reader holding summary.jsonl (a `tail -F`, the dashboard) must never kill the loop: retry, then give up.
     $Data['at'] = (Get-Date).ToString('s')
+    if ($Data['event'] -in @('stop', 'abort', 'done')) { $script:Ended = $true }
     $line = $Data | ConvertTo-Json -Compress
     for ($try = 1; $try -le 3; $try++) {
         try { Add-Content -Path $Summary -Value $line -Encoding utf8 -ErrorAction Stop; return }
@@ -100,33 +101,39 @@ if (-not (Test-Path $KokoroPython)) { throw "Kokoro Python not found: $KokoroPyt
 $failures = 0
 $done = 0
 Write-Event @{ event = 'start'; maxVideos = $MaxVideos; pullBetween = [bool]$PullBetween }
-while ($MaxVideos -eq 0 -or $done -lt $MaxVideos) {
-    while (Test-Path $PauseFile) { Start-Sleep -Seconds 20 }
-    if (-not (Test-UploadDisabled)) { Write-Event @{ event = 'abort'; reason = 'publishing is enabled (upload or instagram)' }; exit 1 }
-    $free = Get-FreeGB
-    if ($free -lt $MinFreeGB) { Write-Event @{ event = 'stop'; reason = "free disk ${free} GB < $MinFreeGB GB" }; exit 0 }
-    if ($PullBetween -and $done -gt 0) {
-        try { Update-Code } catch {
-            Write-Event @{ event = 'paused'; reason = "$_" }
-            New-Item -ItemType File -Force -Path $PauseFile | Out-Null
-            continue
+# Ctrl+C or a killed console skips the stop events above; the finally block still leaves a trace.
+$script:Ended = $false
+try {
+    while ($MaxVideos -eq 0 -or $done -lt $MaxVideos) {
+        while (Test-Path $PauseFile) { Start-Sleep -Seconds 20 }
+        if (-not (Test-UploadDisabled)) { Write-Event @{ event = 'abort'; reason = 'publishing is enabled (upload or instagram)' }; exit 1 }
+        $free = Get-FreeGB
+        if ($free -lt $MinFreeGB) { Write-Event @{ event = 'stop'; reason = "free disk ${free} GB < $MinFreeGB GB" }; exit 0 }
+        if ($PullBetween -and $done -gt 0) {
+            try { Update-Code } catch {
+                Write-Event @{ event = 'paused'; reason = "$_" }
+                New-Item -ItemType File -Force -Path $PauseFile | Out-Null
+                continue
+            }
         }
-    }
 
-    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $log = Join-Path $LoopDir "video_$stamp.out"
-    $started = Get-Date
-    Push-Location $ProjectRoot
-    try { $code = Invoke-Native 'npm.cmd' @('run', 'pipeline', '--', '--until', '06-renderVideo') $log } finally { Pop-Location }
-    $done += 1
-    Write-Event @{ event = 'video'; log = (Split-Path -Leaf $log); exit = $code; minutes = [math]::Round(((Get-Date) - $started).TotalMinutes, 1) }
+        $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+        $log = Join-Path $LoopDir "video_$stamp.out"
+        $started = Get-Date
+        Push-Location $ProjectRoot
+        try { $code = Invoke-Native 'npm.cmd' @('run', 'pipeline', '--', '--until', '06-renderVideo') $log } finally { Pop-Location }
+        $done += 1
+        Write-Event @{ event = 'video'; log = (Split-Path -Leaf $log); exit = $code; minutes = [math]::Round(((Get-Date) - $started).TotalMinutes, 1) }
 
-    $quota = Test-QuotaHit $log
-    if ($quota.Count -gt 0) {
-        Write-Event @{ event = 'stop'; reason = 'quota'; line = $quota[0].Line.Substring(0, [math]::Min(300, $quota[0].Line.Length)) }
-        exit 2
+        $quota = Test-QuotaHit $log
+        if ($quota.Count -gt 0) {
+            Write-Event @{ event = 'stop'; reason = 'quota'; line = $quota[0].Line.Substring(0, [math]::Min(300, $quota[0].Line.Length)) }
+            exit 2
+        }
+        if ($code -ne 0 -and $code -ne 3) { $failures += 1 } else { $failures = 0 }
+        if ($failures -ge $MaxFailures) { Write-Event @{ event = 'stop'; reason = "$failures consecutive failures" }; exit 1 }
     }
-    if ($code -ne 0 -and $code -ne 3) { $failures += 1 } else { $failures = 0 }
-    if ($failures -ge $MaxFailures) { Write-Event @{ event = 'stop'; reason = "$failures consecutive failures" }; exit 1 }
+    Write-Event @{ event = 'done'; videos = $done }
+} finally {
+    if (-not $script:Ended) { Write-Event @{ event = 'interrupted'; videos = $done } }
 }
-Write-Event @{ event = 'done'; videos = $done }
