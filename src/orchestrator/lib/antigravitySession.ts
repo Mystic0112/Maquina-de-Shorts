@@ -45,6 +45,14 @@ interface Pending {
   timer: NodeJS.Timeout;
 }
 
+/** Turns a spawn ENOENT (agy not installed / not on PATH) into an actionable message; other errors pass through. */
+export function describeAgySpawnError(error: Error, cliPath: string): Error {
+  if ((error as NodeJS.ErrnoException).code !== "ENOENT") return error;
+  return new Error(
+    `Antigravity CLI (agy) não encontrado (${cliPath}): instale e faça login, ou defina LLM_PROVIDER=gemini com GEMINI_API_KEY`,
+  );
+}
+
 const liveSessions = new Set<AgySession>();
 let exitHookInstalled = false;
 
@@ -65,6 +73,7 @@ export class AgySession {
   private stdoutBuffer = "";
   private stderrText = "";
   private pending?: Pending;
+  private deathCause?: Error;
   private previousUsage = ZERO_USAGE;
   private exited: Promise<void>;
 
@@ -81,7 +90,7 @@ export class AgySession {
     child.stderr.on("data", (chunk: Buffer) => (this.stderrText = (this.stderrText + chunk.toString("utf8")).slice(-STDERR_KEEP_CHARS)));
     // EPIPE when the child already died: the "close" handler reports the failure.
     child.stdin.on("error", () => (this.dead = true));
-    child.on("error", (error) => this.fail(error));
+    child.on("error", (error) => this.fail(describeAgySpawnError(error, child.spawnfile ?? "agy")));
     child.on("close", (code) => this.fail(new Error(`agy finalizou com código ${code}: ${this.stderrText.trim() || "(sem stderr)"}`)));
     // ponytail: unref so an idle session never keeps Node alive; the per-question timer holds the loop while busy.
     for (const handle of [child, child.stdin, child.stdout, child.stderr]) (handle as { unref?: () => void }).unref?.();
@@ -103,7 +112,7 @@ export class AgySession {
 
   /** One question at a time (the provider guarantees it). Timeout kills the process: the session is dead. */
   ask(prompt: string, timeoutMs: number): Promise<SessionAnswer> {
-    if (this.dead) return Promise.reject(new Error("sessão do agy já encerrada"));
+    if (this.dead) return Promise.reject(this.deathCause ?? new Error("sessão do agy já encerrada"));
     if (this.pending) return Promise.reject(new Error("sessão do agy ocupada"));
     this.turns++;
     return new Promise((resolve, reject) => {
@@ -185,6 +194,8 @@ export class AgySession {
 
   private fail(error: Error): void {
     this.dead = true;
+    this.deathCause ??= error; // e.g. a spawn ENOENT that arrives before the first question
+
     const pending = this.pending;
     if (!pending) return;
     this.pending = undefined;

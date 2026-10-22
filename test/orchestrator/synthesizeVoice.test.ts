@@ -71,9 +71,9 @@ describe("buildKokoroArgs", () => {
 });
 
 describe("voice defaults", () => {
-  it("default to Gemini TTS with a pt-BR style", () => {
+  it("default to Kokoro (local, free) and keep the Gemini pt-BR style for the opt-in engine", () => {
     const voice = resolveVoiceExtras(undefined);
-    expect(voice.engine).toBe("gemini");
+    expect(voice.engine).toBe("kokoro");
     expect(voice.geminiModel).toBe("gemini-3.8-flash-tts");
     expect(voice.geminiVoice).toBeTruthy();
     expect(voice.style).toMatch(/português do Brasil/);
@@ -165,6 +165,18 @@ describe("04-synthesizeVoice run", () => {
     expect(second.python).toBeUndefined();
     expect(second.args).toEqual(buildAlignArgs(join(runDir, GEMINI_SOURCE_AUDIO), join(runDir, "narration.txt"), runDir, 200));
     expect(next.narration?.durationMs).toBe(16_000);
+  });
+
+  it("kokoro: missing kokoro module fails with the README/gemini hint, never falling back to the paid API", async () => {
+    voiceConfig.current = { name: "x", language: "pt-BR" }; // engine absent = default kokoro
+    runPythonJson.mockRejectedValueOnce(new Error("Python exited with 1: ...\n[kokoro] ERROR kokoro is missing in this interpreter (/x/python)"));
+    const speak = vi.fn();
+    const engineFor = (engine: string) => (engine === "kokoro" ? createKokoroEngine(undefined) : createGeminiEngine(speak));
+    const error = await run(ctx(), engineFor as never).catch((e: Error) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/Kokoro não está instalado.*KOKORO_PYTHON.*README.*voice\.engine: "gemini"/s);
+    expect(speak).not.toHaveBeenCalled();
+    expect(runPythonJson).toHaveBeenCalledTimes(1);
   });
 
   it("kokoro: a synthesis failure fails the stage before any alignment", async () => {

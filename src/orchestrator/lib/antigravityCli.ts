@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { minimalChildEnv } from "./childEnv.js";
 import { env } from "./config.js";
-import { AgySession } from "./antigravitySession.js";
+import { AgySession, describeAgySpawnError } from "./antigravitySession.js";
 import {
   dedupeSources,
   getProviderByName,
@@ -32,7 +32,7 @@ import {
 
 export const DEFAULT_ANTIGRAVITY_MODEL = "gemini-3.8-flash-medium";
 export const DEFAULT_ANTIGRAVITY_CLI_PATH = "agy";
-const DEFAULT_TIMEOUT_S = 180;
+const DEFAULT_TIMEOUT_S = 240;
 const DEFAULT_CONCURRENCY = 2;
 /** Grace period after --print-timeout before we kill the process ourselves. */
 const KILL_GRACE_MS = 30_000;
@@ -314,7 +314,7 @@ export class AntigravityCliProvider implements LlmProvider {
       child.stderr.on("data", (chunk: Buffer) => (err += chunk.toString("utf8")));
       child.on("error", (error) => {
         clearTimeout(timer);
-        reject(error);
+        reject(describeAgySpawnError(error, this.cliPath));
       });
       child.on("close", (code) => {
         clearTimeout(timer);

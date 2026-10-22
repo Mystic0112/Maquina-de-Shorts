@@ -217,7 +217,7 @@ describe("AntigravityCliProvider", () => {
     const args = spawnCalls[0]!.args;
     expect(JSON.parse(args[args.indexOf("--json-schema") + 1]!)).toMatchObject({ type: "object", required: ["answer"] });
     expect(args).toContain("--disable-slash-commands");
-    expect(args.slice(args.indexOf("--print-timeout"), args.indexOf("--print-timeout") + 2)).toEqual(["--print-timeout", "180s"]);
+    expect(args.slice(args.indexOf("--print-timeout"), args.indexOf("--print-timeout") + 2)).toEqual(["--print-timeout", "240s"]);
     expect(spawnCalls[0]!.stdin).toMatch(/^Responda diretamente, sem executar comandos nem ler arquivos\.\n\nQual a resposta\?$/);
   });
 
@@ -227,6 +227,22 @@ describe("AntigravityCliProvider", () => {
     await provider.completeJson("Avalie", z.object({ score: z.number() }), [{ mimeType: "image/png", data: Buffer.from("x") }]);
     expect(spawnCalls[0]!.stdin).not.toContain("Responda diretamente");
     expect(spawnCalls[0]!.stdin).toMatch(/view_file[\s\S]*frame_0\.png[\s\S]*Avalie/);
+  });
+
+  it("explains how to install agy (or switch to gemini) when the binary is missing (ENOENT)", async () => {
+    vi.mocked(childProcess.spawn).mockImplementation(() => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.stdin = new PassThrough();
+      child.kill = vi.fn();
+      setImmediate(() => child.emit("error", Object.assign(new Error("spawn agy ENOENT"), { code: "ENOENT" })));
+      return child;
+    });
+    const provider = new AntigravityCliProvider(undefined, undefined, null);
+    await expect(provider.completeJson("q", z.object({}))).rejects.toThrow(
+      /Antigravity CLI \(agy\) não encontrado.*instale e faça login, ou defina LLM_PROVIDER=gemini com GEMINI_API_KEY/,
+    );
   });
 
   it("reads ANTIGRAVITY_CLI_TIMEOUT_S for --print-timeout", async () => {

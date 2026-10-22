@@ -139,6 +139,18 @@ export function createGeminiEngine(speak: SpeechSynthesizer = (request) => synth
   };
 }
 
+/** synthesize_kokoro.py logs "kokoro is missing in this interpreter" when the import fails. */
+const kokoroMissing = (error: unknown): boolean => error instanceof Error && /kokoro is missing/.test(error.message);
+
+/** Kokoro is the default engine: never fall back to the paid Gemini TTS silently, tell the owner what to do. */
+export function kokoroMissingMessage(python: string | undefined): string {
+  const where = python ? `KOKORO_PYTHON (${python})` : "o Python do projeto (.venv; KOKORO_PYTHON está vazio)";
+  return (
+    `Kokoro não está instalado em ${where}. Instale-o num ambiente separado (README, seção Instalação, passo do Kokoro) ` +
+    `e aponte KOKORO_PYTHON no .env, ou use voice.engine: "gemini" em config/pipeline.config.json (API paga, precisa de GEMINI_API_KEY).`
+  );
+}
+
 const KokoroOutputSchema = z.object({ audioPath: z.string().min(1), durationMs: z.number().positive(), sentences: z.number() });
 
 /**
@@ -160,6 +172,8 @@ export function createKokoroEngine(python: string | undefined = env("KOKORO_PYTH
         onStderrLine: stderrLogger(log, "kokoro"),
         envKeys: KOKORO_ENV_KEYS,
         python,
+      }).catch((error: unknown) => {
+        throw kokoroMissing(error) ? new Error(kokoroMissingMessage(python), { cause: error }) : error;
       });
       log.info(`Kokoro audio: ${(out.durationMs / 1000).toFixed(1)} s in ${out.sentences} sentences; trimming pauses and aligning words`);
       return alignSourceAudio(sourceFile, job);

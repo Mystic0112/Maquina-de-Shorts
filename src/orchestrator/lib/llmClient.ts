@@ -93,19 +93,32 @@ export function isTimeoutError(error: unknown): boolean {
   return /excedeu o tempo limite|timed out|\btimeout\b/i.test(message);
 }
 
+const DEFAULT_TIMEOUT_RETRIES = 2;
+
+/** LLM_TIMEOUT_RETRIES (default 2): extra attempts after a timed-out call. */
+export function timeoutRetriesFromEnv(): number {
+  const n = Number(env("LLM_TIMEOUT_RETRIES") ?? DEFAULT_TIMEOUT_RETRIES);
+  return Number.isInteger(n) && n >= 0 ? n : DEFAULT_TIMEOUT_RETRIES;
+}
+
 /**
- * Retries `fn` on rate-limit errors with jittered backoff, and once (no backoff) on a timeout: a slow agent
- * turn is usually a one-off, and failing the whole video for it costs far more than one more try.
- * Other errors propagate immediately.
+ * Retries `fn` on rate-limit errors with jittered backoff, and up to `timeoutRetries` times (no backoff) on a
+ * timeout: a slow agent turn is usually a one-off, and failing the whole video for it costs far more than one
+ * more try. Timeout retries do not consume rate-limit retries. Other errors propagate immediately.
  */
-export async function withRateLimitRetry<T>(fn: () => Promise<T>, retries = 4, delay = backoffDelayMs): Promise<T> {
-  let timeoutRetried = false;
+export async function withRateLimitRetry<T>(
+  fn: () => Promise<T>,
+  retries = 4,
+  delay = backoffDelayMs,
+  timeoutRetries = timeoutRetriesFromEnv(),
+): Promise<T> {
+  let timeoutsLeft = timeoutRetries;
   for (let retry = 0; ; retry++) {
     try {
       return await fn();
     } catch (error) {
-      if (isTimeoutError(error) && !timeoutRetried) {
-        timeoutRetried = true;
+      if (isTimeoutError(error) && timeoutsLeft > 0) {
+        timeoutsLeft--;
         retry--; // a timeout retry does not consume a rate-limit retry
         continue;
       }
@@ -288,8 +301,9 @@ export function getProviderByName(name: LlmProviderName): LlmProvider {
   return provider;
 }
 
+/** Default is antigravity-cli: zero API cost (owner's plan credits); gemini/anthropic are opt-in paid APIs. */
 export function createProviderFromEnv(): LlmProvider {
-  const name = (env("LLM_PROVIDER") ?? "gemini").toLowerCase() as LlmProviderName;
+  const name = (env("LLM_PROVIDER") ?? "antigravity-cli").toLowerCase() as LlmProviderName;
   return getProviderByName(name);
 }
 

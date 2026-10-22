@@ -2,6 +2,7 @@ import { Bot, Coins, FileText, FileVideo, Images, Mic, Scale, Shapes, ShieldChec
 import type { CSSProperties } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Overview, RunSummary } from "../../shared/api";
+import { estimateLlmCost } from "../../shared/llmCost";
 import { scoreColor, sourceColor } from "../colors";
 import { axisProps, CategoryChip, Card, ChartCard, Donut, Empty, FormatBadge, formatIcon, HBars, Kpi, Legend, OverlayTextTag, tooltipProps } from "../components";
 import { chronological, relevanceHistogram, runLabel, sceneScores, sumCounts } from "../derive";
@@ -210,8 +211,15 @@ function LlmCards({ runs, pricing }: { runs: RunSummary[]; pricing: Overview["ll
     }),
     { calls: 0, grounded: 0, input: 0, output: 0 },
   );
-  const cost = (input: number, output: number) => (input * pricing.inputUsdPerMTok + output * pricing.outputUsdPerMTok) / 1e6;
-  const total = cost(totals.input, totals.output);
+  const estimate = withUsage.reduce(
+    (acc, r) => {
+      const e = estimateLlmCost(r.llmUsage!, pricing);
+      return { usd: acc.usd + e.usd, planCalls: acc.planCalls + e.planCalls, paidCalls: acc.paidCalls + e.paidCalls };
+    },
+    { usd: 0, planCalls: 0, paidCalls: 0 },
+  );
+  const total = estimate.usd;
+  const planOnly = estimate.paidCalls === 0;
   const rows = withUsage.map((r) => ({ run: runLabel(r), entrada: r.llmUsage!.inputTokens, saida: r.llmUsage!.outputTokens }));
   const models = [...new Set(withUsage.flatMap((r) => r.llmUsage!.byModel.map((m) => m.model)))];
   return (
@@ -240,14 +248,22 @@ function LlmCards({ runs, pricing }: { runs: RunSummary[]; pricing: Overview["ll
         label="Custo de LLM (estimativa)"
         icon={Coins}
         tone="var(--cat-4)"
-        value={fmtUsd(total)}
+        value={planOnly ? "plano (sem custo de API)" : fmtUsd(total)}
         sub={
           <>
-            {fmtUsd(total / withUsage.length)} por execução · {fmtCompact(totals.input)} tokens de entrada e {fmtCompact(totals.output)} de saída.
-            {totals.grounded > 0 && ` ${fmtInt(totals.grounded)} chamada(s) com busca do Google (checagem de fatos) são cobradas por requisição e não entram nesta conta.`}
-            <br />
-            ESTIMATIVA com preço de referência de {fmtUsd(pricing.inputUsdPerMTok)}/M tokens de entrada e {fmtUsd(pricing.outputUsdPerMTok)}/M de saída
-            {pricing.configured ? " (configurado no .env)" : " (padrão; ajuste DASHBOARD_LLM_PRICE_* no .env)"}. Não é a fatura do Google.
+            {planOnly
+              ? `Todas as ${fmtInt(estimate.planCalls)} chamada(s) foram pelo Antigravity CLI, que gasta os créditos do plano, não a API`
+              : `${fmtUsd(total / withUsage.length)} por execução`}
+            {estimate.planCalls > 0 && !planOnly && ` · ${fmtInt(estimate.planCalls)} chamada(s) pelo Antigravity CLI: plano (sem custo de API), fora da conta`}
+            {" "}· {fmtCompact(totals.input)} tokens de entrada e {fmtCompact(totals.output)} de saída.
+            {!planOnly && (
+              <>
+                {totals.grounded > 0 && ` ${fmtInt(totals.grounded)} chamada(s) com busca do Google (checagem de fatos) são cobradas por requisição e não entram nesta conta.`}
+                <br />
+                ESTIMATIVA com preço de referência de {fmtUsd(pricing.inputUsdPerMTok)}/M tokens de entrada e {fmtUsd(pricing.outputUsdPerMTok)}/M de saída
+                {pricing.configured ? " (configurado no .env)" : " (padrão; ajuste DASHBOARD_LLM_PRICE_* no .env)"}. Não é a fatura do Google.
+              </>
+            )}
           </>
         }
       />

@@ -51,11 +51,12 @@ export function parseFeed(xml: string): FeedVideo[] {
 }
 
 /**
- * The RSS has no live marker. Titles with "ao vivo"/"live" are skipped as a cheap heuristic; yt-dlp
+ * The RSS has no live marker. Titles with "ao vivo"/"live"/🔴 are skipped as a cheap heuristic; yt-dlp
  * later refuses in-progress lives anyway (`is_live`), so a false negative only costs one failed download.
  */
 export function isLikelyLive(video: FeedVideo): boolean {
-  return /\b(ao vivo|live|🔴)\b/i.test(video.title);
+  // 🔴 stays outside \b: a word boundary never sits next to an emoji (non-word on both sides).
+  return /\b(ao vivo|live)\b|🔴/i.test(video.title);
 }
 
 export async function fetchChannelFeed(channelId: string, fetchFn: typeof fetch = fetch): Promise<FeedVideo[]> {
@@ -106,4 +107,15 @@ export async function markProcessed(entry: Omit<ProcessedEntry, "at">, file = PR
 export function pickNewVideos(feed: readonly FeedVideo[], processed: readonly ProcessedEntry[]): FeedVideo[] {
   const seen = new Set(processed.map((e) => e.videoId));
   return feed.filter((v) => !seen.has(v.videoId) && !isLikelyLive(v));
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How many videos of this channel may still be processed now: `maxPerDay` minus the "done" journal entries
+ * of the last 24 h (skipped videos produced nothing and do not count), so repeated --scan runs share one quota.
+ */
+export function remainingDailyQuota(processed: readonly ProcessedEntry[], channelId: string, maxPerDay: number, now = Date.now()): number {
+  const recent = processed.filter((e) => e.channelId === channelId && e.status === "done" && now - Date.parse(e.at) < DAY_MS);
+  return Math.max(0, maxPerDay - recent.length);
 }

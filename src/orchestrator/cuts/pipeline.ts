@@ -9,8 +9,8 @@ import type { Logger } from "../lib/logger.js";
 import { runDirFor } from "../lib/runContext.js";
 import { assertChannelAuthorized, type CutChannel, type CutsConfig, type Framing } from "./config.js";
 import { buildCutRunContext, FINAL_FILE, newCutRunId, saveCutContext } from "./context.js";
-import { downloadSource, sourceDir, videoUrl } from "./download.js";
-import { markProcessed } from "./feed.js";
+import { downloadSource, LoginRequiredError, sourceDir, videoUrl } from "./download.js";
+import { markProcessed, PROCESSED_FILE } from "./feed.js";
 import { renderClips, wordsInWindow } from "./render.js";
 import { selectClips, transcriptSlice, type ClipPick } from "./select.js";
 import { loadTranscript, transcribeVideo, type Transcript } from "./transcribe.js";
@@ -86,6 +86,29 @@ export async function processVideo(
   }
   log.info(`${runs.length} cut(s) ready in ${paths.renderOutput} from ${videoUrl(videoId)} (not published; stages 07/08 not run)`);
   return { runs, timings };
+}
+
+/**
+ * processVideo, except a video that needs a login (age/privacy gate) is journaled as "skipped" and yields no
+ * runs ("nothing to do") instead of failing; used by both --video and --scan.
+ */
+export async function processOrSkip(
+  channel: CutChannel,
+  videoId: string,
+  config: CutsConfig,
+  log: Logger,
+  options: ProcessOptions = {},
+  run: typeof processVideo = processVideo,
+  journal = PROCESSED_FILE,
+): Promise<ProcessResult> {
+  try {
+    return await run(channel, videoId, config, log, options);
+  } catch (error) {
+    if (!(error instanceof LoginRequiredError)) throw error;
+    log.warn(`${videoId}: ${error.message}`);
+    await markProcessed({ channelId: channel.id, videoId, status: "skipped", reason: error.message }, journal);
+    return { runs: [], timings: [] };
+  }
 }
 
 async function writeRun(runId: string, channel: CutChannel, videoId: string, videoTitle: string, pick: ClipPick, transcript: Transcript, framing: Framing, videoPath: string): Promise<CutRunContext> {

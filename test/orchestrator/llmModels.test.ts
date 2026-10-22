@@ -127,30 +127,62 @@ describe("usage accounting", () => {
 });
 
 describe("withRateLimitRetry and timeouts", () => {
-  it("retries a timed-out call once without consuming rate-limit retries, then gives up", async () => {
-    const { withRateLimitRetry, isTimeoutError } = await import("../../src/orchestrator/lib/llmClient.js");
-    expect(isTimeoutError(new Error("agy excedeu o tempo limite de 400 s"))).toBe(true);
+  const timeout = () => new Error("agy excedeu o tempo limite de 240 s");
+
+  it("retries timed-out calls (LLM_TIMEOUT_RETRIES, default 2) without consuming rate-limit retries", async () => {
+    const { withRateLimitRetry, isTimeoutError, timeoutRetriesFromEnv } = await import("../../src/orchestrator/lib/llmClient.js");
+    vi.stubEnv("LLM_TIMEOUT_RETRIES", ""); // unset (env() treats empty as missing), whatever the local .env says
+    expect(isTimeoutError(timeout())).toBe(true);
     expect(isTimeoutError(new Error("agy retornou status ERROR"))).toBe(false);
+    expect(timeoutRetriesFromEnv()).toBe(2);
 
     let calls = 0;
-    const okOnSecond = vi.fn(async () => {
-      calls++;
-      if (calls === 1) throw new Error("agy excedeu o tempo limite de 400 s");
+    const okOnThird = vi.fn(async () => {
+      if (++calls <= 2) throw timeout();
       return "ok";
     });
-    await expect(withRateLimitRetry(okOnSecond, 0, () => 0)).resolves.toBe("ok");
-    expect(okOnSecond).toHaveBeenCalledTimes(2);
+    await expect(withRateLimitRetry(okOnThird, 0, () => 0)).resolves.toBe("ok");
+    expect(okOnThird).toHaveBeenCalledTimes(3);
 
     const alwaysTimesOut = vi.fn(async () => {
-      throw new Error("agy excedeu o tempo limite de 400 s");
+      throw timeout();
     });
     await expect(withRateLimitRetry(alwaysTimesOut, 4, () => 0)).rejects.toThrow(/tempo limite/);
-    expect(alwaysTimesOut).toHaveBeenCalledTimes(2); // original + one timeout retry, no backoff loop
+    expect(alwaysTimesOut).toHaveBeenCalledTimes(3); // original + two timeout retries, no backoff loop
 
     const otherError = vi.fn(async () => {
       throw new Error("JSON inválido");
     });
     await expect(withRateLimitRetry(otherError, 4, () => 0)).rejects.toThrow(/JSON/);
     expect(otherError).toHaveBeenCalledTimes(1);
+    vi.unstubAllEnvs();
+  });
+
+  it("reads LLM_TIMEOUT_RETRIES and ignores invalid values", async () => {
+    const { withRateLimitRetry, timeoutRetriesFromEnv } = await import("../../src/orchestrator/lib/llmClient.js");
+    vi.stubEnv("LLM_TIMEOUT_RETRIES", "0");
+    try {
+      const fn = vi.fn(async () => {
+        throw timeout();
+      });
+      await expect(withRateLimitRetry(fn, 4, () => 0)).rejects.toThrow(/tempo limite/);
+      expect(fn).toHaveBeenCalledTimes(1);
+      vi.stubEnv("LLM_TIMEOUT_RETRIES", "abc");
+      expect(timeoutRetriesFromEnv()).toBe(2);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe("createProviderFromEnv", () => {
+  it("defaults to antigravity-cli (zero API cost) when LLM_PROVIDER is unset", async () => {
+    const { createProviderFromEnv } = await import("../../src/orchestrator/lib/llmClient.js");
+    vi.stubEnv("LLM_PROVIDER", "");
+    try {
+      expect(createProviderFromEnv().name).toBe("antigravity-cli");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

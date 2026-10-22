@@ -12,7 +12,7 @@ A produção roda no PC Windows de casa do dono (placa RTX 3050), disparada pelo
 |---|---|
 | Vídeo de curiosidades (estágios 01 a 07) | Pronto |
 | IA pelo Antigravity CLI (`agy`) | Pronto; é o motor de produção |
-| Voz local Kokoro | Pronta (o padrão do código ainda é `gemini`; ligue `kokoro` na configuração) |
+| Voz local Kokoro | Pronta; é o padrão do código (`voice.engine: kokoro`) |
 | Publicação no YouTube | Pronta, **desligada pelo dono** (`upload.enabled: false`) |
 | Publicação no Instagram Reels | Pronta, **desligada**; falta configurar o app na Meta |
 | TikTok | Pendente (a API direta só publica como privado) |
@@ -105,7 +105,7 @@ Precisa de: Windows 10/11, Git, Node.js 22 ou mais novo (o pipeline aceita 20, o
    uv pip install --python "$env:LOCALAPPDATA\maquina-tts\kokoro\Scripts\python.exe" --index-url https://download.pytorch.org/whl/cu124 --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match torch
    uv pip install --python "$env:LOCALAPPDATA\maquina-tts\kokoro\Scripts\python.exe" kokoro soundfile
    ```
-   Depois aponte `KOKORO_PYTHON` para o caminho completo desse `python.exe` (ex.: `C:\Users\<você>\AppData\Local\maquina-tts\kokoro\Scripts\python.exe`) no `.env`. Sem placa NVIDIA, troque `cu124` por `cpu`. A primeira narração baixa os pesos do Hugging Face; as seguintes usam o cache, sem internet.
+   Depois aponte `KOKORO_PYTHON` para o caminho completo desse `python.exe` (ex.: `C:\Users\<você>\AppData\Local\maquina-tts\kokoro\Scripts\python.exe`) no `.env`. Na RTX 3050 com driver recente, `cu124` ou `cu130` funcionam (o PC de casa usa `cu130`). Sem placa NVIDIA, troque por `cpu`. A primeira narração baixa os pesos do Hugging Face; as seguintes usam o cache, sem internet.
 6. Copie o modelo de configuração e preencha:
    ```powershell
    copy .env.example .env
@@ -144,10 +144,10 @@ O `.env` nunca entra no git. O modelo comentado é o `.env.example`. A tabela ab
 
 | Grupo | Variável | Para quê |
 |---|---|---|
-| IA | `LLM_PROVIDER` | `antigravity-cli` (produção), `gemini` (API paga) ou `anthropic`. Sem valor, o código usa `gemini`. |
+| IA | `LLM_PROVIDER` | `antigravity-cli` (produção), `gemini` (API paga) ou `anthropic`. Sem valor, o código usa `antigravity-cli` (custo zero). |
 | IA | `ANTIGRAVITY_CLI_PATH` | Onde está o `agy` (padrão: `agy` no PATH) |
 | IA | `ANTIGRAVITY_MODEL` | Modelo padrão do `agy` (vazio = `gemini-3.8-flash-medium`). `llm.models` tem prioridade por etapa. |
-| IA | `ANTIGRAVITY_CLI_TIMEOUT_S` | Tempo máximo por chamada (padrão 180 s). Estourou? Tenta mais uma vez antes de falhar. |
+| IA | `ANTIGRAVITY_CLI_TIMEOUT_S`, `LLM_TIMEOUT_RETRIES` | Tempo máximo por chamada (padrão 240 s). Estourou? Tenta de novo até `LLM_TIMEOUT_RETRIES` vezes (padrão 2) antes de falhar. |
 | IA | `ANTIGRAVITY_CLI_CONCURRENCY` | Quantos `agy` ao mesmo tempo (padrão 2) |
 | IA | `ANTIGRAVITY_CLI_SESSION_TURNS` | Sessão contínua: quantas perguntas cada processo `agy` responde antes de reiniciar (padrão 0 = desligado). Economiza as instruções internas do agy a cada pergunta. |
 | IA | `ANTIGRAVITY_FALLBACK` | Se o `agy` falhar: `none` (padrão, custo zero) ou `gemini` (usa a API paga) |
@@ -172,7 +172,8 @@ Exemplo de produção com custo zero (os números são exemplos):
 ```ini
 LLM_PROVIDER=antigravity-cli
 ANTIGRAVITY_FALLBACK=none
-ANTIGRAVITY_CLI_CONCURRENCY=2
+ANTIGRAVITY_CLI_CONCURRENCY=4
+ANTIGRAVITY_CLI_TIMEOUT_S=240
 ANTIGRAVITY_CLI_SESSION_TURNS=6
 KOKORO_PYTHON=C:\Users\<você>\AppData\Local\maquina-tts\kokoro\Scripts\python.exe
 ```
@@ -186,7 +187,7 @@ Este arquivo é versionado. Quase tudo dá para mudar na aba **Configurações**
 | Opção | Padrão | O que faz |
 |---|---|---|
 | `video.minSeconds` / `maxSeconds` | 45 / 90 | Duração aceita da narração. Fora disso, troca de tema. |
-| `voice.engine` | `gemini` | `kokoro` (local, grátis, recomendado), `gemini` (API paga) ou `edge-tts` (legado, fora do ar) |
+| `voice.engine` | `kokoro` | `kokoro` (local, grátis, recomendado), `gemini` (API paga) ou `edge-tts` (legado, fora do ar). Sem o Kokoro instalado, o estágio 04 falha com aviso; não cai na API paga. |
 | `voice.kokoroVoice` / `kokoroSpeed` | `pm_alex` / 1 | Vozes pt-BR: `pm_alex` (Alex), `pf_dora` (Dora), `pm_santa` (Santa); velocidade de 0,5 a 2 |
 | `voice.geminiVoice` / `geminiModel` / `style` | `Fenrir` / `gemini-3.8-flash-tts` / texto | Só para a voz Gemini |
 | `voice.maxPauseMs` | 250 | Maior pausa mantida na narração, em ms |
@@ -211,7 +212,7 @@ Este arquivo é versionado. Quase tudo dá para mudar na aba **Configurações**
 Exemplo de modelos por etapa (confira os nomes com `agy models`):
 
 ```json
-"llm": { "models": { "script": "gemini-4-argon-medium", "factCheck": "gemini-3.8-flash-medium", "relevance": "gemini-3.8-flash-low" } }
+"llm": { "models": { "script": "gemini-4-argon-medium", "factCheck": "gemini-3.8-flash-medium", "relevance": "gemini-3.8-flash-low", "metadata": "gemini-4-argon-low" } }
 ```
 
 Os temas ficam em `config/topics.seed.json` (também editáveis na aba Configurações → Temas).
@@ -233,6 +234,8 @@ npx tsx scripts/test_agy_relevance.ts              # benchmark: agy x API do Gem
 npm run auth:youtube                               # login do YouTube (uma vez)
 npm run auth:instagram                             # login do Instagram (uma vez)
 ```
+
+> Antes de rodar `npm run pipeline` à mão, confira `LLM_PROVIDER` no `.env`: quem atualizou de uma versão antiga pode ainda estar com `gemini` (API paga), mesmo com o novo padrão `antigravity-cli`.
 
 **Códigos de saída do pipeline:** `0` deu certo, `1` erro, `3` nenhum vídeo publicável (trava de qualidade ou de fatos; não é falha da máquina). Uma execução rejeitada não pode ser retomada com `--resume`: comece outra.
 

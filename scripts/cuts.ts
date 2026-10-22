@@ -3,13 +3,13 @@
  *   npm run cuts -- --video <url|id> [--channel <UC...>] [--framing face|open] [--clips 3]
  *   npm run cuts -- --scan                       # read the RSS feeds of enabled channels, process new videos
  *   npm run cuts -- --video <id> --source <mp4> --transcript <json>   # dev mode: no download / Whisper
- * Exit codes: 0 ok, 1 error, 3 nothing to do (no authorized channel / no new video).
+ * Exit codes: 0 ok, 1 error, 3 nothing to do (no authorized channel / no new video / video needs a login).
  */
 import { parseArgs } from "node:util";
 import { ChannelNotAuthorizedError, findChannel, loadCutsConfig, type CutChannel, type CutsConfig } from "../src/orchestrator/cuts/config.js";
-import { LoginRequiredError, parseVideoId } from "../src/orchestrator/cuts/download.js";
-import { fetchChannelFeed, listProcessed, markProcessed, pickNewVideos } from "../src/orchestrator/cuts/feed.js";
-import { processVideo, type ProcessOptions, type StepTiming } from "../src/orchestrator/cuts/pipeline.js";
+import { parseVideoId } from "../src/orchestrator/cuts/download.js";
+import { fetchChannelFeed, listProcessed, pickNewVideos, remainingDailyQuota } from "../src/orchestrator/cuts/feed.js";
+import { processOrSkip, type ProcessOptions, type StepTiming } from "../src/orchestrator/cuts/pipeline.js";
 import { describeError, getLogger, type Logger } from "../src/orchestrator/lib/logger.js";
 
 const EXIT_OK = 0;
@@ -61,8 +61,8 @@ async function runSingle(config: CutsConfig, log: Logger, videoInput: string, ch
   const videoId = parseVideoId(videoInput);
   const channel = channelId ? findChannel(config, channelId) : config.channels.length === 1 ? config.channels[0] : undefined;
   if (!channel) throw new Error(`--channel <id> is required when config/cuts.json has ${config.channels.length} channels`);
-  const result = await processVideo(channel, videoId, config, log, options);
-  reportTimings(log, result.timings);
+  const result = await processOrSkip(channel, videoId, config, log, options);
+  if (result.timings.length > 0) reportTimings(log, result.timings);
   return result.runs.length > 0 ? EXIT_OK : EXIT_NOTHING;
 }
 
@@ -74,19 +74,14 @@ async function runScan(config: CutsConfig, log: Logger, options: ProcessOptions)
   }
   let produced = 0;
   for (const channel of channels) {
-    const fresh = pickNewVideos(await fetchChannelFeed(channel.id), await listProcessed());
-    const limit = channel.maxVideosPerDay ?? 1;
-    log.info(`${channel.name}: ${fresh.length} new video(s) in the feed; processing up to ${limit}`);
+    const processed = await listProcessed();
+    const fresh = pickNewVideos(await fetchChannelFeed(channel.id), processed);
+    const limit = remainingDailyQuota(processed, channel.id, channel.maxVideosPerDay ?? 1);
+    log.info(`${channel.name}: ${fresh.length} new video(s) in the feed; processing up to ${limit} (daily quota, last 24 h)`);
     for (const video of fresh.slice(0, limit)) {
-      try {
-        const result = await processVideo(channel, video.videoId, config, log, { ...options, videoTitle: video.title });
-        reportTimings(log, result.timings);
-        produced += result.runs.length;
-      } catch (error) {
-        if (!(error instanceof LoginRequiredError)) throw error;
-        log.warn(`${video.videoId}: ${error.message}`);
-        await markProcessed({ channelId: channel.id, videoId: video.videoId, status: "skipped", reason: error.message });
-      }
+      const result = await processOrSkip(channel, video.videoId, config, log, { ...options, videoTitle: video.title });
+      if (result.timings.length > 0) reportTimings(log, result.timings);
+      produced += result.runs.length;
     }
   }
   return produced > 0 ? EXIT_OK : EXIT_NOTHING;

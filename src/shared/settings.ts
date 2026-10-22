@@ -14,7 +14,7 @@ export const CAPTION_FONTS = {
 export type CaptionFont = keyof typeof CAPTION_FONTS;
 
 /**
- * TTS engines: Gemini TTS (default), Kokoro (local model, free; needs its own venv, see KOKORO_PYTHON)
+ * TTS engines: Kokoro (default; local model, free; needs its own venv, see KOKORO_PYTHON), Gemini TTS (paid API)
  * or edge-tts (Microsoft's unofficial endpoint; 403 since Oct 2026).
  */
 export const VOICE_ENGINES = ["gemini", "kokoro", "edge-tts"] as const;
@@ -169,7 +169,7 @@ export const SCRIPT_DEFAULTS: Required<Omit<ScriptSettings, "cta">> & Pick<Scrip
 };
 
 export const VOICE_EXTRAS_DEFAULTS: Required<VoiceExtras> = {
-  engine: "gemini",
+  engine: "kokoro",
   rate: "+10%",
   pitch: "+0Hz",
   volume: "+0%",

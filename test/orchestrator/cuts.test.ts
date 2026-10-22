@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { assertChannelAuthorized, ChannelNotAuthorizedError, parseCutsConfig, type CutChannel } from "../../src/orchestrator/cuts/config.js";
 import { buildCutRunContext } from "../../src/orchestrator/cuts/context.js";
-import { buildReencodeArgs, buildYtDlpArgs, isLoginRequiredOutput, parseVideoId } from "../../src/orchestrator/cuts/download.js";
-import { isProcessed, markProcessed, parseFeed, pickNewVideos } from "../../src/orchestrator/cuts/feed.js";
+import { buildReencodeArgs, buildYtDlpArgs, isLoginRequiredOutput, LoginRequiredError, parseVideoId } from "../../src/orchestrator/cuts/download.js";
+import { isLikelyLive, isProcessed, listProcessed, markProcessed, parseFeed, pickNewVideos, remainingDailyQuota, type ProcessedEntry } from "../../src/orchestrator/cuts/feed.js";
+import { processOrSkip } from "../../src/orchestrator/cuts/pipeline.js";
 import { buildRenderPayload, wordsInWindow } from "../../src/orchestrator/cuts/render.js";
 import { buildSelectPrompt, selectClips, snapToSegments, transcriptSlice, validatePicks } from "../../src/orchestrator/cuts/select.js";
 import type { LlmProvider } from "../../src/orchestrator/lib/llmClient.js";
@@ -66,6 +67,47 @@ describe("rss feed + journal", () => {
     expect(await isProcessed("H4pkbm4ypUw", file)).toBe(true);
     expect(pickNewVideos(parseFeed(FEED_XML), journal.map((e) => ({ ...e, channelId: channel.id, at: "", status: "done" as const })))).toEqual([]);
     expect(pickNewVideos(parseFeed(FEED_XML), []).map((v) => v.videoId)).toEqual(["H4pkbm4ypUw"]);
+  });
+});
+
+describe("live heuristic, daily quota and login-gated videos", () => {
+  const video = (title: string) => ({ videoId: "H4pkbm4ypUw", title, published: "", url: "" });
+
+  it("flags lives by title, including the 🔴 emoji, but not words that merely contain 'live'", () => {
+    expect(isLikelyLive(video("🔴 AO VIVO: corrida"))).toBe(true);
+    expect(isLikelyLive(video("🔴 corrida agora"))).toBe(true);
+    expect(isLikelyLive(video("Treino ao vivo"))).toBe(true);
+    expect(isLikelyLive(video("LIVE de sábado"))).toBe(true);
+    expect(isLikelyLive(video("A lively build of an old car"))).toBe(false);
+  });
+
+  it("counts only this channel's 'done' videos of the last 24 h against maxVideosPerDay", () => {
+    const now = Date.parse("2026-10-22T12:00:00Z");
+    const entry = (at: string, extra: Partial<ProcessedEntry> = {}): ProcessedEntry => ({ channelId: channel.id, videoId: at, at, status: "done", ...extra });
+    const journal = [
+      entry("2026-10-22T08:00:00Z"),
+      entry("2026-10-21T12:30:00Z"),
+      entry("2026-10-21T11:00:00Z"), // older than 24 h
+      entry("2026-10-22T09:00:00Z", { status: "skipped" }),
+      entry("2026-10-22T10:00:00Z", { channelId: "UCotherotherotherother00" }),
+    ];
+    expect(remainingDailyQuota(journal, channel.id, 3, now)).toBe(1);
+    expect(remainingDailyQuota(journal, channel.id, 2, now)).toBe(0);
+    expect(remainingDailyQuota(journal, channel.id, 1, now)).toBe(0);
+    expect(remainingDailyQuota([], channel.id, 1, now)).toBe(1);
+  });
+
+  it("a login-gated video is journaled as skipped and yields no runs (exit 3), other errors propagate", async () => {
+    const file = join(mkdtempSync(join(tmpdir(), "cuts-journal-")), "processed.json");
+    const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as never;
+    const config = parseCutsConfig(exampleConfig, "cuts.example.json");
+    const gated = vi.fn().mockRejectedValue(new LoginRequiredError("yt-dlp needs a login for this video (age/privacy gate); skipping"));
+    await expect(processOrSkip(channel, "H4pkbm4ypUw", config, log, {}, gated, file)).resolves.toEqual({ runs: [], timings: [] });
+    expect(await listProcessed(file)).toMatchObject([{ channelId: channel.id, videoId: "H4pkbm4ypUw", status: "skipped", reason: expect.stringMatching(/login/) }]);
+
+    const broken = vi.fn().mockRejectedValue(new Error("disk full"));
+    await expect(processOrSkip(channel, "abcdefghijk", config, log, {}, broken, file)).rejects.toThrow(/disk full/);
+    expect(await isProcessed("abcdefghijk", file)).toBe(false);
   });
 });
 
