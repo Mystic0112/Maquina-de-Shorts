@@ -28,8 +28,9 @@ $ConfigFile  = Join-Path $ProjectRoot 'config\pipeline.config.json'
 New-Item -ItemType Directory -Force -Path $LoopDir | Out-Null
 
 # Quota lines only count when they come from an error/agy line; the Kokoro HF Hub warning
-# ("higher rate limits") once produced a false positive.
-$QuotaPattern = 'credits balance|too low to continue|resource_exhausted|quota|rate.?limit|too many requests|usage limit|(^|[^0-9A-Za-z_])429([^0-9]|$)'
+# ("higher rate limits") once produced a false positive; a bare 429 matched timestamps ("…17.429Z") and
+# file ids, so 429 only counts next to status/code/http/error.
+$QuotaPattern = 'credits balance|too low to continue|resource_exhausted|quota|rate.?limit|too many requests|usage limit|(status|code|http|error|erro)[^0-9A-Za-z]{0,3}429([^0-9]|$)'
 $ContextPattern = 'xx |ERROR|WARN|agy|antigravity|LlmOutputError|status'
 
 function Write-Event([hashtable]$Data) {
