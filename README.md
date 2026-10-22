@@ -1,5 +1,12 @@
 # Máquina de Shorts
 
+> **In English.** An unattended pipeline that writes, fact-checks, illustrates, narrates, renders and publishes Brazilian-Portuguese curiosity Shorts with no human review. Node/TypeScript orchestrates resumable stages (topic → script → grounded fact-check → licensed footage scored by a vision model → TTS with word-level alignment → captions → Remotion render → metadata → YouTube/Instagram publishers), with a React dashboard on top. Highlights:
+> - **Zero API cost:** every LLM call goes through the Antigravity CLI agent on the owner's subscription, sandboxed (temp dir, no secrets in env, never auto-approved tools), with per-stage model routing, batched and concurrent image scoring (from ~64 s to ~8 s per clip in production runs) and an optional persistent stream-json session that skips the agent's per-call boot. Voice runs locally with Kokoro.
+> - **Safety gates instead of a human:** grounded fact-check with sources, ≥60 % scenes with an approved image, license filter with CC BY credits, content hashes binding approvals to content, anti-duplicate journal, daily cap, file locks.
+> - **Per-phrase visuals:** the script splits each scene into "beats"; images are searched, judged and cut at the exact word being spoken, zoom only on faces, no repeated stills.
+> - **Clips from authorized channels** (yt-dlp → Whisper → model-picked moments → face-following 9:16 crop with OpenCV), a licensed **meme/SFX layer**, and a **verdict dataset** exported in LlamaFactory format to distill the image judge into a local Qwen3-VL.
+> - 570+ Vitest tests, Python unittest, Linux and Windows. Built by Hélio Vinícius with AI coding agents.
+
 A Máquina de Shorts faz vídeos curtos (Shorts) de **curiosidades** em português do Brasil: história, ciência e espaço. Ela faz tudo sozinha: escolhe o tema, escreve o roteiro, confere os fatos, busca imagens com licença livre, grava a narração, monta o vídeo com legendas e, se o dono ligar, publica no YouTube e no Instagram. **Ninguém revisa o vídeo antes de ele sair.** Por isso o projeto tem várias travas de segurança e qualidade (veja [Travas](#travas-de-segurança-e-qualidade)).
 
 A meta é **custo zero de API**. Em produção, a inteligência artificial roda pelo **Antigravity CLI (`agy`)**, usando os créditos do plano do dono, sem chave de API paga. A voz roda no próprio PC com o **Kokoro**. A API paga do Gemini continua funcionando como alternativa, mas não é o caminho desejado.

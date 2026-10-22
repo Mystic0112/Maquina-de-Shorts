@@ -1,5 +1,5 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, join, relative } from "node:path";
 import { performance } from "node:perf_hooks";
 import { paths } from "../src/orchestrator/lib/config.js";
 import { AntigravityCliProvider, getProviderByName, type LlmProvider } from "../src/orchestrator/lib/llmClient.js";
@@ -243,7 +243,8 @@ async function main() {
     results.push({
       index: i + 1,
       file: fileName,
-      benchmarkImagePath: destPath,
+      // Relative to the project root: the results file is versioned and must not carry personal paths.
+      benchmarkImagePath: relative(paths.root, destPath).replaceAll("\\", "/"),
       runId: item.runId,
       sceneIndex: item.clip.sceneIndex,
       historicalApi: {

@@ -19,7 +19,7 @@
     {
       "index": 1,
       "file": "3_r1.jpg",
-      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\01_20261003-012134-95ce_3_r1.jpg",
+      "benchmarkImagePath": "data/benchmark/01_20261003-012134-95ce_3_r1.jpg",
       "runId": "20261003-012134-95ce",
       "sceneIndex": 3,
       "historicalApi": {
@@ -54,7 +54,7 @@
     {
       "index": 2,
       "file": "4_r3.jpg",
-      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\02_20261003-034812-fb04_4_r3.jpg",
+      "benchmarkImagePath": "data/benchmark/02_20261003-034812-fb04_4_r3.jpg",
       "runId": "20261003-034812-fb04",
       "sceneIndex": 4,
       "historicalApi": {
@@ -89,7 +89,7 @@
     {
       "index": 3,
       "file": "1_r3.jpg",
-      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\03_20261003-012134-95ce_1_r3.jpg",
+      "benchmarkImagePath": "data/benchmark/03_20261003-012134-95ce_1_r3.jpg",
       "runId": "20261003-012134-95ce",
       "sceneIndex": 1,
       "historicalApi": {
@@ -124,7 +124,7 @@
     {
       "index": 4,
       "file": "1_r4.mp4",
-      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\04_20261003-024238-838c_1_r4.mp4",
+      "benchmarkImagePath": "data/benchmark/04_20261003-024238-838c_1_r4.mp4",
       "runId": "20261003-024238-838c",
       "sceneIndex": 1,
       "historicalApi": {
@@ -159,7 +159,7 @@
     {
       "index": 5,
       "file": "0_1.jpg",
-      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\05_20261003-024830-116b_0_1.jpg",
+      "benchmarkImagePath": "data/benchmark/05_20261003-024830-116b_0_1.jpg",
       "runId": "20261003-024830-116b",
       "sceneIndex": 0,
       "historicalApi": {
@@ -194,7 +194,7 @@
     {
       "index": 6,
       "file": "1_1.jpg",
-      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\06_20261003-025324-b368_1_1.jpg",
+      "benchmarkImagePath": "data/benchmark/06_20261003-025324-b368_1_1.jpg",
       "runId": "20261003-025324-b368",
       "sceneIndex": 1,
       "historicalApi": {
@@ -229,7 +229,7 @@
     {
       "index": 7,
       "file": "2_r2.jpg",
-      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\07_20261003-031631-4dd2_2_r2.jpg",
+      "benchmarkImagePath": "data/benchmark/07_20261003-031631-4dd2_2_r2.jpg",
       "runId": "20261003-031631-4dd2",
       "sceneIndex": 2,
       "historicalApi": {
@@ -264,7 +264,7 @@
     {
       "index": 8,
       "file": "2_r2.jpg",
-      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\08_20261003-034812-fb04_2_r2.jpg",
+      "benchmarkImagePath": "data/benchmark/08_20261003-034812-fb04_2_r2.jpg",
       "runId": "20261003-034812-fb04",
       "sceneIndex": 2,
       "historicalApi": {
@@ -299,7 +299,7 @@
     {
       "index": 9,
       "file": "3_r0.mp4",
-      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\09_20261003-042046-9d9b_3_r0.mp4",
+      "benchmarkImagePath": "data/benchmark/09_20261003-042046-9d9b_3_r0.mp4",
       "runId": "20261003-042046-9d9b",
       "sceneIndex": 3,
       "historicalApi": {
@@ -334,7 +334,7 @@
     {
       "index": 10,
       "file": "2_r4.jpg",
-      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\10_20261012-164405-eb01_2_r4.jpg",
+      "benchmarkImagePath": "data/benchmark/10_20261012-164405-eb01_2_r4.jpg",
       "runId": "20261012-164405-eb01",
       "sceneIndex": 2,
       "historicalApi": {
@@ -369,7 +369,7 @@
     {
       "index": 11,
       "file": "3_r4.jpg",
-      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\11_20261003-034812-fb04_3_r4.jpg",
+      "benchmarkImagePath": "data/benchmark/11_20261003-034812-fb04_3_r4.jpg",
       "runId": "20261003-034812-fb04",
       "sceneIndex": 3,
       "historicalApi": {
@@ -404,7 +404,7 @@
     {
       "index": 12,
       "file": "1_4.jpg",
-      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\12_20261003-024830-116b_1_4.jpg",
+      "benchmarkImagePath": "data/benchmark/12_20261003-024830-116b_1_4.jpg",
       "runId": "20261003-024830-116b",
       "sceneIndex": 1,
       "historicalApi": {
@@ -439,7 +439,7 @@
     {
       "index": 13,
       "file": "3_r1.jpg",
-      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\13_20261003-034812-fb04_3_r1.jpg",
+      "benchmarkImagePath": "data/benchmark/13_20261003-034812-fb04_3_r1.jpg",
       "runId": "20261003-034812-fb04",
       "sceneIndex": 3,
       "historicalApi": {
@@ -474,7 +474,7 @@
     {
       "index": 14,
       "file": "0_0.mp4",
-      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\14_20261003-042046-9d9b_0_0.mp4",
+      "benchmarkImagePath": "data/benchmark/14_20261003-042046-9d9b_0_0.mp4",
       "runId": "20261003-042046-9d9b",
       "sceneIndex": 0,
       "historicalApi": {
@@ -509,7 +509,7 @@
     {
       "index": 15,
       "file": "3_3.jpg",
-      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\15_20261003-011411-ece6_3_3.jpg",
+      "benchmarkImagePath": "data/benchmark/15_20261003-011411-ece6_3_3.jpg",
       "runId": "20261003-011411-ece6",
       "sceneIndex": 3,
       "historicalApi": {
@@ -544,7 +544,7 @@
     {
       "index": 16,
       "file": "1_2.mp4",
-      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\16_20261003-024830-116b_1_2.mp4",
+      "benchmarkImagePath": "data/benchmark/16_20261003-024830-116b_1_2.mp4",
       "runId": "20261003-024830-116b",
       "sceneIndex": 1,
       "historicalApi": {
@@ -579,7 +579,7 @@
     {
       "index": 17,
       "file": "3_3.jpg",
-      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\17_20261003-040320-f144_3_3.jpg",
+      "benchmarkImagePath": "data/benchmark/17_20261003-040320-f144_3_3.jpg",
       "runId": "20261003-040320-f144",
       "sceneIndex": 3,
       "historicalApi": {
@@ -614,7 +614,7 @@
     {
       "index": 18,
       "file": "0_2.jpg",
-      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\18_20261003-012134-95ce_0_2.jpg",
+      "benchmarkImagePath": "data/benchmark/18_20261003-012134-95ce_0_2.jpg",
       "runId": "20261003-012134-95ce",
       "sceneIndex": 0,
       "historicalApi": {
@@ -649,7 +649,7 @@
     {
       "index": 19,
       "file": "4_3.jpg",
-      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\19_20261012-164405-eb01_4_3.jpg",
+      "benchmarkImagePath": "data/benchmark/19_20261012-164405-eb01_4_3.jpg",
       "runId": "20261012-164405-eb01",
       "sceneIndex": 4,
       "historicalApi": {
@@ -684,7 +684,7 @@
     {
       "index": 20,
       "file": "4_4.jpg",
-      "benchmarkImagePath": "C:\\Users\\c9hes\\Documents\\maquina de fazer dinheiro\\data\\benchmark\\20_20261012-164405-eb01_4_4.jpg",
+      "benchmarkImagePath": "data/benchmark/20_20261012-164405-eb01_4_4.jpg",
       "runId": "20261012-164405-eb01",
       "sceneIndex": 4,
       "historicalApi": {
