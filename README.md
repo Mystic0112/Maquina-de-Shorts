@@ -506,7 +506,7 @@ Requisitos:
 - Um ambiente Python só dos cortes, `.venv-cuts`, com OpenCV e `yt-dlp`:
   ```bash
   uv venv .venv-cuts
-  uv pip install --python .venv-cuts/bin/python opencv-python-headless numpy pillow yt-dlp av python_speech_features   # Windows: .venv-cuts\Scripts\python.exe
+  uv pip install --python .venv-cuts/bin/python opencv-python-headless numpy pillow yt-dlp av python_speech_features scipy   # Windows: .venv-cuts\Scripts\python.exe
   uv pip install --python .venv-cuts/bin/python --index-url https://download.pytorch.org/whl/cu130 --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match torch   # sem GPU NVIDIA: troque cu130 por cpu
   ```
   Em outra pasta, aponte `CUTS_PYTHON`. A transcrição usa o faster-whisper do `.venv` do projeto (`CUTS_WHISPER_MODEL`, `CUTS_WHISPER_DEVICE`).
