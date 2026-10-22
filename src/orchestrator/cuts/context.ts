@@ -3,6 +3,7 @@ import { generateRunId, runDirFor, saveRunContext } from "../lib/runContext.js";
 import type { CutChannel, Framing } from "./config.js";
 import type { ClipPick } from "./select.js";
 import { sourceVideoUrl } from "./download.js";
+import type { HumorJob } from "./humor.js";
 import type { CutInfo, CutRunContext, CutSource } from "./types.js";
 
 export const FINAL_FILE = "final.mp4";
@@ -20,6 +21,7 @@ export interface CutContextInput {
   durationSeconds?: number;
   /** Compilations: every source video, in order (credited one by one). */
   sources?: CutSource[];
+  humor?: HumorJob | null;
 }
 
 export function buildCutRunContext(input: CutContextInput): CutRunContext {
@@ -30,6 +32,7 @@ export function buildCutRunContext(input: CutContextInput): CutRunContext {
     videoId: input.videoId,
     sourceUrl: sourceVideoUrl(channel, input.videoId),
     ...(input.sources && input.sources.length > 1 ? { sources: input.sources } : {}),
+    ...(input.humor ? { humor: input.humor } : {}),
     videoTitle: input.videoTitle,
     start: pick.start,
     end: pick.end,

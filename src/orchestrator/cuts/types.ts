@@ -1,4 +1,5 @@
 import type { RunContext } from "../types.js";
+import type { HumorJob } from "./humor.js";
 
 /** Provenance of a cut; stage 07 will later turn `credit` + `sourceUrl` into the description. */
 export interface CutInfo {
@@ -16,6 +17,8 @@ export interface CutInfo {
   reason: string;
   /** Compilations only: every source video in playing order (sourceUrl = the first one). */
   sources?: CutSource[];
+  /** The humor plan drawn on the clip (jokes/emoji/effects), kept so the owner can review the tone. */
+  humor?: HumorJob | null;
 }
 
 export interface CutSource {
