@@ -96,5 +96,5 @@ describe("05-buildCaptions invariants (seeded fuzz)", () => {
         });
       }
     }
-  });
+  }, 30_000); // seeded fuzz: ~3 s alone, past the 5 s default when the whole suite runs in parallel
 });
