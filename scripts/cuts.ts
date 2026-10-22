@@ -7,8 +7,9 @@
  */
 import { parseArgs } from "node:util";
 import { ChannelNotAuthorizedError, channelRefusal, findChannel, loadCutsConfig, type CutChannel, type CutsConfig } from "../src/orchestrator/cuts/config.js";
-import { parseVideoId } from "../src/orchestrator/cuts/download.js";
-import { fetchChannelFeed, listProcessed, pickNewVideos, remainingDailyQuota } from "../src/orchestrator/cuts/feed.js";
+import { parseVideoId, ytDlpExecutable } from "../src/orchestrator/cuts/download.js";
+import { processCompilation } from "../src/orchestrator/cuts/compilation.js";
+import { fetchChannelFeed, fetchTikTokFeed, listProcessed, pickNewVideos, remainingDailyQuota } from "../src/orchestrator/cuts/feed.js";
 import { processOrSkip, type ProcessOptions, type StepTiming } from "../src/orchestrator/cuts/pipeline.js";
 import { describeError, getLogger, type Logger } from "../src/orchestrator/lib/logger.js";
 
@@ -75,9 +76,20 @@ async function runScan(config: CutsConfig, log: Logger, options: ProcessOptions)
   let produced = 0;
   for (const channel of channels) {
     const processed = await listProcessed();
-    const fresh = pickNewVideos(await fetchChannelFeed(channel.id), processed);
+    const feed = channel.platform === "tiktok" ? await fetchTikTokFeed(channel.id, ytDlpExecutable(config.download)) : await fetchChannelFeed(channel.id);
+    const fresh = pickNewVideos(feed, processed);
     const limit = remainingDailyQuota(processed, channel.id, channel.maxVideosPerDay ?? 1);
     log.info(`${channel.name}: ${fresh.length} new video(s) in the feed; processing up to ${limit} (daily quota, last 24 h)`);
+    if (channel.style === "compilacao") {
+      // Each compilation consumes several videos; the next one only sees what is still unused.
+      for (let n = 0; n < limit; n++) {
+        const used = new Set((await listProcessed()).map((e) => e.videoId));
+        const made = await processCompilation(channel, fresh.filter((v) => !used.has(v.videoId)), config, log);
+        if (!made) break;
+        produced += 1;
+      }
+      continue;
+    }
     for (const video of fresh.slice(0, limit)) {
       const result = await processOrSkip(channel, video.videoId, config, log, { ...options, videoTitle: video.title });
       if (result.timings.length > 0) reportTimings(log, result.timings);

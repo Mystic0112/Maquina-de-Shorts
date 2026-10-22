@@ -14,6 +14,14 @@ export interface CutInfo {
   authorizationUrl: string;
   framing: "face" | "open";
   reason: string;
+  /** Compilations only: every source video in playing order (sourceUrl = the first one). */
+  sources?: CutSource[];
+}
+
+export interface CutSource {
+  videoId: string;
+  url: string;
+  title: string;
 }
 
 /** RunContext written by the cuts pipeline: the same shape stages 07/08 and the dashboard read, plus `cut`. */

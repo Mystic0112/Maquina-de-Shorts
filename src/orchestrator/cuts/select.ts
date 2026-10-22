@@ -34,6 +34,9 @@ const STYLE_GUIDE: Record<CutChannel["style"], string[]> = {
     "- prefira trechos com humor, zoeira entre as pessoas, susto, carro quebrando ou dando certo;",
     "- só a parte essencial da história: corte a enrolação do começo e termine logo depois do desfecho.",
   ],
+  compilacao: [
+    "- o vídeo já é curto e engraçado: escolha a parte com a piada inteira (preparação e desfecho), sem cortar a punchline;",
+  ],
   podcast: [
     "- é um podcast (conversa sentada): escolha uma ideia completa, uma história ou uma opinião forte com conclusão;",
     "- prefira revelação, história pessoal, número surpreendente, polêmica bem explicada, humor.",

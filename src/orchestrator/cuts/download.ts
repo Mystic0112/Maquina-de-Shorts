@@ -31,6 +31,11 @@ export function videoUrl(videoId: string): string {
   return `https://www.youtube.com/watch?v=${videoId}`;
 }
 
+/** Page URL of a source video on its platform (YouTube watch page or TikTok post). */
+export function sourceVideoUrl(channel: { platform: "youtube" | "tiktok"; id: string }, videoId: string): string {
+  return channel.platform === "tiktok" ? `https://www.tiktok.com/${channel.id}/video/${videoId}` : videoUrl(videoId);
+}
+
 /** Accepts a full watch/shorts/youtu.be URL or a bare 11-char id. */
 export function parseVideoId(input: string): string {
   const trimmed = input.trim();
@@ -40,15 +45,20 @@ export function parseVideoId(input: string): string {
   return match[1];
 }
 
-export function buildYtDlpArgs(url: string, outputPath: string, titlePath: string, maxHeight: number): string[] {
+export function buildYtDlpArgs(url: string, outputPath: string, titlePath: string, maxHeight: number, platform: "youtube" | "tiktok" = "youtube"): string[] {
+  // TikTok serves muxed files (h264 or h265 "bytevc1"); YouTube splits video and audio.
+  const format =
+    platform === "tiktok"
+      ? `b[vcodec^=h264][height<=${maxHeight}]/b[vcodec^=avc][height<=${maxHeight}]/b`
+      : `bv*[vcodec^=avc1][height<=${maxHeight}]+ba[ext=m4a]/bv*[height<=${maxHeight}][ext=mp4]+ba[ext=m4a]/b[height<=${maxHeight}]`;
   return [
     "--no-playlist",
     "--no-update",
     "--no-cookies",
     "--no-progress",
     "-f",
-    // H.264 first (OpenCV decodes it); AV1 only as a fallback, re-encoded afterwards by ensureH264.
-    `bv*[vcodec^=avc1][height<=${maxHeight}]+ba[ext=m4a]/bv*[height<=${maxHeight}][ext=mp4]+ba[ext=m4a]/b[height<=${maxHeight}]`,
+    // H.264 first (OpenCV decodes it); AV1/HEVC only as a fallback, re-encoded afterwards by ensureH264.
+    format,
     "--merge-output-format",
     "mp4",
     "--print-to-file",
@@ -88,6 +98,11 @@ function runYtDlp(exe: string, args: readonly string[]): Promise<string> {
   });
 }
 
+/** download.ytDlp: a name on PATH, or a path (relative paths start at the project root). */
+export function ytDlpExecutable(config: CutsConfig["download"]): string {
+  return config.ytDlp.includes("/") || config.ytDlp.includes("\\") ? paths.fromRoot(config.ytDlp) : config.ytDlp;
+}
+
 export interface DownloadedSource {
   path: string;
   title: string;
@@ -101,15 +116,17 @@ export async function downloadSource(
   videoId: string,
   config: CutsConfig["download"],
   log: (message: string) => void,
+  url = videoUrl(videoId),
+  platform: "youtube" | "tiktok" = "youtube",
 ): Promise<DownloadedSource> {
   const dir = sourceDir(channelId, videoId);
   await mkdir(dir, { recursive: true });
   const path = join(dir, SOURCE_FILE);
   const titlePath = join(dir, TITLE_FILE);
   if (!existsSync(path)) {
-    const exe = config.ytDlp.includes("/") || config.ytDlp.includes("\\") ? paths.fromRoot(config.ytDlp) : config.ytDlp;
-    log(`downloading ${videoUrl(videoId)} (max ${config.maxHeight}p) with ${config.ytDlp}`);
-    await runYtDlp(exe, buildYtDlpArgs(videoUrl(videoId), path, titlePath, config.maxHeight));
+    const exe = ytDlpExecutable(config);
+    log(`downloading ${url} (max ${config.maxHeight}p) with ${config.ytDlp}`);
+    await runYtDlp(exe, buildYtDlpArgs(url, path, titlePath, config.maxHeight, platform));
   }
   await ensureH264(path, log);
   const probe = await probeVideo(path);
@@ -121,13 +138,16 @@ export function buildReencodeArgs(input: string, output: string): string[] {
   return ["-y", "-i", input, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "copy", output];
 }
 
-/** OpenCV cannot read AV1: re-encode in place (source.mp4 is replaced by the H.264 version). */
+/** Codecs the cut renderer (OpenCV + the reduced ffmpeg) should not be trusted with: re-encoded to H.264. */
+const REENCODE_CODECS = new Set(["av1", "hevc", "h265"]);
+
+/** OpenCV cannot read AV1 (and HEVC support varies by build): re-encode in place to H.264. */
 export async function ensureH264(path: string, log: (message: string) => void): Promise<void> {
   const probe = await probeVideo(path);
-  if (probe.codec !== "av1") return;
+  if (!REENCODE_CODECS.has(probe.codec)) return;
   const { ffmpeg } = resolveFfmpegBinaries();
   const tmp = path.replace(/\.mp4$/, ".h264.mp4");
-  log(`source is AV1; re-encoding to H.264 (${Math.round(probe.durationSeconds)} s of video, this takes a while)`);
+  log(`source is ${probe.codec}; re-encoding to H.264 (${Math.round(probe.durationSeconds)} s of video, this takes a while)`);
   await runBinary(ffmpeg, buildReencodeArgs(path, tmp), REENCODE_TIMEOUT_MS);
   await rename(tmp, path);
 }

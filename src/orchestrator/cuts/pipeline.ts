@@ -10,7 +10,7 @@ import { getLogger, type Logger } from "../lib/logger.js";
 import { runDirFor } from "../lib/runContext.js";
 import { assertChannelAuthorized, clipRangeFor, type CutChannel, type CutsConfig, type Framing } from "./config.js";
 import { buildCutRunContext, FINAL_FILE, newCutRunId, saveCutContext } from "./context.js";
-import { downloadSource, LoginRequiredError, sourceDir, videoUrl } from "./download.js";
+import { downloadSource, LoginRequiredError, sourceDir, sourceVideoUrl } from "./download.js";
 import { markProcessed, PROCESSED_FILE } from "./feed.js";
 import { humorEnabled, planHumor } from "./humor.js";
 import { keptSeconds, livelyMoments, planKeep } from "./jumpcut.js";
@@ -67,7 +67,7 @@ export async function processVideo(
 
   const source = await timed(timings, "download", async () => {
     if (options.source) return { path: options.source, title: options.videoTitle ?? videoId };
-    return downloadSource(channel.id, videoId, config.download, (m) => log.info(m));
+    return downloadSource(channel.id, videoId, config.download, (m) => log.info(m), sourceVideoUrl(channel, videoId), channel.platform);
   });
   const transcript: Transcript = await timed(timings, "transcribe", () =>
     options.transcript ? loadTranscript(options.transcript) : transcribeVideo(source.path, join(dir, "transcript.json"), (m) => log.info(m)),
@@ -108,7 +108,7 @@ export async function processVideo(
   if (!options.noJournal) {
     await markProcessed({ channelId: channel.id, videoId, status: "done", runIds: runs.map((r) => r.runId) });
   }
-  log.info(`${runs.length} cut(s) ready in ${paths.renderOutput} from ${videoUrl(videoId)} (not published; stage 08 not run)`);
+  log.info(`${runs.length} cut(s) ready in ${paths.renderOutput} from ${sourceVideoUrl(channel, videoId)} (not published; stage 08 not run)`);
   return { runs, timings };
 }
 

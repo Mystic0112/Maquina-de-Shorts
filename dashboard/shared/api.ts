@@ -282,7 +282,8 @@ export interface CutChannelDraft {
   name: string;
   enabled: boolean;
   blocked?: string;
-  style?: "vlog" | "podcast";
+  platform?: "youtube" | "tiktok";
+  style?: "vlog" | "podcast" | "compilacao";
   /** Jokes/emoji/effects on the cut; absent = on for vlogs only. */
   humor?: boolean;
   minSeconds?: number;
@@ -307,6 +308,7 @@ export interface ResolveChannelResponse {
   id?: string;
   name?: string;
   url?: string;
+  platform?: "youtube" | "tiktok";
 }
 
 export interface SaveResponse {

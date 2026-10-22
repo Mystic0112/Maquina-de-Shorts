@@ -2,7 +2,8 @@
 import { generateRunId, runDirFor, saveRunContext } from "../lib/runContext.js";
 import type { CutChannel, Framing } from "./config.js";
 import type { ClipPick } from "./select.js";
-import type { CutInfo, CutRunContext } from "./types.js";
+import { sourceVideoUrl } from "./download.js";
+import type { CutInfo, CutRunContext, CutSource } from "./types.js";
 
 export const FINAL_FILE = "final.mp4";
 
@@ -17,6 +18,8 @@ export interface CutContextInput {
   videoPath: string;
   /** Length after jump cuts; defaults to the source window. */
   durationSeconds?: number;
+  /** Compilations: every source video, in order (credited one by one). */
+  sources?: CutSource[];
 }
 
 export function buildCutRunContext(input: CutContextInput): CutRunContext {
@@ -25,7 +28,8 @@ export function buildCutRunContext(input: CutContextInput): CutRunContext {
     channelId: channel.id,
     channelName: channel.name,
     videoId: input.videoId,
-    sourceUrl: `https://www.youtube.com/watch?v=${input.videoId}`,
+    sourceUrl: sourceVideoUrl(channel, input.videoId),
+    ...(input.sources && input.sources.length > 1 ? { sources: input.sources } : {}),
     videoTitle: input.videoTitle,
     start: pick.start,
     end: pick.end,

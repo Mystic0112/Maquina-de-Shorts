@@ -15,6 +15,7 @@ const channel: CutChannel = {
   id: "UCvgSmIdI92W4KnP15fJwfwA",
   name: "ACF",
   enabled: true,
+  platform: "youtube",
   style: "podcast",
   authorization: { url: "https://example.com/post", conditions: ["crédito: ACF (@media.acf)"] },
   credit: "Cortes do canal ACF (@media.acf)",

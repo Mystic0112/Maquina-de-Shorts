@@ -44,8 +44,8 @@ const MAX_EFFECTS = 3;
 const JOKE_MAX_CHARS = 34;
 const FLASH_MAX_CHARS = 12;
 
-/** Default: humor on vlogs only (never political talk shows unless the owner turns it on per channel). */
-export const humorEnabled = (channel: Pick<CutChannel, "humor" | "style">): boolean => channel.humor ?? channel.style === "vlog";
+/** Default: humor on vlogs and compilations, off on podcasts (political talk shows) unless the owner turns it on. */
+export const humorEnabled = (channel: Pick<CutChannel, "humor" | "style">): boolean => channel.humor ?? channel.style !== "podcast";
 
 export const HumorDraftSchema = z.object({
   jokes: z.array(z.object({ at: z.number(), text: z.string() })).max(12),

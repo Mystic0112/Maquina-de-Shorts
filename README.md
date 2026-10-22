@@ -521,6 +521,7 @@ Onde ficam as coisas: vídeo-fonte e transcrição em `data/cuts/sources/`, diá
 
 **Limitações conhecidas:**
 
+- **TikTok e compilações:** um canal pode ser um perfil do TikTok (`"platform": "tiktok"`, `"id": "@perfil"`; no painel é só colar `tiktok.com/@perfil`), listado e baixado pelo yt-dlp sem login. Com o tipo **Compilação** (`"style": "compilacao"`), o agy junta de 2 a 6 vídeos curtos e recentes do mesmo tema num Short de 45 a 90 s; cada parte ganha o visual dos cortes (câmera no rosto, cortes secos, legenda, humor) e a descrição credita cada original com o link. Repostar vídeo inteiro conta como conteúdo reutilizado no YouTube; a compilação com edição é a transformação.
 - Cada corte já sai com título, descrição e tags (estágio 07): um resumo fiel do trecho, `#shorts #cortes` + hashtags do assunto e, sempre, o crédito do canal com o link do vídeo completo. A publicação (08) dos cortes continua desligada até o dono decidir.
 - No PC de produção os cortes rodam sozinhos com o loop: `scripts\loop.ps1 -PullBetween -CutsEveryHours 3` faz a busca (`--scan`) entre vídeos, no máximo a cada 3 h.
 - A troca de quem está falando ainda fica nervosa quando a pessoa aparece de perfil.

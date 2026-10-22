@@ -14,15 +14,24 @@ export const MAX_SHORT_SECONDS = 180;
 /** Default clip length of a vlog channel (owner, 2026-10-22: the first 2-3 min cuts were too long). */
 export const VLOG_SECONDS = { min: 45, max: 90 } as const;
 
-export const ChannelSchema = z.object({
-  /** YouTube channel id (UC...). */
-  id: z.string().regex(/^UC[\w-]{22}$/, "channel id must look like UCxxxxxxxxxxxxxxxxxxxxxx"),
+const YOUTUBE_ID = /^UC[\w-]{22}$/;
+const TIKTOK_HANDLE = /^@[\w.]{2,24}$/;
+
+export const ChannelSchema = z
+  .object({
+  /** YouTube channel id (UC...) or, for TikTok, the @handle. */
+  id: z.string(),
+  /** Where the videos come from; TikTok is listed and downloaded by yt-dlp without login. */
+  platform: z.enum(["youtube", "tiktok"]).default("youtube"),
   name: z.string().min(1),
   enabled: z.boolean(),
   /** Why this channel must never be cut again (owner asked to stop, copyright claim). Set = refused for good. */
   blocked: z.string().optional(),
-  /** "vlog": handheld shop/street footage, long story-like clips; "podcast": seated conversation, short clips. */
-  style: z.enum(["vlog", "podcast"]).default("podcast"),
+  /**
+   * "vlog": handheld shop/street footage, story-like clips; "podcast": seated conversation, short clips;
+   * "compilacao": the source videos are already short (TikTok sketches): several whole ones become one Short.
+   */
+  style: z.enum(["vlog", "podcast", "compilacao"]).default("podcast"),
   /** Jokes, emoji and quick effects on top of the cut (cuts/humor.ts); absent = on for vlogs, off otherwise. */
   humor: z.boolean().optional(),
   /** Overrides the clip length of the channel's style. */
@@ -40,7 +49,12 @@ export const ChannelSchema = z.object({
   /** Text burned on top of every clip and later used in the description. */
   credit: z.string().min(1),
   maxVideosPerDay: z.number().int().positive().optional(),
-});
+  })
+  .superRefine((c, ctx) => {
+    const ok = c.platform === "tiktok" ? TIKTOK_HANDLE.test(c.id) : YOUTUBE_ID.test(c.id);
+    const message = c.platform === "tiktok" ? "TikTok channel id must be the @handle" : "channel id must look like UCxxxxxxxxxxxxxxxxxxxxxx";
+    if (!ok) ctx.addIssue({ code: "custom", path: ["id"], message });
+  });
 
 export const CutsConfigSchema = z.object({
   channels: z.array(ChannelSchema),
@@ -110,7 +124,7 @@ export function assertChannelAuthorized(channel: CutChannel): void {
 
 /** Clip length for a channel: its own override, else its style's default (podcast = clip.minSeconds/maxSeconds). */
 export function clipRangeFor(channel: CutChannel, config: Pick<CutsConfig, "clip">): { minSeconds: number; maxSeconds: number } {
-  const base = channel.style === "vlog" ? { minSeconds: VLOG_SECONDS.min, maxSeconds: VLOG_SECONDS.max } : { minSeconds: config.clip.minSeconds, maxSeconds: config.clip.maxSeconds };
+  const base = channel.style === "podcast" ? { minSeconds: config.clip.minSeconds, maxSeconds: config.clip.maxSeconds } : { minSeconds: VLOG_SECONDS.min, maxSeconds: VLOG_SECONDS.max };
   return { minSeconds: channel.minSeconds ?? base.minSeconds, maxSeconds: channel.maxSeconds ?? base.maxSeconds };
 }
 

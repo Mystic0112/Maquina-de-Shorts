@@ -9,6 +9,7 @@ import { NumberInput, Section, Segmented, Switch, TextInput } from "./settingsUi
 const STYLE_OPTIONS = [
   { value: "vlog" as const, label: "Vlog (história de 45 a 90 s)" },
   { value: "podcast" as const, label: "Podcast (30 a 60 s)" },
+  { value: "compilacao" as const, label: "Compilação (vários vídeos curtos, 45 a 90 s)" },
 ];
 
 const statusColor = (c: CutChannelDraft): string => (c.blocked ? "var(--critical)" : c.enabled ? "var(--good)" : "var(--muted)");
@@ -33,7 +34,8 @@ export function CutsChannelsSection(props: {
       if (!found.ok || !found.id) return setAdding({ busy: false, msg: found.message, bad: true });
       if (channels.some((c) => c.id === found.id)) return setAdding({ busy: false, msg: `${found.name} já está na lista.`, bad: true });
       const name = found.name ?? found.id;
-      onChange([...channels, { id: found.id, name, enabled: false, style: "vlog", credit: `Cortes do canal ${name}`, maxVideosPerDay: 1 }]);
+      const tiktok = found.platform === "tiktok";
+      onChange([...channels, { id: found.id, name, enabled: false, platform: found.platform ?? "youtube", style: tiktok ? "compilacao" : "vlog", credit: tiktok ? `Vídeos de ${found.id} no TikTok` : `Cortes do canal ${name}`, maxVideosPerDay: 1 }]);
       setLink("");
       setAdding({ busy: false, msg: `${found.message} Ele entra desligado: confira e ligue.` });
     } catch (e) {
@@ -61,8 +63,8 @@ export function CutsChannelsSection(props: {
                 readOnly
                 onChange={() => undefined}
                 help={
-                  <a href={`https://www.youtube.com/channel/${c.id}`} target="_blank" rel="noreferrer">
-                    abrir no YouTube <ExternalLink size={11} />
+                  <a href={c.platform === "tiktok" ? `https://www.tiktok.com/${c.id}` : `https://www.youtube.com/channel/${c.id}`} target="_blank" rel="noreferrer">
+                    {c.platform === "tiktok" ? "abrir no TikTok" : "abrir no YouTube"} <ExternalLink size={11} />
                   </a>
                 }
                 error={err(i, "id")}
@@ -83,7 +85,7 @@ export function CutsChannelsSection(props: {
               <Segmented label="Tipo" value={c.style ?? "podcast"} options={STYLE_OPTIONS} onChange={(v) => update(i, { style: v })} error={err(i, "style")} />
               <Switch
                 label="Camada de humor"
-                checked={c.humor ?? (c.style ?? "podcast") === "vlog"}
+                checked={c.humor ?? (c.style ?? "podcast") !== "podcast"}
                 onChange={(v) => update(i, { humor: v })}
                 help="Piadas entre asteriscos, emojis e efeitos rápidos nas risadas. Desligue em canal de política."
               />
@@ -111,7 +113,7 @@ export function CutsChannelsSection(props: {
         ))}
       </div>
       <div className="cfg-grid">
-        <TextInput label="Adicionar canal" value={link} placeholder="youtube.com/@acfperformance" onChange={setLink} help="Cole o link do canal; o painel descobre o código e o nome." />
+        <TextInput label="Adicionar canal" value={link} placeholder="youtube.com/@acfperformance" onChange={setLink} help="Cole o link do canal do YouTube ou do perfil do TikTok; o painel descobre o código e o nome." />
         <div>
           <button type="button" className="ghost add-btn" disabled={adding.busy || !link.trim()} onClick={() => void add()}>
             {adding.busy ? <LoaderCircle size={14} className="spin" /> : <Plus size={14} />} Adicionar

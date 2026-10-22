@@ -55,7 +55,7 @@ export async function putCuts(body: unknown, expectedVersion: string | undefined
 }
 
 /* ---------- link -> channel ---------- */
-export type ChannelInput = { kind: "id"; id: string } | { kind: "handle"; handle: string };
+export type ChannelInput = { kind: "id"; id: string } | { kind: "handle"; handle: string } | { kind: "tiktok"; handle: string };
 
 /**
  * Accepts what people paste: "@handle", "youtube.com/@handle/featured", "https://www.youtube.com/channel/UC…",
@@ -71,6 +71,10 @@ export function parseChannelInput(raw: string): ChannelInput | undefined {
     url = new URL(/^https?:\/\//i.test(input) ? input : `https://${input}`);
   } catch {
     return undefined;
+  }
+  if (/^(www\.|m\.)?tiktok\.com$/i.test(url.hostname)) {
+    const tiktok = /^\/@([\w.]{2,24})(\/|$)/.exec(url.pathname);
+    return tiktok ? { kind: "tiktok", handle: tiktok[1] as string } : undefined;
   }
   if (!/^(www\.|m\.)?youtube\.com$/i.test(url.hostname)) return undefined;
   const [first, second] = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
@@ -107,7 +111,9 @@ export function feedTitle(xml: string): string | undefined {
 
 export async function resolveChannel(raw: unknown, fetchFn: typeof fetch = fetch): Promise<ResolveChannelResponse> {
   const input = typeof raw === "string" ? parseChannelInput(raw) : undefined;
-  if (!input) return { ok: false, message: "Cole o link do canal no YouTube (ex.: youtube.com/@acfperformance)." };
+  if (!input) return { ok: false, message: "Cole o link do canal no YouTube (ex.: youtube.com/@acfperformance) ou do perfil no TikTok (ex.: tiktok.com/@perfil)." };
+  // TikTok needs no lookup: the @handle is the id the cuts pipeline lists with yt-dlp (at home).
+  if (input.kind === "tiktok") return { ok: true, message: `Perfil do TikTok: @${input.handle}.`, id: `@${input.handle}`, name: input.handle, url: `https://www.tiktok.com/@${input.handle}`, platform: "tiktok" };
   const get = (url: string) => fetchFn(url, { headers: { "accept-language": "pt-BR" }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   try {
     let id = input.kind === "id" ? input.id : undefined;
@@ -120,7 +126,7 @@ export async function resolveChannel(raw: unknown, fetchFn: typeof fetch = fetch
     const feed = await get(FEED_URL(id as string));
     if (!feed.ok) return { ok: false, message: `O canal ${id} não respondeu pelo RSS (HTTP ${feed.status}).` };
     const name = feedTitle(await feed.text()) ?? (input.kind === "handle" ? input.handle : (id as string));
-    return { ok: true, message: `Canal encontrado: ${name}.`, id, name, url: `https://www.youtube.com/channel/${id}` };
+    return { ok: true, message: `Canal encontrado: ${name}.`, id, name, url: `https://www.youtube.com/channel/${id}`, platform: "youtube" };
   } catch (error) {
     return { ok: false, message: `Não consegui falar com o YouTube: ${error instanceof Error ? error.message : String(error)}` };
   }

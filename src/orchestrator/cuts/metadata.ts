@@ -40,8 +40,12 @@ export function buildCutMetadataPrompt(ctx: CutRunContext): string {
 }
 
 /** The credit lines every cut carries (never trimmed). */
-export function cutCreditBlock(cut: Pick<CutInfo, "channelName" | "sourceUrl" | "credit">): string {
-  return [`Corte do canal ${cut.channelName}.`, `Vídeo completo: ${cut.sourceUrl}`, cut.credit, "(trecho recortado e editado)"]
+export function cutCreditBlock(cut: Pick<CutInfo, "channelName" | "sourceUrl" | "credit" | "sources">): string {
+  const links =
+    cut.sources && cut.sources.length > 1
+      ? [`Compilação de vídeos do canal ${cut.channelName}. Originais:`, ...cut.sources.map((s) => s.url)]
+      : [`Corte do canal ${cut.channelName}.`, `Vídeo completo: ${cut.sourceUrl}`];
+  return [...links, cut.credit, "(trecho recortado e editado)"]
     .map((line) => stripAngleBrackets(line).trim())
     .filter(Boolean)
     .join("\n");

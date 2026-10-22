@@ -4,6 +4,7 @@
  */
 import { join } from "node:path";
 import { paths } from "../lib/config.js";
+import { runBinary } from "../lib/ffmpeg.js";
 import { readJsonIfExists, withFileLock, writeFileAtomic } from "../lib/fileLock.js";
 
 export interface FeedVideo {
@@ -12,6 +13,31 @@ export interface FeedVideo {
   /** ISO 8601 from <published>. */
   published: string;
   url: string;
+  /** Known for TikTok listings (the YouTube RSS has no duration). */
+  durationSeconds?: number;
+}
+
+/**
+ * `yt-dlp --flat-playlist -J https://www.tiktok.com/@handle` -> newest-first videos. TikTok has no title: the
+ * caption (description) stands in for it.
+ */
+export function parseTikTokListing(json: unknown, handle: string): FeedVideo[] {
+  const entries = ((json ?? {}) as { entries?: Record<string, unknown>[] }).entries ?? [];
+  const videos: FeedVideo[] = [];
+  for (const e of entries) {
+    const videoId = typeof e.id === "string" && /^\d{8,25}$/.test(e.id) ? e.id : null;
+    if (!videoId) continue;
+    const text = [e.title, e.description].find((v): v is string => typeof v === "string" && v.trim() !== "") ?? "";
+    const timestamp = typeof e.timestamp === "number" ? e.timestamp : null;
+    videos.push({
+      videoId,
+      title: text.trim(),
+      published: timestamp ? new Date(timestamp * 1000).toISOString() : "",
+      url: `https://www.tiktok.com/${handle}/video/${videoId}`,
+      durationSeconds: typeof e.duration === "number" ? e.duration : undefined,
+    });
+  }
+  return videos;
 }
 
 export const FEED_URL = (channelId: string): string => `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`;
@@ -117,5 +143,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  */
 export function remainingDailyQuota(processed: readonly ProcessedEntry[], channelId: string, maxPerDay: number, now = Date.now()): number {
   const recent = processed.filter((e) => e.channelId === channelId && e.status === "done" && now - Date.parse(e.at) < DAY_MS);
-  return Math.max(0, maxPerDay - recent.length);
+  // A compilation journals each of its source videos with the same runIds: count it once.
+  const units = new Set(recent.map((e) => e.runIds?.join(",") || e.videoId));
+  return Math.max(0, maxPerDay - units.size);
+}
+
+/** Newest TikTok posts of @handle, listed by yt-dlp (no login, no download). */
+export async function fetchTikTokFeed(handle: string, ytDlp: string, limit = 30): Promise<FeedVideo[]> {
+  const { stdout } = await runBinary(ytDlp, ["--flat-playlist", "-J", "--no-warnings", "--playlist-items", `1:${limit}`, `https://www.tiktok.com/${handle}`], 3 * 60 * 1000);
+  return parseTikTokListing(JSON.parse(stdout) as unknown, handle);
 }
