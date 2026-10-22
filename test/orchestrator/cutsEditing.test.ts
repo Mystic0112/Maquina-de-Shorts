@@ -2,6 +2,8 @@ import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { assembleCutMetadata, cutCreditBlock, CUTS_CATEGORY_ID } from "../../src/orchestrator/cuts/metadata.js";
+import type { CutRunContext } from "../../src/orchestrator/cuts/types.js";
 import { buildRenderPayload, ensureModelFile, LIGHT_ASD, MONTSERRAT, watermarkPayload } from "../../src/orchestrator/cuts/render.js";
 import { WATERMARK_DEFAULTS } from "../../src/shared/settings.js";
 import { KEEP_GAP_SECONDS, keptSeconds, MAX_LIVELY_SECONDS, PAD_SECONDS, planKeep, type Loudness } from "../../src/orchestrator/cuts/jumpcut.js";
@@ -121,5 +123,32 @@ describe("cuts: owner's watermark and caption font", () => {
   });
   it("pins the caption font to a commit of the OFL repo", () => {
     expect(MONTSERRAT.url).toMatch(/JulietaUla\/Montserrat\/raw\/[0-9a-f]{40}\/fonts\/ttf\/Montserrat-ExtraBold\.ttf$/);
+  });
+});
+
+describe("cut metadata (stage 07 for cuts)", () => {
+  const cutCtx = {
+    runId: "20261022-151156-6e4d",
+    runDir: "/r",
+    createdAt: "2026-10-22T15:11:56Z",
+    script: { title: "ALEMÃO tomou SUSTO com o TORQUE do Si 🤯💥", hook: "Isso aqui não é normal", scenes: [{ narration: "fala do trecho", footageQuery: "" }], cta: "", language: "pt-BR" },
+    cut: { channelId: "UCvgSmIdI92W4KnP15fJwfwA", channelName: "ACF", videoId: "H4pkbm4ypUw", sourceUrl: "https://www.youtube.com/watch?v=H4pkbm4ypUw", videoTitle: "800WHP", start: 1, end: 2, credit: "Cortes do canal ACF (@media.acf)", authorizationUrl: "", framing: "face" as const, reason: "r" },
+  } as unknown as CutRunContext;
+
+  it("always credits the source channel with the link to the full video, never as synthetic narration", () => {
+    const meta = assembleCutMetadata(cutCtx, { summary: "O Alemão se assusta com o torque do Civic.", hashtags: ["#ACF", "civic si", "#shorts"], tags: ["acf", "civic"] }, "pt-BR");
+    expect(meta.title).toBe("ALEMÃO tomou SUSTO com o TORQUE do Si 🤯💥");
+    expect(meta.categoryId).toBe(CUTS_CATEGORY_ID);
+    expect(meta.description).toContain("Corte do canal ACF.\nVídeo completo: https://www.youtube.com/watch?v=H4pkbm4ypUw\nCortes do canal ACF (@media.acf)\n(trecho recortado e editado)");
+    expect(meta.description).toMatch(/^O Alemão se assusta/);
+    expect(meta.description).toContain("#shorts #cortes #acf #civicsi");
+    expect(meta.description).not.toMatch(/voz sintética/);
+    expect(meta.tags).toEqual(expect.arrayContaining(["acf", "civic", "cortes"]));
+  });
+
+  it("without the LLM draft the hook stands in and the credit is still there", () => {
+    const meta = assembleCutMetadata(cutCtx, null, "pt-BR");
+    expect(meta.description.startsWith("Isso aqui não é normal")).toBe(true);
+    expect(meta.description).toContain(cutCreditBlock(cutCtx.cut));
   });
 });

@@ -4,6 +4,11 @@
 # Usage (from anywhere):
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/loop.ps1
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/loop.ps1 -MaxVideos 4 -PullBetween
+#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/loop.ps1 -PullBetween -CutsEveryHours 3
+#
+# Cuts: with -CutsEveryHours > 0, `npm run cuts -- --scan` runs between videos at most that often (the last
+# scan time survives restarts in logs/_loop/cuts.last). It never publishes and respects each channel's daily
+# limit; a failed scan is logged but does not count toward MaxFailures.
 #
 # Pause between videos: create logs/_loop/PAUSE (the current video finishes first); delete it to resume.
 # Stops when: upload.enabled is not false, free disk < MinFreeGB, a real quota/credits error, or
@@ -15,7 +20,8 @@ param(
     [int]$MaxVideos = 0,          # 0 = no limit
     [int]$MinFreeGB = 15,
     [int]$MaxFailures = 2,
-    [switch]$PullBetween          # git pull --ff-only + vitest between videos (a failure pauses the loop)
+    [switch]$PullBetween,         # git pull --ff-only + vitest between videos (a failure pauses the loop)
+    [double]$CutsEveryHours = 0   # 0 = no cuts; e.g. 3 = scan the enabled cut channels every 3 h
 )
 
 $ErrorActionPreference = 'Stop'
@@ -25,6 +31,7 @@ $LoopDir     = Join-Path $ProjectRoot 'logs\_loop'
 $PauseFile   = Join-Path $LoopDir 'PAUSE'
 $Summary     = Join-Path $LoopDir 'summary.jsonl'
 $ConfigFile  = Join-Path $ProjectRoot 'config\pipeline.config.json'
+$CutsStamp   = Join-Path $LoopDir 'cuts.last'
 New-Item -ItemType Directory -Force -Path $LoopDir | Out-Null
 
 # Quota lines only count when they come from an error/agy line; the Kokoro HF Hub warning
@@ -72,6 +79,24 @@ function Invoke-Native([string]$Exe, [string[]]$Arguments, [string]$LogFile) {
     return $LASTEXITCODE
 }
 
+function Test-CutsDue {
+    if ($CutsEveryHours -le 0) { return $false }
+    if (-not (Test-Path $CutsStamp)) { return $true }
+    $last = [datetime]::Parse((Get-Content -Raw -Path $CutsStamp).Trim(), [Globalization.CultureInfo]::InvariantCulture)
+    return ((Get-Date) - $last).TotalHours -ge $CutsEveryHours
+}
+
+function Invoke-Cuts {
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $log = Join-Path $LoopDir "cuts_$stamp.out"
+    $started = Get-Date
+    Set-Content -Path $CutsStamp -Value $started.ToString('o', [Globalization.CultureInfo]::InvariantCulture) -Encoding ascii
+    Push-Location $ProjectRoot
+    try { $code = Invoke-Native 'npm.cmd' @('run', 'cuts', '--', '--scan') $log } finally { Pop-Location }
+    Write-Event @{ event = 'cuts'; log = (Split-Path -Leaf $log); exit = $code; minutes = [math]::Round(((Get-Date) - $started).TotalMinutes, 1) }
+    return $log
+}
+
 function Update-Code {
     $before = Get-Content -Raw -Path $ConfigFile
     if ((Invoke-Native 'git' @('-C', $ProjectRoot, 'pull', '--ff-only') (Join-Path $LoopDir 'pull.out')) -ne 0) {
@@ -101,7 +126,7 @@ if (-not (Test-Path $KokoroPython)) { throw "Kokoro Python not found: $KokoroPyt
 
 $failures = 0
 $done = 0
-Write-Event @{ event = 'start'; maxVideos = $MaxVideos; pullBetween = [bool]$PullBetween }
+Write-Event @{ event = 'start'; maxVideos = $MaxVideos; pullBetween = [bool]$PullBetween; cutsEveryHours = $CutsEveryHours }
 # Ctrl+C or a killed console skips the stop events above; the finally block still leaves a trace.
 $script:Ended = $false
 try {
@@ -115,6 +140,15 @@ try {
                 Write-Event @{ event = 'paused'; reason = "$_" }
                 New-Item -ItemType File -Force -Path $PauseFile | Out-Null
                 continue
+            }
+        }
+
+        if (Test-CutsDue) {
+            $cutsLog = Invoke-Cuts
+            $quota = Test-QuotaHit $cutsLog
+            if ($quota.Count -gt 0) {
+                Write-Event @{ event = 'stop'; reason = 'quota (cuts)'; line = $quota[0].Line.Substring(0, [math]::Min(300, $quota[0].Line.Length)) }
+                exit 2
             }
         }
 

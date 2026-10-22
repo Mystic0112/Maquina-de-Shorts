@@ -87,7 +87,7 @@ Saída do pipeline e dos cortes: `0` ok, `1` erro, `3` nada publicável/nada a f
   1. Habilitar Serve/HTTPS do Tailscale na conta do dono (painel remoto).
   2. Cortes: trava trocada em 22/10 (canal ligado + bloqueio; link opcional). Falta o dono ligar o ACF em casa e a transcrição usar a GPU (`CUTS_WHISPER_DEVICE=cuda` no `.env` de casa).
   3. Instalar `@remotion/lottie` — só com OK do dono.
-  4. Estágio 07 tratar o crédito dos cortes (`context.cut.credit`, `context.cut.sourceUrl`); até lá cortes não publicam.
+  4. Feito em 22/10: estágio 07 dos cortes (`src/orchestrator/cuts/metadata.ts`, crédito + link do original sempre na descrição) e cortes no loop (`-CutsEveryHours`). Publicar cortes continua decisão do dono.
   5. Feito em 22/10: Kokoro medido em 13,8 letras/s (13 execuções, narração 58–71 s), `LETTERS_PER_SECOND = 14`. Remedir se trocar de voz ou velocidade.
   6. Configurar o app na Meta com conta dedicada (passo a passo no README).
   7. Decisão do dono sobre o TikTok (`planejamento/marco-4-tiktok-instagram.md`).

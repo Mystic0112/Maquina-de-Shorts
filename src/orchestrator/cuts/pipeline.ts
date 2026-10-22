@@ -1,18 +1,19 @@
 /**
  * Cuts flow for one video: channel gate -> download -> transcript -> LLM selection -> meaning/title review ->
- * jump-cut plan -> render -> one run folder per clip (render_output/<runId>/final.mp4 + context.json).
- * Stages 07/08 are NOT run.
+ * jump-cut plan -> render -> one run folder per clip (render_output/<runId>/final.mp4 + context.json) -> stage 07 metadata.
+ * Stage 08 (publishing) is NOT run.
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { paths } from "../lib/config.js";
-import type { Logger } from "../lib/logger.js";
+import { getLogger, type Logger } from "../lib/logger.js";
 import { runDirFor } from "../lib/runContext.js";
 import { assertChannelAuthorized, clipRangeFor, type CutChannel, type CutsConfig, type Framing } from "./config.js";
 import { buildCutRunContext, FINAL_FILE, newCutRunId, saveCutContext } from "./context.js";
 import { downloadSource, LoginRequiredError, sourceDir, videoUrl } from "./download.js";
 import { markProcessed, PROCESSED_FILE } from "./feed.js";
 import { keptSeconds, planKeep } from "./jumpcut.js";
+import { runCutMetadata } from "./metadata.js";
 import { renderClips, wordsInWindow } from "./render.js";
 import { selectClips, transcriptSlice, verifyPicks, type ClipPick } from "./select.js";
 import { loadTranscript, transcribeVideo, type Transcript } from "./transcribe.js";
@@ -97,7 +98,7 @@ export async function processVideo(
   if (!options.noJournal) {
     await markProcessed({ channelId: channel.id, videoId, status: "done", runIds: runs.map((r) => r.runId) });
   }
-  log.info(`${runs.length} cut(s) ready in ${paths.renderOutput} from ${videoUrl(videoId)} (not published; stages 07/08 not run)`);
+  log.info(`${runs.length} cut(s) ready in ${paths.renderOutput} from ${videoUrl(videoId)} (not published; stage 08 not run)`);
   return { runs, timings };
 }
 
@@ -127,5 +128,13 @@ export async function processOrSkip(
 async function writeRun(runId: string, channel: CutChannel, videoId: string, videoTitle: string, pick: ClipPick, transcript: Transcript, framing: Framing, videoPath: string, durationSeconds: number): Promise<CutRunContext> {
   const ctx = buildCutRunContext({ runId, channel, videoId, videoTitle, pick, narration: transcriptSlice(transcript, pick.start, pick.end), framing, videoPath, durationSeconds });
   await saveCutContext(ctx);
-  return ctx;
+  // Stage 07 (title, description with the source credit, tags). Publishing (08) stays a separate decision.
+  try {
+    const withMetadata = await runCutMetadata(ctx);
+    await saveCutContext(withMetadata);
+    return withMetadata;
+  } catch (error) {
+    getLogger(runId).warn(`cut metadata failed (the cut is kept; rerun npm run stage -- 07-generateMetadata --run ${runId}): ${error instanceof Error ? error.message : String(error)}`);
+    return ctx;
+  }
 }

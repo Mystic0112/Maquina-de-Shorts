@@ -3,6 +3,8 @@ import { loadConfig } from "../lib/config.js";
 import { generateJson } from "../lib/llmClient.js";
 import { getLogger } from "../lib/logger.js";
 import { creditsFor } from "../lib/memeLibrary.js";
+import { runCutMetadata } from "../cuts/metadata.js";
+import type { CutRunContext } from "../cuts/types.js";
 import type { EditPlan, FootageClip, RunContext, Script, TopicPick, VideoMetadata } from "../types.js";
 
 // YouTube Data API limits (videos.insert snippet).
@@ -414,6 +416,8 @@ export function assembleMetadata(input: MetadataInput): VideoMetadata {
 }
 
 export async function run(ctx: RunContext): Promise<RunContext> {
+  // Cut runs (npm run cuts) carry `cut`: their description credits the source channel instead of images.
+  if ((ctx as Partial<CutRunContext>).cut) return runCutMetadata(ctx as CutRunContext);
   if (!ctx.script) throw new Error("07-generateMetadata requires ctx.script");
   const log = getLogger(ctx.runId);
   const config = loadConfig();

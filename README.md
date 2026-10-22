@@ -521,7 +521,8 @@ Onde ficam as coisas: vídeo-fonte e transcrição em `data/cuts/sources/`, diá
 
 **Limitações conhecidas:**
 
-- O estágio 07 ainda não usa o crédito do canal e o link do vídeo original (`context.cut.credit`, `context.cut.sourceUrl`) na descrição dos cortes. Por isso os cortes ainda não seguem para publicação.
+- Cada corte já sai com título, descrição e tags (estágio 07): um resumo fiel do trecho, `#shorts #cortes` + hashtags do assunto e, sempre, o crédito do canal com o link do vídeo completo. A publicação (08) dos cortes continua desligada até o dono decidir.
+- No PC de produção os cortes rodam sozinhos com o loop: `scripts\loop.ps1 -PullBetween -CutsEveryHours 3` faz a busca (`--scan`) entre vídeos, no máximo a cada 3 h.
 - A troca de quem está falando ainda fica nervosa quando a pessoa aparece de perfil.
 
 ## 😂 Memes
