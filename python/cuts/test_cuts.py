@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import captions
+import laya_rank
 import speaker
 
 
@@ -102,6 +103,20 @@ class SpeakerTests(unittest.TestCase):
         )
         self.assertEqual(pairs, [(0, 1), (1, 2)])
         self.assertEqual(next_id, 3)
+
+
+class LayaWindowTests(unittest.TestCase):
+    def test_one_window_per_start_closest_to_the_middle_of_the_range(self) -> None:
+        segs = [{"start": float(t), "end": float(t + 10), "text": f"s{t}"} for t in range(0, 100, 10)]
+        windows = laya_rank.build_windows(segs, 30, 60)
+        # target 45 s: 40 and 50 s tie, the first one found (40 s) wins; starts past 60 s cannot reach 30 s
+        self.assertEqual([(w["start"], w["end"]) for w in windows][:2], [(0.0, 40.0), (10.0, 50.0)])
+        self.assertEqual(windows[-1]["start"], 70.0)
+        self.assertEqual(windows[0]["text"], "s0 s10 s20 s30")
+        self.assertTrue(all(30 <= w["end"] - w["start"] <= 60 for w in windows))
+
+    def test_score_needs_every_answer_to_be_yes(self) -> None:
+        self.assertEqual(laya_rank.window_score({"a": {"noul": 0.9}, "b": {"noul": 0.5}}), 0.45)
 
 
 if __name__ == "__main__":
