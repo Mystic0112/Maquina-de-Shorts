@@ -1,42 +1,57 @@
 # AGENTS.md — instruções para o agente que mantém este projeto
 
-Este arquivo é lido automaticamente pelo Antigravity CLI (e por Gemini CLI, Codex e outros agentes). Leia-o inteiro antes de mudar qualquer coisa. Depois leia `README.md` (funcionamento, comandos, configuração) e os planos em `planejamento/`.
+Lido automaticamente pelo Antigravity CLI, Gemini CLI, Codex e Claude. Leia inteiro antes de mudar qualquer coisa. Depois leia `README.md` (fonte da verdade do funcionamento, comandos e configuração) e os planos em `planejamento/`.
 
 ## O que é
 
-"Máquina de Shorts": pipeline autônomo que produz Shorts de curiosidades em pt-BR (história, ciência, espaço) e publica no YouTube **sem revisão humana**. Roda no PC Windows do dono (Hélio), agendado pelo Agendador de Tarefas. O dono não é programador profissional: explique decisões em português simples e peça confirmação antes de qualquer coisa que publique, gaste dinheiro ou mexa em contas.
+"Máquina de Shorts": pipeline autônomo que produz Shorts de curiosidades em pt-BR (história, ciência, espaço) e publica no YouTube (e, quando ligado, Instagram) **sem revisão humana**. Produção no PC Windows de casa do dono (Hélio, RTX 3050), disparada pelo Agendador de Tarefas; o Linux serve para desenvolvimento. O dono não é programador profissional: explique decisões em português simples e peça confirmação antes de qualquer coisa que publique, gaste dinheiro ou mexa em contas.
 
-Em produção tudo roda com a API do Gemini (`LLM_PROVIDER=gemini`): roteiro, checagem de fatos, avaliação de imagens, metadados e narração (Gemini TTS). Nenhuma parte depende do Claude.
+**Custo zero de API.** Em produção a IA roda pelo Antigravity CLI (`agy`) com os créditos do plano: `LLM_PROVIDER=antigravity-cli`, `ANTIGRAVITY_FALLBACK=none`. Modelo por etapa em `llm.models` do `config/pipeline.config.json` (Argon no roteiro, Flash na checagem de fatos e nas imagens). Voz local **Kokoro** (`voice.engine: "kokoro"`, `KOKORO_PYTHON` no `.env`). Os modelos Claude/GPT dentro do `agy` gastam um saldo separado de "AI credits" que acabou no teste: **não use** sem o dono confirmar. A API paga do Gemini (`LLM_PROVIDER=gemini`, Gemini TTS) só como alternativa explícita do dono.
 
 ## Mapa rápido
 
 | Caminho | O quê |
 |---|---|
-| `src/orchestrator/runPipeline.ts` | orquestra os estágios; retomada (`--resume`), `--until`, `--fixture`, novas tentativas de tema |
-| `src/orchestrator/stages/` | 01 tema · 02 roteiro · 02b checagem de fatos · 03 imagens · 04 voz · 05 legendas · 06 render · 07 metadados · 08 publicação |
-| `src/orchestrator/publishers/` | publicadores plugáveis (`youtube.ts` em uso, `instagram.ts` pronto e desligado); travas compartilhadas em `gates.ts` e `runner.ts` |
-| `src/orchestrator/lib/` | cliente LLM, Gemini TTS, ffmpeg, relevância, redação de segredos, trava de arquivo, retenção, hashes de conteúdo |
-| `src/remotion/` | composição do vídeo (tomadas, texto de capa, legendas, movimento) |
-| `src/shared/settings.ts` | esquemas e padrões das configurações (fonte da verdade dos padrões) |
-| `python/tts/` | Gemini TTS: corte de pausas e alinhamento de palavras (faster-whisper `base`, cache em `models/`); edge-tts legado |
-| `vendor/openmontage_adapter/fetch_footage.py` | busca de imagens/vídeos com filtro de licença; usa código AGPL do OpenMontage — **só via subprocesso**, nunca importar em `src/` ou `python/` |
-| `dashboard/` | painel local React (`npm run dashboard`, http://localhost:5180), inclui a aba Configurações |
-| `scheduler/` | scripts do Agendador do Windows (`register_task.ps1`, `unregister_task.ps1`, `status.ps1`, `run_once.ps1`) |
-| `config/pipeline.config.json`, `config/topics.seed.json` | configuração do dono (versionada) |
-| `docs/` | **público** no GitHub Pages: página inicial, privacidade, termos, callback OAuth. Nunca colocar nada privado aqui |
-| `planejamento/` | planos (Marco 4: TikTok e Instagram) |
+| `src/orchestrator/runPipeline.ts` | orquestra os estágios; `--resume`, `--until`, `--fixture`, novas tentativas de tema |
+| `src/orchestrator/stages/` | 01 tema · 02 roteiro · 02b checagem de fatos · 03 imagens · 04 voz · 05 legendas · 05b memes (`05b-planEdits.ts`, desligado) · 06 render · 07 metadados · 08 publicação |
+| `src/orchestrator/publishers/` | `youtube.ts` em uso, `instagram.ts` pronto e desligado; travas em `gates.ts` e `runner.ts` |
+| `src/orchestrator/lib/` | cliente LLM, ffmpeg, relevância, redação de segredos, trava de arquivo, retenção, hashes de conteúdo |
+| `src/orchestrator/lib/antigravityCli.ts` + `antigravitySession.ts` | chamada isolada ao `agy` e sessão contínua (`ANTIGRAVITY_CLI_SESSION_TURNS`) |
+| `src/orchestrator/lib/beats.ts` | trechos da fala (*beats*): uma busca de imagem por trecho |
+| `src/orchestrator/lib/verdictLog.ts` + `scripts/export_verdicts_dataset.ts` | grava `footage_verdicts.jsonl` e exporta o dataset do juiz de imagem local (LlamaFactory) |
+| `src/orchestrator/cuts/`, `python/cuts/`, `scripts/cuts.ts` | cortes de canais autorizados (Onda 4): download, transcrição, seleção, recorte vertical; **não publica** |
+| `scripts/memes.ts`, `assets/memes/` | biblioteca de memes e sons (Onda 2); só `inventory.json` é versionado |
+| `src/remotion/` | composição do vídeo (tomadas, capa, legendas, movimento, camada de memes) |
+| `src/shared/settings.ts` | esquemas e padrões das configurações |
+| `python/tts/` | Kokoro, corte de pausas, alinhamento (faster-whisper `base`, cache em `models/`); edge-tts legado |
+| `vendor/openmontage_adapter/fetch_footage.py` | busca de imagens com filtro de licença; código AGPL — **só via subprocesso**, nunca importar em `src/` ou `python/` |
+| `dashboard/` | painel local React (`npm run dashboard`, http://localhost:5180) com a aba Configurações |
+| `scheduler/` | scripts do Agendador do Windows |
+| `config/pipeline.config.json`, `config/topics.seed.json`, `config/cuts.example.json` | configuração (o `config/cuts.json` real fica fora do git) |
+| `docs/` | **público** no GitHub Pages. Nunca colocar nada privado aqui |
+| `planejamento/` | planos dos marcos 4 e 5 |
 
 ## Regras inegociáveis
 
-1. **Segredos:** nunca imprima, registre em log nem commite o conteúdo de `.env`, `secrets/` (tokens OAuth do YouTube/Instagram, client secret) ou chaves de API. Antes de todo commit, rode a varredura e **bloqueie** se acusar algo:
+1. **Segredos:** nunca imprima, registre em log nem commite `.env`, `secrets/` (tokens OAuth, client secret) ou chaves de API. Antes de todo commit, rode a varredura e **bloqueie** se acusar algo:
    ```bash
    git diff --cached --name-only -z | xargs -0 grep -lE 'AIza[0-9A-Za-z_-]{30,}|sk-ant-[0-9A-Za-z_-]{20,}|GOCSPX-|IGAA[0-9A-Za-z_-]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY'
    ```
-   Os testes têm valores falsos de propósito (`AIzaFAKE…`, `GOCSPX-FAKE…`, `IGAAfake…`); confirme que é falso antes de seguir. Também nunca commitar `render_output/`, `logs/`, `data/history.json`, `models/`, vídeos ou áudios.
-2. **Publicação:** só o dono decide ligar o upload (`upload.enabled`, `instagram.enabled`) ou registrar o agendador. Nunca publique, nem como teste, sem confirmação explícita dele naquela conversa.
-3. **Não enfraqueça as travas:** checagem de fatos, trava de qualidade (≥60% das cenas com imagem aprovada), filtro de licença (só domínio público, CC0, CC BY; NASA só com crédito atribuído à NASA), créditos CC BY com autor + link + "(recortado e editado)", hashes que prendem aprovações ao conteúdo, diário anti-duplicata, limite diário, trava de arquivo. Se uma trava atrapalhar, explique ao dono em vez de contorná-la.
-4. **Testes antes de commit:** `npx tsc -p tsconfig.json --noEmit`, `npx vitest run`, `cd dashboard && npm run typecheck`, e `.venv\Scripts\python.exe -m unittest discover -s python/tts -p "test_*.py"`. Tudo verde.
-5. **Faça o que foi pedido, nada além.** Prefira editar arquivos existentes. Leia antes de editar. Commits em português, descrevendo o porquê.
+   Os testes têm valores falsos de propósito (`AIzaFAKE…`, `GOCSPX-FAKE…`, `IGAAfake…`); confirme que é falso antes de seguir. Nunca commitar `render_output/`, `logs/`, `data/history.json`, `models/`, vídeos ou áudios.
+2. **`agy` isolado:** sempre com `--sandbox`, pasta temporária só com as imagens da chamada e ambiente sem chaves. **Nunca** `--dangerously-skip-permissions` nem regra que libere comandos: ele lê imagens baixadas da internet.
+3. **Publicação:** só o dono liga `upload.enabled`, `instagram.enabled` ou registra o agendador. Nunca publique, nem como teste, sem confirmação explícita dele naquela conversa.
+4. **Não enfraqueça as travas:** checagem de fatos, trava de qualidade (≥60% das cenas com imagem aprovada), filtro de licença (domínio público, CC0, CC BY, Pexels/Pixabay; NASA só com crédito da NASA), créditos CC BY com autor + link + "(recortado e editado)", hashes que prendem aprovações ao conteúdo, diário anti-duplicata, limite diário, trava de arquivo. **Cortes** só de canais com `enabled: true` e link de autorização (`authorization.url`) em `config/cuts.json`. **Memes** só com licença da lista permitida (ver README). Se uma trava atrapalhar, explique ao dono em vez de contorná-la.
+5. **Testes antes de commit** (tudo verde): `npx tsc -p tsconfig.json --noEmit`, `npx vitest run`, `cd dashboard && npm run typecheck`, e com o Python do projeto `-m unittest discover -s python/tts -p "test_*.py"` e `-m unittest discover -s python/cuts -p "test_*.py"`.
+6. **Faça o que foi pedido, nada além.** Prefira editar arquivos existentes. Leia antes de editar. Commits em português, descrevendo o porquê.
+
+## Coordenação entre agentes
+
+O dono usa várias sessões de IA no mesmo repositório (PC de casa e PC Linux).
+
+- Antigravity trabalha em branch próprio (`antigravity/*`). Ninguém commita direto no `main` sem revisão.
+- Nunca mude `upload.enabled`, `instagram.enabled`, o agendador, contas ou `secrets/` (já aconteceu do Antigravity ligar o Instagram sozinho).
+- O `config/pipeline.config.json` do PC de produção tem ajustes locais não commitados: não sobrescreva.
+- `git pull` só entre vídeos, nunca no meio de uma execução.
 
 ## Comandos
 
@@ -44,36 +59,41 @@ Em produção tudo roda com a API do Gemini (`LLM_PROVIDER=gemini`): roteiro, ch
 npm run pipeline                                   # gera (e publica, se ligado) um vídeo
 npm run pipeline -- --until 06-renderVideo         # gera sem publicar
 npm run pipeline -- --resume <runId>               # retoma uma execução
-npm run stage -- <estágio> --run <runId>           # reexecuta um estágio
+npm run stage -- <estágio> --run <runId>           # refaz um estágio
 npm run dashboard                                  # painel em http://localhost:5180
-npm run auth:youtube                               # login do YouTube (feito; refazer se o token cair)
-npm run auth:instagram                             # login do Instagram (falta configurar o app na Meta)
+npm run cuts -- --scan                             # cortes dos canais autorizados (não publica)
+npm run memes -- list                              # biblioteca de memes (check, demo, add-*)
+npx tsx scripts/export_verdicts_dataset.ts --out data/datasets/vision_judge --min-runs 1
+npm run auth:youtube / npm run auth:instagram      # logins (uma vez)
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scheduler\status.ps1
 ```
 
-Códigos de saída do pipeline: `0` ok, `1` erro, `3` nenhum vídeo publicável (trava de qualidade/fatos; não é falha).
+Saída do pipeline e dos cortes: `0` ok, `1` erro, `3` nada publicável/nada a fazer (não é falha). `scripts/test_agy_relevance.ts` usa a API paga do Gemini: só com OK do dono.
 
-## Ambiente (Windows)
+## Ambiente
 
-- Git Bash converte caminhos que começam com `/` em argumentos (use `MSYS_NO_PATHCONV=1` quando precisar).
-- O ffmpeg disponível é o do Remotion (`node_modules/@remotion/compositor-win32-x64-msvc/ffmpeg.exe`), versão reduzida: sem `hstack`, `fps`, `setsar`, `silenceremove`.
-- `tsx watch` trava se a entrada padrão estiver aberta: em processos sem terminal use `npm run dev < NUL` dentro de `dashboard/`.
-- Python do projeto: `.venv\Scripts\python.exe` (3.13).
+- Produção: Windows de casa (RTX 3050). Desenvolvimento: Linux. O agendador é só do Windows.
+- Python do projeto: `.venv\Scripts\python.exe` no Windows, `.venv/bin/python` no Linux. Kokoro em venv separado (`KOKORO_PYTHON`); cortes em `.venv-cuts` (`CUTS_PYTHON`).
+- `yt-dlp` precisa estar atualizado (versão velha leva 403 do YouTube).
+- O ffmpeg é o do Remotion, versão reduzida: sem `hstack`, `fps`, `setsar`, `silenceremove`.
+- Windows: Git Bash converte argumentos que começam com `/` (use `MSYS_NO_PATHCONV=1`); `tsx watch` trava com a entrada aberta, em processo sem terminal use `npm run dev < NUL` dentro de `dashboard/`.
 
-## Estado em 2026-10-12
+## Estado em 2026-10-22
 
-- **Pausado pelo dono:** tarefa do agendador removida e `upload.enabled: false` (privacidade configurada como `public`). Canal autorizado: "C9hesky ft" (`YOUTUBE_CHANNEL_ID` no `.env`). Primeiro upload de teste (não listado) funcionou sem trava de privado.
-- **Feito recentemente:** lote 1 de melhorias de conteúdo (gancho, texto de capa, formatos, loop, imagens específicas com checagem de época, ritmo de 4,5 s por tomada, legendas) e troca da voz para Gemini TTS (`voice.engine: gemini`, voz `Fenrir`; edge-tts foi bloqueado pela Microsoft e não tem licença comercial).
+- Loop de teste rodando no PC de casa **sem publicar**: `upload.enabled: false`, tarefa do agendador removida. Canal autorizado: "C9hesky ft" (`YOUTUBE_CHANNEL_ID` no `.env`).
+- Planejamento vivo: ClickUp, lista **"Máquina de Shorts"**, e `planejamento/`.
 - **Pendências:**
-  1. A amostra de voz do painel (`dashboard/server/voices.ts`) ainda chama o edge-tts e espera `narration.mp3`; precisa listar e gerar amostras das vozes do Gemini.
-  2. `02-generateScript.ts` estima a duração do gancho com `LETTERS_PER_SECOND = 16` (velocidade do edge-tts); medir de novo com o Gemini (~17–18).
-  3. Comentário desatualizado em `types.ts` (`audioPath` "narration.mp3"; agora é `narration.wav`).
-  4. Decisão do dono: TikTok/Instagram (ver `planejamento/marco-4-tiktok-instagram.md`; pesquisa recomendou testar Zernio grátis ou Upload-Post pago para o TikTok, que pela API direta só posta privado; o Instagram direto precisa de vídeo em URL pública ou de um intermediário).
-  5. Configurar o app na Meta (conta Instagram Profissional, Instagram Tester, URI `https://mystic0112.github.io/Maquina-de-Shorts/oauth/callback.html`).
-  6. Lote 2 de conteúdo (trilha e efeitos com licença verificada, gráficos próprios) — só com aprovação do dono.
-  8. **Marco 5 (prioridade do dono):** 15 contas independentes e teste do Antigravity CLI como motor de IA — ver `planejamento/marco-5-multicontas-e-antigravity.md`. Começar pela Parte A (teste do CLI). Alternativa de custo: triagem local de imagens com SigLIP/CLIP na RTX 3050, medindo concordância com as notas antigas do Gemini antes de trocar.
-  7. Para religar: `upload.enabled: true` em Configurações e `scheduler\register_task.ps1` (09:00/18:00). A auditoria sugeriu 11:45 e 18:45 para o público brasileiro.
+  1. Habilitar Serve/HTTPS do Tailscale na conta do dono (painel remoto).
+  2. Link da autorização de cortes do ACF em `config/cuts.json`.
+  3. Instalar `@remotion/lottie` — só com OK do dono.
+  4. Estágio 07 tratar o crédito dos cortes (`context.cut.credit`, `context.cut.sourceUrl`); até lá cortes não publicam.
+  5. Feito em 22/10: Kokoro medido em 13,8 letras/s (13 execuções, narração 58–71 s), `LETTERS_PER_SECOND = 14`. Remedir se trocar de voz ou velocidade.
+  6. Configurar o app na Meta com conta dedicada (passo a passo no README).
+  7. Decisão do dono sobre o TikTok (`planejamento/marco-4-tiktok-instagram.md`).
+  8. Marco 5: 15 contas independentes (`planejamento/marco-5-multicontas-e-antigravity.md`).
+  9. Treinar o juiz de imagem local com `footage_verdicts.jsonl` (LlamaFactory).
+  10. Amostra de voz do painel (`dashboard/server/voices.ts`) ainda usa o edge-tts; trocar por Kokoro/Gemini.
 
 ## Pasta `.claude/`
 
-Agentes e configuração usados pelo Claude Code durante o desenvolvimento (personas de QA, DevOps, scripting e quatro especialistas de marketing em vídeo curto). Não afetam a execução. As instruções desses especialistas em `.claude/agents/*.md` podem ser reaproveitadas como referência para auditorias de conteúdo.
+Agentes e configuração do Claude Code para desenvolvimento (QA, DevOps, scripting, especialistas de marketing em vídeo curto). Não afetam a execução; `.claude/agents/*.md` serve de referência para auditorias de conteúdo.

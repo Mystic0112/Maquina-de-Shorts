@@ -29,10 +29,11 @@ export const HOOK_MAX_SECONDS = 3.5;
 /** The concrete subject must be named this early in the hook (~5 words, counted as tokens). */
 export const HOOK_LEAD_WORDS = 6;
 /**
- * Gemini TTS (Fenrir) measured 15.2 letters/s (letters only, no spaces) on the one real run so far
- * (2026-10-12); edge-tts was ~15-16. Re-measure from narration.words once more runs exist.
+ * Speech rate used to estimate the hook's length (letters only, no spaces). Measured on real runs:
+ * Kokoro pm_alex 13.8 letters/s (median of 13 runs, 13.7-14.2; hook 14.0), Gemini Fenrir 15.2 (1 run),
+ * edge-tts ~15-16. 14 fits the default engine (Kokoro) and is conservative for the faster voices.
  */
-const LETTERS_PER_SECOND = 15;
+const LETTERS_PER_SECOND = 14;
 const PAUSE_SECONDS = 0.25;
 export const OVERLAY_WORDS = { min: 3, max: 5 } as const;
 export const OVERLAY_MAX_CHARS = 32;
