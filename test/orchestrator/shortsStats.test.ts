@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { labelChannel, MIN_LABELLED, parseShortsTab, SKIP_NEWEST, tallyCandidates } from "../../src/orchestrator/viral/shortsStats.js";
+import { buildLayaSets, isEvalChannel, labelChannel, MIN_LABELLED, parseShortsTab, SKIP_NEWEST, tallyCandidates, VIRAL_QUESTION } from "../../src/orchestrator/viral/shortsStats.js";
 
 const tab = (views: (number | null)[]) => ({
   channel: "Cortes X",
@@ -37,5 +37,24 @@ describe("viral training data from other channels' Shorts", () => {
       { query: "b", json: { entries: [hit("c1"), { channel_id: null }] } },
     ]);
     expect(out.map((c) => [c.channelId, c.hits, c.queries])).toEqual([["c1", 3, ["a", "b"]], ["c2", 1, ["a"]]]);
+  });
+});
+
+describe("Laya training sets", () => {
+  const row = (channelId: string, i: number, label: "viral" | "normal" | "fraco" | null) =>
+    ({ channelId, channelName: channelId, subscribers: null, group: "cortes", videoId: `${channelId}-${i}`, title: `T${i}`, views: 1, position: 20, ratio: 1, label }) as const;
+
+  it("splits by whole channels, balances train negatives and keeps eval's real proportion", () => {
+    const channels = Array.from({ length: 40 }, (_, c) => `UC${String(c).padStart(22, "0")}`);
+    const rows = channels.flatMap((id) => [row(id, 0, "viral"), ...Array.from({ length: 9 }, (_, i) => row(id, i + 1, i % 2 ? "normal" : "fraco")), row(id, 99, null)]);
+    const { train, eval: evalRows } = buildLayaSets(rows, 3);
+    const evalIds = new Set(channels.filter((id) => isEvalChannel(id)));
+    expect(evalIds.size).toBeGreaterThan(0);
+    expect(evalRows).toHaveLength(evalIds.size * 10); // unlabelled rows never used
+    expect(evalRows.filter((r) => r.gold.viral)).toHaveLength(evalIds.size);
+    const pos = train.filter((r) => r.gold.viral).length;
+    expect(pos).toBe(40 - evalIds.size);
+    expect(train.length - pos).toBeLessThanOrEqual(pos * 3 + 3);
+    expect(train[0]).toMatchObject({ state: "Tema: cortes. Título do Short: T0", questions: VIRAL_QUESTION, gold: { viral: true } });
   });
 });

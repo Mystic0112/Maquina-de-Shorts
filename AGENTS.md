@@ -20,6 +20,7 @@ Lido automaticamente pelo Antigravity CLI, Gemini CLI, Codex e Claude. Leia inte
 | `src/orchestrator/lib/beats.ts` | trechos da fala (*beats*): uma busca de imagem por trecho |
 | `src/orchestrator/lib/verdictLog.ts` + `scripts/export_verdicts_dataset.ts` | grava `footage_verdicts.jsonl` e exporta o dataset do juiz de imagem local (LlamaFactory) |
 | `src/orchestrator/cuts/`, `python/cuts/`, `scripts/cuts.ts` | cortes (Onda 4): download, transcrição, seleção, conferência de sentido, cortes secos (`jumpcut.ts`), recorte vertical; **não publica** |
+| `src/orchestrator/viral/`, `scripts/collect_shorts_stats.ts`, `scripts/build_viral_dataset.ts`, `python/viral/` | dados públicos de Shorts de outros canais (título + views, sem baixar vídeo) para treinar o Laya a prever o que viraliza; tudo em `data/datasets/viral/` e `models/laya-viral/`, fora do git |
 | `scripts/memes.ts`, `assets/memes/` | biblioteca de memes e sons (Onda 2); só `inventory.json` é versionado |
 | `src/remotion/` | composição do vídeo (tomadas, capa, legendas, movimento, camada de memes) |
 | `src/shared/settings.ts` | esquemas e padrões das configurações |
@@ -41,7 +42,7 @@ Lido automaticamente pelo Antigravity CLI, Gemini CLI, Codex e Claude. Leia inte
 2. **`agy` isolado:** sempre com `--sandbox`, pasta temporária só com as imagens da chamada e ambiente sem chaves. **Nunca** `--dangerously-skip-permissions` nem regra que libere comandos: ele lê imagens baixadas da internet.
 3. **Publicação:** só o dono liga `upload.enabled`, `instagram.enabled` ou registra o agendador. Nunca publique, nem como teste, sem confirmação explícita dele naquela conversa.
 4. **Não enfraqueça as travas:** checagem de fatos, trava de qualidade (≥60% das cenas com imagem aprovada), filtro de licença (domínio público, CC0, CC BY, Pexels/Pixabay; NASA só com crédito da NASA), créditos CC BY com autor + link + "(recortado e editado)", hashes que prendem aprovações ao conteúdo, diário anti-duplicata, limite diário, trava de arquivo. **Cortes** só de canais ligados pelo dono (`enabled: true`) e fora de `blocked` em `config/cuts.json`; nunca mudar o sentido da fala nem desmoralizar ninguém (a conferência `verifyPicks` descarta o trecho); canal que reclamar vai para `blocked`. **Memes** só com licença da lista permitida (ver README). Se uma trava atrapalhar, explique ao dono em vez de contorná-la.
-5. **Testes antes de commit** (tudo verde): `npx tsc -p tsconfig.json --noEmit`, `npx vitest run`, `cd dashboard && npm run typecheck`, e com o Python do projeto `-m unittest discover -s python/tts -p "test_*.py"` e `-m unittest discover -s python/cuts -p "test_*.py"`.
+5. **Testes antes de commit** (tudo verde): `npx tsc -p tsconfig.json --noEmit`, `npx vitest run`, `cd dashboard && npm run typecheck`, e com o Python do projeto `-m unittest discover -s python/tts -p "test_*.py"`, `-m unittest discover -s python/cuts -p "test_*.py"` e `-m unittest discover -s python/viral -p "test_*.py"`.
 6. **Faça o que foi pedido, nada além.** Prefira editar arquivos existentes. Leia antes de editar. Commits em português, descrevendo o porquê.
 
 ## Coordenação entre agentes

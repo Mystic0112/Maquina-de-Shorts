@@ -109,3 +109,52 @@ export function tallyCandidates(searches: readonly { query: string; json: unknow
   }
   return [...byId.values()].sort((a, b) => b.hits - a.hits);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Laya fine-tuning rows (`laya train --data train.jsonl --eval eval.jsonl`)
+// ---------------------------------------------------------------------------------------------
+
+/** The one decision the model learns; same wording at inference. */
+export const VIRAL_QUESTION = {
+  viral: {
+    type: "noul",
+    instructions: "Este Short tende a viralizar, com muito mais visualizações que a média do próprio canal?",
+  },
+} as const;
+
+export interface LayaRow {
+  state: string;
+  questions: typeof VIRAL_QUESTION;
+  gold: { viral: boolean };
+}
+
+/** What the model sees: the theme and the title (never the channel, so it cannot just memorise channels). */
+export const layaState = (group: string, title: string): string => `Tema: ${group}. Título do Short: ${title}`;
+
+/** Deterministic channel -> split (≈ evalShare of the channels go to eval, whole channels only: no leakage). */
+export function isEvalChannel(channelId: string, evalShare = 0.15): boolean {
+  let h = 2166136261;
+  for (const ch of channelId) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  // murmur3 finaliser: FNV alone leaves the high bits clustered for ids that differ only at the end.
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  h ^= h >>> 16;
+  return (h >>> 0) / 2 ** 32 < evalShare;
+}
+
+/**
+ * Labelled rows -> train/eval sets. Viral = true; "fraco" and "normal" = false, downsampled so there are at most
+ * `negativesPerPositive` negatives per positive in train (eval keeps the real proportion).
+ */
+export function buildLayaSets(rows: readonly ShortStat[], negativesPerPositive = 3): { train: LayaRow[]; eval: LayaRow[] } {
+  const toRow = (r: ShortStat): LayaRow => ({ state: layaState(r.group, r.title), questions: VIRAL_QUESTION, gold: { viral: r.label === "viral" } });
+  const labelled = rows.filter((r) => r.label !== null);
+  const evalRows = labelled.filter((r) => isEvalChannel(r.channelId)).map(toRow);
+  const trainAll = labelled.filter((r) => !isEvalChannel(r.channelId));
+  const positives = trainAll.filter((r) => r.label === "viral");
+  const negatives = trainAll.filter((r) => r.label !== "viral");
+  // Every k-th negative: deterministic, keeps channels mixed, no RNG to seed.
+  const step = Math.max(1, Math.floor(negatives.length / Math.max(1, positives.length * negativesPerPositive)));
+  const kept = negatives.filter((_, i) => i % step === 0);
+  return { train: [...positives, ...kept].map(toRow), eval: evalRows };
+}
