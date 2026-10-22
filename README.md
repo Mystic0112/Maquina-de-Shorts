@@ -6,6 +6,8 @@ A meta é **custo zero de API**. Em produção, a inteligência artificial roda 
 
 A produção roda no PC Windows de casa do dono (placa RTX 3050), disparada pelo Agendador de Tarefas. O Linux serve para desenvolvimento. Há também um painel local para acompanhar tudo e mudar as configurações sem editar arquivos.
 
+![Painel da Máquina de Shorts: visão geral com os últimos vídeos gerados](assets/readme/painel-visao-geral.jpg)
+
 ## Estado atual (22/10/2026)
 
 | Parte | Estado |
@@ -269,6 +271,14 @@ A auditoria sugeriu 11:45 e 18:45 para o público brasileiro. Por padrão a tare
 - **Vídeos** e **Execuções:** cada vídeo, cada estágio, quanto tempo levou e onde falhou.
 - **Conteúdo:** duração da narração, fontes e licenças das imagens, notas do avaliador, uso de tokens e custo estimado.
 - **Configurações:** voz, legendas, visual, roteiro, formato, temas, upload, edição (memes) e o estado das chaves, com prévia de um quadro real do vídeo.
+
+| Vídeos | Execuções |
+|---|---|
+| ![Galeria de vídeos gerados, com categoria, texto de capa e duração](assets/readme/painel-videos.jpg) | ![Execuções: tempo de cada etapa por vídeo e tempo de render](assets/readme/painel-execucoes.jpg) |
+| **Conteúdo** | **Configurações** |
+| ![Conteúdo: duração da narração dentro da faixa alvo, formatos e roteiros recentes](assets/readme/painel-conteudo.jpg) | ![Configurações: voz Kokoro local e prévia real da legenda](assets/readme/painel-configuracoes.jpg) |
+
+*Prints do painel do PC de produção em 22/10/2026, abertos pelo Tailscale.*
 
 **Acesso de outro aparelho (celular, trabalho):** use o [Tailscale](https://tailscale.com), uma rede privada entre os seus aparelhos.
 
