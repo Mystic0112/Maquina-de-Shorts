@@ -47,7 +47,6 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function discover(): Promise<void> {
   const searches: { query: string; json: unknown }[] = [];
-  const groupOf = new Map<string, string>();
   for (const { query, group } of QUERIES) {
     try {
       searches.push({ query, json: await flatJson(`ytsearch40:${query}`) });
@@ -58,8 +57,10 @@ async function discover(): Promise<void> {
     await sleep(PAUSE_MS);
   }
   const candidates = tallyCandidates(searches).map((c) => {
-    for (const q of c.queries) groupOf.set(c.channelId, QUERIES.find((x) => x.query === q)?.group ?? "cortes");
-    return { ...c, group: groupOf.get(c.channelId) };
+    // The group most of the channel's searches belong to (a cuts channel can show up once for "curiosidades").
+    const groups = c.queries.map((q) => QUERIES.find((x) => x.query === q)?.group ?? "cortes");
+    const cortes = groups.filter((g) => g === "cortes").length;
+    return { ...c, group: cortes * 2 >= groups.length ? "cortes" : "curiosidades" };
   });
   await mkdir(OUT_DIR, { recursive: true });
   await writeFile(CANDIDATES, `${JSON.stringify(candidates, null, 2)}\n`);
