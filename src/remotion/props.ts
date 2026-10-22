@@ -4,7 +4,7 @@
 import path from "node:path";
 import { beatStartsMs } from "../orchestrator/lib/beats.js";
 import type { CaptionCue, EditPlan, FootageClip, RunContext, SceneTiming, Script, WordTiming } from "../orchestrator/types.js";
-import type { VisualSettings } from "../shared/settings.js";
+import type { VisualSettings, WatermarkSettings } from "../shared/settings.js";
 import {
   DEFAULT_RENDER_STYLE,
   type CaptionChunkProps,
@@ -13,6 +13,7 @@ import {
   type RenderStyle,
   type SceneProps,
   type ShortProps,
+  type WatermarkProps,
 } from "./shared.js";
 import { minShotFrames, planSceneShots } from "./shots.js";
 
@@ -37,6 +38,8 @@ export type RenderPlan = { props: ShortProps; assets: StagedAsset[]; skippedLott
 export type RenderPlanOptions = {
   /** Namespace folder inside the public dir (lets concurrent renders share one cached bundle). */
   publicPrefix?: string;
+  /** Resolved watermark settings + the absolute path of its PNG (null = text only). */
+  watermark?: { settings: Required<WatermarkSettings>; imagePath: string | null };
 };
 
 const msToFrame = (ms: number, fps: number): number => Math.round((ms / 1000) * fps);
@@ -304,6 +307,7 @@ export function buildRenderPlan(
   const edits = buildEditCues(ctx.edits, editAssets, fps, totalFrames);
   const usedEditAssets = [...editAssets.entries()].filter(([id]) => edits.cues.some((c) => c.id === id)).map(([, a]) => a);
 
+  const watermark = planWatermark(options);
   const props: ShortProps = {
     ...video,
     durationInFrames: totalFrames,
@@ -313,8 +317,20 @@ export function buildRenderPlan(
     captions,
     overlay: buildOverlayHook(ctx.script?.overlayText, style.visual, fps, totalFrames),
     edits: edits.cues,
+    watermark: watermark.props,
   };
-  return { props, assets: [audioAsset, ...assets.values(), ...usedEditAssets], skippedLottieCues: edits.skippedLottie };
+  return { props, assets: [audioAsset, ...assets.values(), ...usedEditAssets, ...watermark.assets], skippedLottieCues: edits.skippedLottie };
+}
+
+/** Watermark props + its staged PNG; nothing when disabled or when there is neither text nor image. */
+function planWatermark(options: RenderPlanOptions): { props: WatermarkProps | null; assets: StagedAsset[] } {
+  const wm = options.watermark;
+  if (!wm?.settings.enabled) return { props: null, assets: [] };
+  const text = wm.settings.text.trim();
+  const asset = wm.imagePath ? { sourcePath: wm.imagePath, publicPath: withPrefix(options.publicPrefix, `watermark/${sanitizeBaseName(wm.imagePath)}`) } : null;
+  if (!text && !asset) return { props: null, assets: [] };
+  const { position, opacity, size } = wm.settings;
+  return { props: { text, imageSrc: asset?.publicPath ?? null, position, opacity, size }, assets: asset ? [asset] : [] };
 }
 
 /** Convenience wrapper when only the props are needed (e.g. tests). */

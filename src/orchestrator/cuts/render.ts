@@ -6,9 +6,10 @@ import { existsSync } from "node:fs";
 import { mkdir, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { env, paths } from "../lib/config.js";
+import { env, loadConfig, paths } from "../lib/config.js";
 import { resolveFfmpegBinaries } from "../lib/ffmpeg.js";
 import { runPythonJson } from "../lib/python.js";
+import { resolveWatermarkFiles, type ResolvedWatermark } from "../lib/watermark.js";
 import type { CutsConfig } from "./config.js";
 import type { Interval } from "./jumpcut.js";
 import type { TranscriptWord } from "./transcribe.js";
@@ -31,6 +32,31 @@ export const YUNET: ModelFile = {
   maxBytes: 300_000,
 };
 export const YUNET_FILE = YUNET.file;
+
+/** Caption font of the cuts: Montserrat ExtraBold (SIL OFL 1.1), pinned to a commit: 455 468 bytes. */
+export const MONTSERRAT: ModelFile = {
+  label: "Montserrat ExtraBold font (~450 KB)",
+  url: "https://github.com/JulietaUla/Montserrat/raw/555facfb2a18c72c3c0380f0d9c0f060453a9058/fonts/ttf/Montserrat-ExtraBold.ttf",
+  file: join(paths.root, "models", "fonts", "Montserrat-ExtraBold.ttf"),
+  minBytes: 400_000,
+  maxBytes: 500_000,
+};
+
+/** What render_clip.py draws as the owner's brand mark (null = none). */
+export interface WatermarkPayload {
+  text: string | null;
+  image: string | null;
+  position: string;
+  opacity: number;
+  size: number;
+}
+
+export function watermarkPayload(wm: ResolvedWatermark): WatermarkPayload | null {
+  const text = wm.settings.text.trim() || null;
+  if (!wm.settings.enabled || (!text && !wm.imagePath)) return null;
+  const { position, opacity, size } = wm.settings;
+  return { text, image: wm.imagePath, position, opacity, size };
+}
 
 /** Light-ASD active speaker detector (MIT), TalkSet fine-tune, pinned to a commit: 4 175 289 bytes. */
 export const LIGHT_ASD: ModelFile = {
@@ -85,17 +111,24 @@ export function wordsInWindow(words: readonly TranscriptWord[], start: number, e
 }
 
 /** The JSON handed to render_clip.py on stdin. */
-export function buildRenderPayload(input: RenderInput, yunet: string, ffmpeg: string, asdModel: string | null = null): Record<string, unknown> {
+export function buildRenderPayload(
+  input: RenderInput,
+  yunet: string,
+  ffmpeg: string,
+  asdModel: string | null = null,
+  extras: { font?: string | null; watermark?: WatermarkPayload | null } = {},
+): Record<string, unknown> {
   return {
     source: input.source,
     yunet,
     asdModel,
+    watermark: extras.watermark ?? null,
     ffmpeg,
     framing: input.framing,
     credit: input.credit,
     captions: input.captions,
     holdSeconds: SPEAKER_HOLD_SECONDS,
-    font: env("CUTS_FONT"),
+    font: extras.font ?? env("CUTS_FONT"),
     workers: input.workers,
     jobs: input.jobs,
   };
@@ -136,11 +169,14 @@ export async function renderClips(input: RenderInput, log: (m: string) => void):
     log(`WARN Light-ASD unavailable, speaker detection falls back to mouth movement: ${error instanceof Error ? error.message : String(error)}`);
     return null;
   });
+  // CUTS_FONT overrides; without it, Montserrat (a missing font falls back to the system fonts in Python).
+  const font = env("CUTS_FONT") ?? (await ensureModelFile(MONTSERRAT, fetch, log).catch(() => null));
+  const watermark = watermarkPayload(resolveWatermarkFiles(loadConfig().watermark, log));
   const { ffmpeg } = resolveFfmpegBinaries();
   return runPythonJson({
     script: "python/cuts/render_clip.py",
     python: resolveCutsPython(),
-    stdin: buildRenderPayload(input, yunet, ffmpeg, asdModel),
+    stdin: buildRenderPayload(input, yunet, ffmpeg, asdModel, { font, watermark }),
     schema: RenderResultSchema,
     timeoutMs: 90 * 60 * 1000,
     onStderrLine: log,

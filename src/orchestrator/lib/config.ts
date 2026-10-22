@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   CaptionSettingsSchema,
   EditingSettingsSchema,
+  WatermarkSettingsSchema,
   InstagramSettingsSchema,
   ScriptSettingsSchema,
   VisualSettingsSchema,
@@ -91,6 +92,8 @@ export const PipelineConfigSchema = z.object({
   instagram: InstagramSettingsSchema.optional(),
   /** Stickers/SFX cues (stage 05b-planEdits); absent = disabled. */
   editing: EditingSettingsSchema.optional(),
+  /** The owner's brand mark on every Short and cut; absent or enabled=false = none. */
+  watermark: WatermarkSettingsSchema.optional(),
   render: z
     .object({
       /** Cancels a render that runs longer than this (default 600 s). */

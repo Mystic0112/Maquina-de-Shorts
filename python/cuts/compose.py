@@ -1,4 +1,4 @@
-"""Frame composition for cuts: outlined caption/credit overlays and the two framings (face, open)."""
+"""Frame composition for cuts: outlined text overlays (captions, watermark) and the two framings (face, open)."""
 
 from __future__ import annotations
 

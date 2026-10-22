@@ -116,6 +116,25 @@ export const EditingSettingsSchema = z.object({
   sfxVolume: z.number().min(0).max(1).optional(),
 });
 
+/** Where the owner's watermark sits; vertical positions keep clear of the Shorts title and the bottom UI. */
+export const WATERMARK_POSITIONS = ["top-left", "top-right", "top", "bottom-left", "bottom-right", "bottom"] as const;
+export type WatermarkPosition = (typeof WATERMARK_POSITIONS)[number];
+/** Placement on a 1080×1920 frame, shared by the Remotion Shorts and the cuts renderer (python/cuts). */
+export const WATERMARK_LAYOUT = { margin: 48, topMin: 150, bottomMax: 1920 - 420 } as const;
+
+export const WatermarkSettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  /** e.g. "@meucanal"; empty = image only. */
+  text: z.string().max(40).optional(),
+  /** Project-relative PNG (the dashboard uploads it to data/branding/logo.png); empty = text only. */
+  image: z.string().max(200).optional(),
+  position: z.enum(WATERMARK_POSITIONS).optional(),
+  opacity: z.number().min(0.1).max(1).optional(),
+  /** Width of the mark, % of the video width. */
+  size: z.number().min(5).max(40).optional(),
+});
+export type WatermarkSettings = z.infer<typeof WatermarkSettingsSchema>;
+
 export type CaptionSettings = z.infer<typeof CaptionSettingsSchema>;
 export type EditingSettings = z.infer<typeof EditingSettingsSchema>;
 export type InstagramSettings = z.infer<typeof InstagramSettingsSchema>;
@@ -182,6 +201,7 @@ export const VOICE_EXTRAS_DEFAULTS: Required<VoiceExtras> = {
 };
 
 export const INSTAGRAM_DEFAULTS: Required<InstagramSettings> = { enabled: false, maxPostsPerDay: 3 };
+export const WATERMARK_DEFAULTS: Required<WatermarkSettings> = { enabled: false, text: "", image: "", position: "top-right", opacity: 0.85, size: 18 };
 export const EDITING_DEFAULTS: Required<EditingSettings> = { enabled: false, maxCuesPerVideo: 6, sfxVolume: 0.35 };
 
 export function resolveCaptions(s?: CaptionSettings): Required<CaptionSettings> {
@@ -201,6 +221,9 @@ export function resolveVoiceExtras(s?: VoiceExtras): Required<VoiceExtras> {
 }
 export function resolveInstagram(s?: InstagramSettings): Required<InstagramSettings> {
   return { ...INSTAGRAM_DEFAULTS, ...stripUndefined(s) };
+}
+export function resolveWatermark(s?: WatermarkSettings): Required<WatermarkSettings> {
+  return { ...WATERMARK_DEFAULTS, ...stripUndefined(s) };
 }
 export function resolveEditing(s?: EditingSettings): Required<EditingSettings> {
   return { ...EDITING_DEFAULTS, ...stripUndefined(s) };

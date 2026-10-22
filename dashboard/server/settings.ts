@@ -17,6 +17,7 @@ import {
   SCRIPT_DEFAULTS,
   VISUAL_DEFAULTS,
   VOICE_EXTRAS_DEFAULTS,
+  WATERMARK_DEFAULTS,
 } from "../../src/shared/settings.js";
 import type { FieldError, KeyStatus, SettingsPayload, TopicsPayload } from "../shared/api.js";
 import { envIsSet, envValue, paths, projectRoot } from "./config.js";
@@ -190,6 +191,7 @@ export async function getSettings(): Promise<SettingsPayload> {
       visual: VISUAL_DEFAULTS,
       script: SCRIPT_DEFAULTS,
       voice: VOICE_EXTRAS_DEFAULTS,
+      watermark: WATERMARK_DEFAULTS,
     },
     fonts: CAPTION_FONTS,
     schema: jsonSchema(),

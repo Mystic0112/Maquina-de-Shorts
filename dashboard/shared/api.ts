@@ -9,10 +9,10 @@ import type {
   VideoMetadata,
 } from "../../src/orchestrator/types.js";
 
-import type { CaptionSettings, ScriptSettings, VisualSettings, VoiceExtras } from "../../src/shared/settings.js";
+import type { CaptionSettings, ScriptSettings, VisualSettings, VoiceExtras, WatermarkSettings } from "../../src/shared/settings.js";
 
 export type { FactCheckSummary, LlmUsage, QualitySummary, RunRejection, StageName, UploadResult, VideoMetadata };
-export type { CaptionSettings, ScriptSettings, VisualSettings, VoiceExtras };
+export type { CaptionSettings, ScriptSettings, VisualSettings, VoiceExtras, WatermarkSettings };
 export type ResolvedScript = Required<Omit<ScriptSettings, "cta">> & Pick<ScriptSettings, "cta">;
 
 /** Execution order (see STAGES in src/orchestrator/runPipeline.ts). */
@@ -254,6 +254,7 @@ export interface SettingsPayload {
     visual: Required<VisualSettings>;
     script: ResolvedScript;
     voice: Required<VoiceExtras>;
+    watermark: Required<WatermarkSettings>;
   };
   /** Caption font id -> CSS font stack. */
   fonts: Record<string, string>;

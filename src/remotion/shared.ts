@@ -2,7 +2,7 @@
 // Keep this file free of Node built-ins: it is compiled by webpack into the browser bundle.
 // Props use `type` aliases (not interfaces) so they satisfy Remotion's Record<string, unknown> bound.
 
-import { CAPTION_DEFAULTS, VISUAL_DEFAULTS, type RenderStyle } from "../shared/settings.js";
+import { CAPTION_DEFAULTS, VISUAL_DEFAULTS, type RenderStyle, type WatermarkPosition } from "../shared/settings.js";
 
 export type { RenderStyle } from "../shared/settings.js";
 
@@ -92,6 +92,17 @@ export type EditCueProps = {
   volume: number;
 };
 
+/** The owner's brand mark (Configurações > Marca d'água), already resolved and staged. */
+export type WatermarkProps = {
+  text: string;
+  /** staticFile() path of the staged PNG, or null for text only. */
+  imageSrc: string | null;
+  position: WatermarkPosition;
+  opacity: number;
+  /** % of the video width. */
+  size: number;
+};
+
 export type ShortProps = {
   width: number;
   height: number;
@@ -104,6 +115,8 @@ export type ShortProps = {
   overlay: OverlayHookProps | null;
   /** Empty when editing is off or the plan had no usable cue. */
   edits: EditCueProps[];
+  /** Absent/null = no watermark. */
+  watermark?: WatermarkProps | null;
 };
 
 export const EMPTY_SHORT_PROPS: ShortProps = {

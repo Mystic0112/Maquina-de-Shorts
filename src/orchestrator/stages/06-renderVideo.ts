@@ -8,6 +8,7 @@ import path from "node:path";
 import { makeCancelSignal, renderMedia, selectComposition } from "@remotion/renderer";
 import { loadConfig } from "../lib/config.js";
 import { contentBindingProblems } from "../lib/contentHash.js";
+import { resolveWatermarkFiles } from "../lib/watermark.js";
 import { buildRenderPlan, COMPOSITION_ID, type RenderPlan, type ShortProps } from "../../remotion/props.js";
 import { ensureBundle, newPublicPrefix, removeStagedAssets, renderStyleFrom, stageAssets, videoConfigFrom } from "../../remotion/node/renderKit.js";
 import type { RenderResult, RunContext } from "../types.js";
@@ -102,7 +103,8 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   if (stale.length > 0) throw new Error(`Refusing to render ${ctx.runId}: ${stale.join("; ")}`);
   const config = loadConfig();
   const publicPrefix = newPublicPrefix();
-  const plan: RenderPlan = buildRenderPlan(ctx, videoConfigFrom(config), renderStyleFrom(config), { publicPrefix });
+  const watermark = resolveWatermarkFiles(config.watermark, log);
+  const plan: RenderPlan = buildRenderPlan(ctx, videoConfigFrom(config), renderStyleFrom(config), { publicPrefix, watermark });
   const { props, assets } = plan;
   const outputPath = path.join(ctx.runDir, OUTPUT_FILE_NAME);
   const startedAt = Date.now();

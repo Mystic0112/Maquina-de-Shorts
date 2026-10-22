@@ -179,7 +179,7 @@ Uma vertente separada, rodada por `npm run cuts`: pega vídeos longos dos canais
 4. Transcreve no PC com faster-whisper.
 5. O `agy` escolhe os melhores trechos: uma história completa de 45 a 90 s em canal de vlog, de 30 a 60 s em podcast.
 6. Uma segunda chamada confere cada trecho com 2 min de conversa antes e depois: se o corte muda o sentido, ou o título mente ou desmoraliza alguém, o trecho é descartado.
-7. Tira as pausas mortas (as risadas ficam) e recorta em vertical seguindo o rosto de quem fala, com legenda pequena, palavrão censurado ("merd4") e crédito do canal.
+7. Tira as pausas mortas (as risadas ficam) e recorta em vertical. Um detector de quem fala (Light-ASD, voz + boca) guia a câmera: fecha no rosto de quem fala, abre quando ninguém fala ou quando duas pessoas falam juntas. Legenda pequena em Montserrat, palavrão censurado ("merd4") e a sua marca d'água.
 8. Salva cada corte em `render_output/<runId>/` (`final.mp4` + `context.json`). **Não publica.**
 
 ## 🛡️ Travas
@@ -415,7 +415,7 @@ Os temas ficam em `config/topics.seed.json` (também editáveis na aba Configura
 | 📊 **Visão geral** | Vídeos feitos e publicados, taxa de sucesso, views, inscritos e galeria com player |
 | 🎞️ **Vídeos** e ⏱️ **Execuções** | Cada vídeo, cada estágio, quanto tempo levou e onde falhou |
 | ✨ **Conteúdo** | Duração da narração, fontes e licenças das imagens, notas do avaliador, uso de tokens e custo estimado |
-| ⚙️ **Configurações** | Voz, legendas, visual, roteiro, formato, temas, upload, edição (memes) e o estado das chaves, com prévia de um quadro real do vídeo |
+| ⚙️ **Configurações** | Voz, legendas, visual, roteiro, formato, marca d'água (texto e logo PNG, em Shorts e cortes), temas, canais de corte, upload, edição (memes) e o estado das chaves, com prévia de um quadro real do vídeo |
 
 <div align="center">
 
@@ -483,7 +483,7 @@ Vertente separada do vídeo de curiosidades (Onda 4). Pega vídeos dos canais li
 > [!IMPORTANT]
 > **Trava dos canais.** Um canal só é cortado quando o dono o liga em `config/cuts.json` (`enabled: true`) e ele não está bloqueado (`blocked`, com o motivo). Decisão do dono (22/10/2026): cortar vídeo público pode; mudar o sentido da fala ou desmoralizar alguém, nunca. Canal que pedir para parar ou reclamar de direitos entra em `blocked` para sempre. O link `authorization.url` é opcional, só como prova. Canal recusado sai com código `3`. O jeito mais fácil de cuidar dos canais é o painel, em **Configurações > Canais de corte**: cole o link do canal (ex.: `youtube.com/@acfperformance`), escolha vlog ou podcast, ligue, desligue ou bloqueie. Ele grava o `config/cuts.json` (fora do git), criado a partir do `config/cuts.example.json` no primeiro salvamento.
 
-O que o `config/cuts.json` define: os canais (`id`, `name`, `enabled`, `blocked`, `style` = `vlog` ou `podcast`, `minSeconds`/`maxSeconds` opcionais, `authorization` opcional, `credit` gravado no vídeo, `maxVideosPerDay`), o tamanho dos cortes de podcast (`clip.minSeconds`/`maxSeconds`, padrão do exemplo 30–60 s; vlog usa 45–90 s; máximo 180 s, o limite do Shorts; `clip.perVideo`; `clip.framing`; cor e palavras por legenda) e o download (`download.maxHeight`, `download.ytDlp`).
+O que o `config/cuts.json` define: os canais (`id`, `name`, `enabled`, `blocked`, `style` = `vlog` ou `podcast`, `minSeconds`/`maxSeconds` opcionais, `authorization` opcional, `credit` que vai para a descrição, `maxVideosPerDay`), o tamanho dos cortes de podcast (`clip.minSeconds`/`maxSeconds`, padrão do exemplo 30–60 s; vlog usa 45–90 s; máximo 180 s, o limite do Shorts; `clip.perVideo`; `clip.framing`; cor e palavras por legenda) e o download (`download.maxHeight`, `download.ytDlp`).
 
 ```bash
 npm run cuts -- --scan                                       # RSS dos canais autorizados, processa o que for novo
@@ -681,6 +681,6 @@ O planejamento vivo fica no ClickUp, na lista **"Máquina de Shorts"** (ondas 0 
 
 - **Imagens e vídeos:** só fontes da lista permitida, cada candidato checado antes do download. Autor, licença e link ficam no `context.json`, e o estágio 07 escreve os créditos na descrição, com "(recortado e editado)".
 - **Memes e sons:** só as licenças da [lista](#-memes), com crédito quando a licença pede.
-- **Cortes:** só canais com autorização pública por escrito; o crédito do canal é gravado no próprio corte.
+- **Cortes:** só canais ligados pelo dono e fora da lista de bloqueio; nunca mudar o sentido nem desmoralizar (conferência antes do render); o crédito do canal e o link do original vão na descrição.
 - **Voz:** Kokoro é Apache-2.0. O edge-tts não tem licença comercial e ficou só como legado.
 - **OpenMontage:** `vendor/openmontage_adapter/` usa código do [OpenMontage](https://github.com/calesthio/OpenMontage), licenciado sob **AGPL-3.0**. O resto do projeto só o chama como processo separado e **nunca importa** dele em `src/` ou `python/`. Se este repositório for distribuído ou ficar público, o adaptador precisa ser publicado sob AGPL-3.0. O clone em `vendor/openmontage/` não é versionado.

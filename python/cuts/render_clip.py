@@ -6,7 +6,7 @@ multiprocessing) and prints one JSON object on stdout: {"clips": [{"out", "frame
 Per clip: pass 1 (detect.py) tracks the faces with YuNet and picks the speaker per frame with Light-ASD
 (asd.py, when "asdModel" is given and loads) or the mouth-movement heuristic (speaker.py);
 pass 2 decodes again, crops along the camera path (camera.py), draws the captions (captions.py + Pillow)
-and the channel credit, and pipes JPEG frames into ffmpeg, which muxes the original audio (libx264 + aac).
+and the owner's watermark (watermark.py), and pipes JPEG frames into ffmpeg, which muxes the original audio (libx264 + aac).
 
 Jump cuts: a job may carry "keep" (absolute source seconds, sorted, non-overlapping, inside [start, end]).
 They are snapped to the frame grid; pass 2 still reads every source frame but only encodes the kept ones,
@@ -39,10 +39,10 @@ import captions as caps
 import compose as cmp
 import detect
 import speaker as spk
+import watermark as wm
 
 OUT_W, OUT_H = cmp.OUT_W, cmp.OUT_H
 CAPTION_FONT_SIZE = 60
-CREDIT_FONT_SIZE = 40
 JPEG_QUALITY = (
     95  # pipe frames are re-encoded by libx264; 95 keeps the double encode invisible
 )
@@ -62,7 +62,6 @@ class JobSpec:
     yunet: str
     ffmpeg: str
     framing: str
-    credit: str
     words_per_cue: int
     color: str
     font: str | None
@@ -73,13 +72,18 @@ class JobSpec:
     words: list[dict[str, Any]]
     keep: list[tuple[float, float]]
     asd_model: str | None = None
+    watermark: wm.Watermark | None = None
 
 
 def resolve_font(explicit: str | None) -> str | None:
-    for candidate in ([explicit] if explicit else []) + list(FONT_CANDIDATES):
-        if candidate and Path(candidate).is_file():
-            return candidate
-    return None
+    if explicit and Path(explicit).is_file():
+        return explicit
+    fallback = next((c for c in FONT_CANDIDATES if Path(c).is_file()), None)
+    if explicit:
+        log.warning(
+            "font not found: %s; using %s", explicit, fallback or "Pillow's default"
+        )
+    return fallback
 
 
 # ---------------------------------------------------------------------------------------------
@@ -172,7 +176,11 @@ def render(
     if job.framing == "face":
         # The mouth heuristic guesses wrong on handheld footage: only the audio-visual model earns a push-in.
         zoom = analysis.get("speakerMethod") == "light-asd"
-        shots = cam.camera_path(speakers, analysis["faces"], src_w, src_h, fps, zoom)
+        scored = analysis.get("scored")
+        groups = cam.group_frames(scored, fps) if zoom and scored else None
+        shots = cam.camera_path(
+            speakers, analysis["faces"], src_w, src_h, fps, zoom, groups
+        )
     else:
         crop_w = min(src_w, round(src_h * 4 / 5))
         path = spk.smooth_path([s.cx if s else None for s in speakers], src_w)
@@ -185,15 +193,11 @@ def render(
         )
         for cue in cues
     }
-    credit = (
-        cmp.text_overlay(
-            job.credit, font, CREDIT_FONT_SIZE, (255, 255, 255), int(OUT_W * 0.9)
-        )
-        if job.credit
-        else None
-    )
+    mark = wm.build_overlay(job.watermark, font) if job.watermark else None
+    if mark is not None:
+        mark_x, mark_y = wm.origin(job.watermark.position, mark.shape[1], mark.shape[0])
+        mark_center = (mark_x + mark.shape[1] // 2, mark_y + mark.shape[0] // 2)
     caption_y = int(OUT_H * 0.66) if job.framing == "face" else int(OUT_H * 0.915)
-    credit_y = int(OUT_H * 0.075)
     cache: dict[str, Any] = {}
     Path(job.out).parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.Popen(
@@ -223,8 +227,8 @@ def render(
             cue = caps.cue_at(cues, index / fps)
             if cue:
                 cmp.blend(out, overlays[cue.text], OUT_W // 2, caption_y)
-            if credit is not None:
-                cmp.blend(out, credit, OUT_W // 2, credit_y)
+            if mark is not None:
+                cmp.blend(out, mark, *mark_center)
             try:
                 proc.stdin.write(
                     cv2.imencode(".jpg", out, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])[
@@ -259,9 +263,10 @@ def process(job: JobSpec) -> dict[str, Any]:
         raise RuntimeError(
             f"no frames decoded between {job.start} and {job.end} s of {job.source}"
         )
-    speakers, method = detect.pick_speakers(job, analysis)
+    speakers, method, scored = detect.pick_speakers(job, analysis)
     analysis["speakers"] = speakers
     analysis["speakerMethod"] = method
+    analysis["scored"] = scored
     switches = sum(
         1 for a, b in pairwise(speakers) if a and b and a.track_id != b.track_id
     )
@@ -315,18 +320,21 @@ def read_jobs(raw: dict[str, Any]) -> tuple[list[JobSpec], int]:
     if not Path(raw["yunet"]).is_file():
         raise ValueError(f"YuNet model not found: {raw['yunet']}")
     captions_cfg = raw.get("captions", {})
+    watermark = wm.parse_watermark(
+        raw.get("watermark")
+    )  # "credit" is ignored: it goes in the description
     jobs = [
         JobSpec(
             source=raw["source"],
             yunet=raw["yunet"],
             ffmpeg=raw.get("ffmpeg", "ffmpeg"),
             framing=raw["framing"],
-            credit=raw.get("credit", ""),
             words_per_cue=int(captions_cfg.get("wordsPerCue", 3)),
             color=captions_cfg.get("color", "#FFE11A"),
             font=raw.get("font"),
             hold_seconds=float(raw.get("holdSeconds", spk.DEFAULT_HOLD_SECONDS)),
             asd_model=raw.get("asdModel") or None,
+            watermark=watermark,
             start=float(j["start"]),
             end=float(j["end"]),
             out=j["out"],

@@ -123,7 +123,9 @@ def analyze(job: JobSpec) -> dict[str, Any]:
     }
 
 
-def asd_speakers(job: JobSpec, analysis: dict[str, Any]) -> list[spk.Face | None]:
+def asd_speakers(
+    job: JobSpec, analysis: dict[str, Any]
+) -> tuple[list[spk.Face | None], list[list[spk.Face]]]:
     import asd
     import asd_math
 
@@ -142,21 +144,23 @@ def asd_speakers(job: JobSpec, analysis: dict[str, Any]) -> list[spk.Face | None
     finally:
         capture.release()
     scored = asd_math.dense_faces(tracks, fps, analysis["frames"])
-    return spk.choose_speaker_by_score(
+    speakers = spk.choose_speaker_by_score(
         scored,
         round(job.hold_seconds * fps),
         round(spk.SILENCE_HOLD_SECONDS * fps),
     )
+    return speakers, scored
 
 
 def pick_speakers(
     job: JobSpec, analysis: dict[str, Any]
-) -> tuple[list[spk.Face | None], str]:
-    """Speaker per frame and the method used ("light-asd" or "mouth")."""
+) -> tuple[list[spk.Face | None], str, list[list[spk.Face]] | None]:
+    """Speaker per frame, the method used ("light-asd" or "mouth") and the per-frame ASD-scored faces."""
     if job.asd_model:
         try:
-            return asd_speakers(job, analysis), "light-asd"
+            speakers, scored = asd_speakers(job, analysis)
+            return speakers, "light-asd", scored
         except Exception as exc:  # noqa: BLE001 - optional model: any failure falls back, reported in the result
             log.warning("Light-ASD unavailable, using the mouth heuristic: %r", exc)
     hold = round(job.hold_seconds * analysis["fps"])
-    return spk.choose_speaker(analysis["faces"], hold), "mouth"
+    return spk.choose_speaker(analysis["faces"], hold), "mouth", None

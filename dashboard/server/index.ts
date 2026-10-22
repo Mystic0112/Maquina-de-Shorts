@@ -4,6 +4,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import type { RefreshResponse, SaveResponse } from "../shared/api.js";
 import { buildOverview, buildVideoRows } from "./aggregate.js";
 import { config, dashboardDir, paths } from "./config.js";
+import { LOGO_FILE, logoExists, MAX_LOGO_BYTES, saveLogo } from "./branding.js";
 import { getCuts, putCuts, resolveChannel } from "./cuts.js";
 import { manualRefresh, startMetrics, youtubeStatus } from "./metrics.js";
 import { getRevenue } from "./revenue.js";
@@ -150,6 +151,28 @@ app.put("/api/cuts", jsonOnly, jsonBody, async (req, res) => {
 
 app.post("/api/cuts/resolve", jsonOnly, jsonBody, async (req, res) => {
   res.json(await resolveChannel((req.body as { url?: unknown } | undefined)?.url));
+});
+
+// The PNG body type forces a CORS preflight, so other sites cannot post a logo here.
+app.put("/api/branding/logo", express.raw({ type: "image/png", limit: MAX_LOGO_BYTES }), async (req, res) => {
+  try {
+    if (!req.is("image/png")) {
+      res.status(415).json({ ok: false, message: "Use Content-Type: image/png" });
+      return;
+    }
+    const path = await saveLogo(req.body);
+    res.json({ ok: true, message: "Logo salvo.", path });
+  } catch (error) {
+    sendSettingsError(res, error);
+  }
+});
+
+app.get("/api/branding/logo", (_req, res) => {
+  if (!logoExists()) {
+    res.status(404).end();
+    return;
+  }
+  res.sendFile(LOGO_FILE, { headers: { "Cache-Control": "no-store" } });
 });
 
 app.get("/api/voices", async (_req, res) => {

@@ -1,4 +1,5 @@
 import {
+  BadgeCheck,
   Captions,
   CircleCheck,
   Shapes,
@@ -43,6 +44,7 @@ import type {
 import { categoryColor } from "../colors";
 import { Card, Empty, formatIcon } from "../components";
 import { CutsChannelsSection } from "../CutsChannels";
+import { WatermarkSection } from "../WatermarkSection";
 import { SCRIPT_FORMATS, type ScriptFormat } from "../format";
 import { PreviewPanel } from "../PreviewPanel";
 import {
@@ -66,6 +68,7 @@ const SECTIONS = [
   { id: "cfg-visual", label: "Visual", icon: Palette },
   { id: "cfg-roteiro", label: "Roteiro", icon: FileText },
   { id: "cfg-formato", label: "Formato", icon: Ruler },
+  { id: "cfg-marca", label: "Marca", icon: BadgeCheck },
   { id: "cfg-temas", label: "Temas", icon: Layers },
   { id: "cfg-cortes", label: "Cortes", icon: Scissors },
   { id: "cfg-upload", label: "Upload", icon: Upload },
@@ -207,6 +210,7 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
   const captions = overlay(settings.defaults.captions, draft.captions) as Required<CaptionSettings>;
   const visual = overlay(settings.defaults.visual, draft.visual) as Required<VisualSettings>;
   const script = overlay(settings.defaults.script, draft.script);
+  const watermark = overlay(settings.defaults.watermark, draft.watermark);
   const voice = (draft.voice ?? {}) as VoiceDraft;
   const fps = (getPath(draft, "video.fps") as number | undefined) ?? FPS_FALLBACK;
   const styleInvalid = clientErrors.some((e) => e.path.startsWith("captions") || e.path.startsWith("visual"));
@@ -578,6 +582,8 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
               <p className="hint">Fixos: o YouTube Shorts é vertical 9:16, e 1080×1920 é o tamanho nativo do formato.</p>
             </div>
           </Section>
+
+          <WatermarkSection wm={watermark} set={set} errorAt={errorAt} />
 
           <TopicsSection categories={topicsDraft} originalIds={new Set(topics.data.categories.map((c) => c.id))} onChange={setTopicsDraft} errorAt={errorAt} />
 

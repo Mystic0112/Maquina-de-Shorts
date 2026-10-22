@@ -24,6 +24,7 @@ import laya_rank
 import render_clip
 import speaker
 import transcribe
+import watermark
 
 
 def words(*spec: tuple[str, float, float]) -> list[dict[str, object]]:
@@ -305,6 +306,103 @@ class CameraTests(unittest.TestCase):
             camera.crop_rect(camera.Shot(960, 540, 5000), 1920, 1080),
             (656, 0, 608, 1080),
         )
+
+
+def talking(*faces: tuple[int, float, float]) -> list[speaker.Face]:
+    return [speaker.Face(t, cx, 500.0, 150.0, score, 180.0) for t, cx, score in faces]
+
+
+class GroupShotTests(unittest.TestCase):
+    def test_overlap_needs_min_duration_and_holds_after(self) -> None:
+        both = talking((0, 600.0, 1.0), (1, 1300.0, 0.5))
+        one = talking((0, 600.0, 1.0), (1, 1300.0, -1.0))
+        # 10 fps: overlap needs 5 frames, the group shot holds 10 frames after it
+        blip = camera.group_frames([one] * 2 + [both] * 4 + [one] * 4, fps=10.0)
+        self.assertTrue(all(g == [] for g in blip))
+        frames = [both] * 6 + [one] * 12
+        groups = camera.group_frames(frames, fps=10.0)
+        active = [bool(g) for g in groups]
+        self.assertEqual(active, [False] * 4 + [True] * 12 + [False] * 2)
+        self.assertEqual({f.track_id for f in groups[4]}, {0, 1})
+
+    def test_group_shot_holds_every_padded_face(self) -> None:
+        faces = talking((0, 800.0, 1.0), (1, 1100.0, 1.0))
+        shot = camera.group_shot(faces, 1920, 1080)
+        # x span: 800 - 75 - 90 to 1100 + 75 + 90 = 635..1265 -> 630 px wide -> 1120 px tall > 1080: doesn't fit
+        self.assertEqual(shot, camera.Shot(950.0, 540.0, 1080.0))
+        close = talking((0, 900.0, 1.0), (1, 1000.0, 1.0))
+        shot = camera.group_shot(close, 1920, 1080)
+        # x span 735..1165 = 430 px -> 764.4 tall, wider than one face's shot (150 / 0.38 * 16 / 9 = 701.8)
+        self.assertAlmostEqual(shot.height, 430 / camera.ASPECT)
+        self.assertAlmostEqual(shot.cx, 950.0)
+        self.assertAlmostEqual(shot.cy, 500.0)
+        left, _, width, _ = camera.crop_rect(shot, 1920, 1080)
+        self.assertLessEqual(left, 735)
+        self.assertGreaterEqual(left + width, 1165)
+
+    def test_camera_eases_out_to_the_group_slowly(self) -> None:
+        faces = talking((0, 900.0, 1.0), (1, 1000.0, 1.0))
+        speakers = [faces[0]] * 60
+        groups = [[]] * 20 + [faces] * 40
+        path = camera.camera_path(
+            speakers, [faces] * 60, 1920, 1080, 30.0, True, groups
+        )
+        target = camera.group_shot(faces, 1920, 1080)
+        self.assertLess(path[19].height, target.height - 50)
+        steps = [abs(b.height - a.height) for a, b in pairwise(path)]
+        self.assertLessEqual(max(steps), camera.ZOOM_ALPHA * 1080)
+        self.assertLess(abs(path[-1].height - target.height), 20)
+
+
+class WatermarkTests(unittest.TestCase):
+    def test_origin_for_every_position_and_safe_zones(self) -> None:
+        expected = {
+            "top-left": (48, 150),
+            "top-right": (832, 150),
+            "top": (440, 150),
+            "bottom-left": (48, 1400),
+            "bottom-right": (832, 1400),
+            "bottom": (440, 1400),
+        }
+        for position, xy in expected.items():
+            self.assertEqual(watermark.origin(position, 200, 100), xy, position)
+        self.assertEqual(
+            watermark.origin("bottom", 200, 1450), (440, 150)
+        )  # too tall: top limit wins
+
+    def test_parse_validates_and_skips_empty(self) -> None:
+        self.assertIsNone(watermark.parse_watermark(None))
+        self.assertIsNone(watermark.parse_watermark({"text": " ", "image": None}))
+        spec = watermark.parse_watermark(
+            {"text": "@canal", "position": "top", "opacity": 0.5, "size": 10}
+        )
+        self.assertEqual(spec, watermark.Watermark("@canal", None, "top", 0.5, 10.0))
+        for bad in (
+            {"text": "x", "position": "middle"},
+            {"text": "x", "opacity": 0},
+            {"text": "x", "size": 50},
+            "x",
+        ):
+            with self.assertRaises(ValueError):
+                watermark.parse_watermark(bad)
+
+    @unittest.skipUnless(importlib.util.find_spec("PIL"), "Pillow not installed")
+    def test_missing_image_falls_back_to_text_with_opacity(self) -> None:
+        spec = watermark.Watermark("@canal", "/nope/logo.png", "top", 0.5, 10.0)
+        with self.assertLogs("cuts.watermark", level="WARNING"):
+            overlay = watermark.build_overlay(spec, None)
+        self.assertEqual(overlay.shape[2], 4)
+        self.assertLessEqual(int(overlay[:, :, 3].max()), 128)
+        self.assertIsNone(
+            watermark.build_overlay(
+                watermark.Watermark(None, "/nope.png", "top", 1, 10), None
+            )
+        )
+
+    def test_missing_font_warns_and_falls_back(self) -> None:
+        with self.assertLogs("cuts.render", level="WARNING"):
+            font = render_clip.resolve_font("/nope/Montserrat-ExtraBold.ttf")
+        self.assertNotEqual(font, "/nope/Montserrat-ExtraBold.ttf")
 
 
 @unittest.skipUnless(importlib.util.find_spec("torch"), "torch not installed")

@@ -2,7 +2,8 @@ import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { buildRenderPayload, ensureModelFile, LIGHT_ASD } from "../../src/orchestrator/cuts/render.js";
+import { buildRenderPayload, ensureModelFile, LIGHT_ASD, MONTSERRAT, watermarkPayload } from "../../src/orchestrator/cuts/render.js";
+import { WATERMARK_DEFAULTS } from "../../src/shared/settings.js";
 import { KEEP_GAP_SECONDS, keptSeconds, MAX_LIVELY_SECONDS, PAD_SECONDS, planKeep, type Loudness } from "../../src/orchestrator/cuts/jumpcut.js";
 import { buildVerifyPrompt, verifyPicks } from "../../src/orchestrator/cuts/select.js";
 import type { LlmProvider } from "../../src/orchestrator/lib/llmClient.js";
@@ -105,5 +106,20 @@ describe("speaker detector model file", () => {
     const input = { source: "/s.mp4", framing: "face" as const, credit: "c", captions: { wordsPerCue: 3, color: "#FFE11A" }, jobs: [] };
     expect(buildRenderPayload(input, "/y.onnx", "ffmpeg", "/m/asd.model")).toMatchObject({ asdModel: "/m/asd.model" });
     expect(buildRenderPayload(input, "/y.onnx", "ffmpeg")).toMatchObject({ asdModel: null });
+  });
+});
+
+describe("cuts: owner's watermark and caption font", () => {
+  const on = { ...WATERMARK_DEFAULTS, enabled: true, text: " @meucanal " };
+  it("sends the resolved mark to the renderer, or null when off/empty", () => {
+    expect(watermarkPayload({ settings: on, imagePath: "/b/logo.png" })).toEqual({ text: "@meucanal", image: "/b/logo.png", position: "top-right", opacity: 0.85, size: 18 });
+    expect(watermarkPayload({ settings: { ...on, text: "" }, imagePath: "/b/logo.png" })?.text).toBeNull();
+    expect(watermarkPayload({ settings: { ...on, enabled: false }, imagePath: "/b/logo.png" })).toBeNull();
+    expect(watermarkPayload({ settings: { ...on, text: "" }, imagePath: null })).toBeNull();
+    const input = { source: "/s.mp4", framing: "face" as const, credit: "c", captions: { wordsPerCue: 3, color: "#FFE11A" }, jobs: [] };
+    expect(buildRenderPayload(input, "/y", "ffmpeg", null, { font: "/f.ttf", watermark: null })).toMatchObject({ font: "/f.ttf", watermark: null });
+  });
+  it("pins the caption font to a commit of the OFL repo", () => {
+    expect(MONTSERRAT.url).toMatch(/JulietaUla\/Montserrat\/raw\/[0-9a-f]{40}\/fonts\/ttf\/Montserrat-ExtraBold\.ttf$/);
   });
 });

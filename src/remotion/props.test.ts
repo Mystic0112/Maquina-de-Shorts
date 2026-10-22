@@ -1,7 +1,7 @@
 import { sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { FootageClip, RunContext, WordTiming } from "../orchestrator/types.js";
-import { CAPTION_DEFAULTS, VISUAL_DEFAULTS } from "../shared/settings.js";
+import { CAPTION_DEFAULTS, VISUAL_DEFAULTS, WATERMARK_DEFAULTS } from "../shared/settings.js";
 import {
   buildCaptionChunks,
   buildRenderPlan,
@@ -660,5 +660,19 @@ describe("render style (Configurações)", () => {
       expect(Math.abs(m.panXToPct)).toBeLessThanOrEqual(maxSafePanPct(imageZoom));
       expect(Math.abs(m.panXToPct)).toBeLessThanOrEqual(IMAGE_PAN_PCT);
     }
+  });
+});
+
+describe("watermark (Configurações > Marca d'água)", () => {
+  const on = { ...WATERMARK_DEFAULTS, enabled: true, text: "@meucanal", position: "bottom-left" as const };
+  it("stages the logo and passes the mark to the composition", () => {
+    const { props, assets } = buildRenderPlan(ctx([]), VIDEO, undefined, { publicPrefix: "runs/x", watermark: { settings: on, imagePath: `${sep}x${sep}Minha Logo.PNG` } });
+    expect(props.watermark).toEqual({ text: "@meucanal", imageSrc: "runs/x/watermark/Minha_Logo.png", position: "bottom-left", opacity: 0.85, size: 18 });
+    expect(assets).toContainEqual({ sourcePath: `${sep}x${sep}Minha Logo.PNG`, publicPath: "runs/x/watermark/Minha_Logo.png" });
+  });
+  it("is absent when disabled or empty", () => {
+    expect(buildRenderPlan(ctx([]), VIDEO).props.watermark).toBeNull();
+    expect(buildRenderPlan(ctx([]), VIDEO, undefined, { watermark: { settings: { ...on, enabled: false }, imagePath: "/l.png" } }).props.watermark).toBeNull();
+    expect(buildRenderPlan(ctx([]), VIDEO, undefined, { watermark: { settings: { ...on, text: " " }, imagePath: null } }).props.watermark).toBeNull();
   });
 });

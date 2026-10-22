@@ -5,6 +5,8 @@ With a speaker, the 9:16 crop is sized so the face box is FACE_FRACTION of the c
 the full-height 9:16 window at the last speaker's x. Each axis follows its target through a dead zone
 (relative to the current crop, so a tight shot stays tight) and an EMA; the zoom eases slower so it reads
 as a deliberate push-in, and a change of speaker pans over about SWITCH_SECONDS instead of cutting.
+When two or more people talk over each other (ASD scores only, `group_frames`), the camera eases out to a
+group shot holding every active face.
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from speaker import Face
+from speaker import ASD_THRESHOLD, Face
 
 ASPECT = 9 / 16  # crop width / height
 FACE_FRACTION = 0.38  # face box width / crop width
@@ -22,6 +24,9 @@ DEAD_ZONE = 0.08  # of the current crop width (x) or height (y, zoom)
 PAN_ALPHA = 0.08
 ZOOM_ALPHA = 0.05
 SWITCH_SECONDS = 0.3
+OVERLAP_MIN_SECONDS = 0.5  # two or more speaking this long before the group shot
+GROUP_HOLD_SECONDS = 1.0  # the group shot stays this long after the overlap ends
+GROUP_PAD = 0.6  # each face box is padded by this fraction of its width on every side
 
 
 @dataclass(frozen=True)
@@ -56,6 +61,61 @@ def target_shot(
     return Shot(speaker.cx, speaker.cy + (0.5 - FACE_TOP) * height, height)
 
 
+def group_shot(faces: Sequence[Face], src_w: float, src_h: float) -> Shot:
+    """9:16 shot holding every padded face box, at least as wide as the widest single-speaker shot; when it
+    cannot fit, the full-height window centred between the outermost faces."""
+    widest = max_height(src_w, src_h)
+    pads = [f.width * GROUP_PAD for f in faces]
+    x0 = min(f.cx - f.width / 2 - pad for f, pad in zip(faces, pads, strict=True))
+    x1 = max(f.cx + f.width / 2 + pad for f, pad in zip(faces, pads, strict=True))
+    y0 = min(
+        f.cy - (f.height or f.width) / 2 - pad
+        for f, pad in zip(faces, pads, strict=True)
+    )
+    y1 = max(
+        f.cy + (f.height or f.width) / 2 + pad
+        for f, pad in zip(faces, pads, strict=True)
+    )
+    single = max(target_shot(f, [], None, src_w, src_h).height for f in faces)
+    height = max((x1 - x0) / ASPECT, y1 - y0, single)
+    if height > widest:
+        xs = [f.cx for f in faces]
+        return Shot((min(xs) + max(xs)) / 2, src_h / 2, widest)
+    return Shot((x0 + x1) / 2, (y0 + y1) / 2, height)
+
+
+def group_frames(
+    scored: Sequence[Sequence[Face]],
+    fps: float,
+    min_seconds: float = OVERLAP_MIN_SECONDS,
+    hold_seconds: float = GROUP_HOLD_SECONDS,
+    threshold: float = ASD_THRESHOLD,
+) -> list[list[Face]]:
+    """Per frame, the faces a group shot must hold ([] = no group shot), from per-frame ASD scores.
+
+    The group shot starts once 2+ faces have scored above `threshold` for `min_seconds` in a row, follows the
+    faces speaking during any later overlap, and ends `hold_seconds` after the last overlapping frame.
+    """
+    min_frames = max(1, round(min_seconds * fps))
+    hold_frames = round(hold_seconds * fps)
+    groups: list[list[Face]] = []
+    run = quiet = 0
+    ids: set[int] = set()
+    for faces in scored:
+        speaking = [f for f in faces if f.activity > threshold]
+        if len(speaking) >= 2:
+            run += 1
+            if ids or run >= min_frames:
+                ids, quiet = {f.track_id for f in speaking}, 0
+        else:
+            run = 0
+            quiet += 1
+            if quiet > hold_frames:
+                ids = set()
+        groups.append([f for f in faces if f.track_id in ids])
+    return groups
+
+
 def _follow(goal: float, target: float, dead_zone: float) -> float:
     return target if abs(target - goal) > dead_zone else goal
 
@@ -67,8 +127,10 @@ def camera_path(
     src_h: float,
     fps: float,
     zoom: bool = True,
+    groups: Sequence[Sequence[Face]] | None = None,
 ) -> list[Shot]:
-    """Smoothed per-frame shots for the chosen speakers (`frames` = visible faces, for the no-speaker x)."""
+    """Smoothed per-frame shots for the chosen speakers (`frames` = visible faces, for the no-speaker x;
+    `groups` = group_frames output: a non-empty entry overrides the speaker with a slowly eased group shot)."""
     switch_frames = max(1, round(SWITCH_SECONDS * fps))
     switch_alpha = 1 - 0.05 ** (1 / switch_frames)  # 95% of the way in SWITCH_SECONDS
     path: list[Shot] = []
@@ -76,12 +138,16 @@ def camera_path(
     last_x: float | None = None
     last_id: int | None = None
     switching = 0
-    for speaker, faces in zip(speakers, frames, strict=True):
+    for index, (speaker, faces) in enumerate(zip(speakers, frames, strict=True)):
+        group = groups[index] if groups else []
         if speaker is not None:
             if last_id is not None and speaker.track_id != last_id:
                 switching = switch_frames
             last_x, last_id = speaker.cx, speaker.track_id
-        target = target_shot(speaker, faces, last_x, src_w, src_h, zoom)
+        if group:
+            target, switching = group_shot(group, src_w, src_h), 0
+        else:
+            target = target_shot(speaker, faces, last_x, src_w, src_h, zoom)
         if position is None or goal is None:
             position = goal = target
         else:
@@ -90,7 +156,7 @@ def camera_path(
                 _follow(goal.cy, target.cy, DEAD_ZONE * position.height),
                 _follow(goal.height, target.height, DEAD_ZONE * position.height),
             )
-            alpha = switch_alpha if switching else PAN_ALPHA
+            alpha = ZOOM_ALPHA if group else switch_alpha if switching else PAN_ALPHA
             switching = max(0, switching - 1)
             position = Shot(
                 position.cx + (goal.cx - position.cx) * alpha,
