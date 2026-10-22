@@ -81,7 +81,7 @@ export function CutsChannelsSection(props: {
             <div className="cfg-grid">
               <Switch label="Ligado" checked={c.enabled && !c.blocked} onChange={(v) => update(i, { enabled: v })} help={c.blocked ? "Bloqueado: não é cortado mesmo ligado." : "Desligado = a máquina ignora este canal."} />
               <Segmented label="Tipo" value={c.style ?? "podcast"} options={STYLE_OPTIONS} onChange={(v) => update(i, { style: v })} error={err(i, "style")} />
-              <TextInput label="Crédito no vídeo" value={c.credit} onChange={(v) => update(i, { credit: v })} help="Aparece no topo do corte e vai para a descrição." error={err(i, "credit")} />
+              <TextInput label="Crédito do canal" value={c.credit} onChange={(v) => update(i, { credit: v })} help="Vai para a descrição do corte, junto com o link do vídeo original." error={err(i, "credit")} />
               <NumberInput label="Vídeos por dia" value={c.maxVideosPerDay} min={1} max={10} onChange={(v) => update(i, { maxVideosPerDay: v })} error={err(i, "maxVideosPerDay")} />
               <NumberInput label="Duração mínima" suffix="s" value={c.minSeconds} min={10} max={180} onChange={(v) => update(i, { minSeconds: v })} help="Vazio = padrão do tipo (vlog 45 s, podcast 30 s)." error={err(i, "minSeconds")} />
               <NumberInput label="Duração máxima" suffix="s" value={c.maxSeconds} min={15} max={180} onChange={(v) => update(i, { maxSeconds: v })} help="Vazio = padrão do tipo (vlog 90 s, podcast 60 s). Máximo 180 s, o limite do Shorts." error={err(i, "maxSeconds")} />

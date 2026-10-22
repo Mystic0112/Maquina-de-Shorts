@@ -63,6 +63,7 @@ import {
 import { ChipMultiSelect, ColorField, Field, NumberInput, Section, Segmented, Slider, Switch, TextInput } from "../settingsUi";
 
 const SECTIONS = [
+  { id: "cfg-cortes", label: "Canais de corte", icon: Scissors },
   { id: "cfg-voz", label: "Voz", icon: Mic },
   { id: "cfg-legendas", label: "Legendas", icon: Captions },
   { id: "cfg-visual", label: "Visual", icon: Palette },
@@ -70,7 +71,6 @@ const SECTIONS = [
   { id: "cfg-formato", label: "Formato", icon: Ruler },
   { id: "cfg-marca", label: "Marca", icon: BadgeCheck },
   { id: "cfg-temas", label: "Temas", icon: Layers },
-  { id: "cfg-cortes", label: "Cortes", icon: Scissors },
   { id: "cfg-upload", label: "Upload", icon: Upload },
   { id: "cfg-chaves", label: "Chaves", icon: KeyRound },
 ] as const;
@@ -267,6 +267,9 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
 
       <div className="cfg-layout">
         <div className="cfg-main">
+          {/* First: the owner looks for the channel links here most (2026-10-22). */}
+          <CutsChannelsSection channels={cutsDraft} fileExists={cuts.exists} onChange={setCutsDraft} errorAt={errorAt} />
+
           <VoiceSection voice={voice} set={set} errorAt={errorAt} defaults={settings.defaults.voice} />
 
           <Section
@@ -587,7 +590,6 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
 
           <TopicsSection categories={topicsDraft} originalIds={new Set(topics.data.categories.map((c) => c.id))} onChange={setTopicsDraft} errorAt={errorAt} />
 
-          <CutsChannelsSection channels={cutsDraft} fileExists={cuts.exists} onChange={setCutsDraft} errorAt={errorAt} />
 
           <Section
             id="cfg-upload"

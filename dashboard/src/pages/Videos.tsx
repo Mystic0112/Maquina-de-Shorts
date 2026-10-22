@@ -1,4 +1,4 @@
-import { ExternalLink, Film, ListVideo, Play } from "lucide-react";
+import { ExternalLink, Film, ListVideo, Play, Scissors } from "lucide-react";
 import { useState } from "react";
 
 type Kind = "short" | "cut" | "all";
@@ -38,14 +38,31 @@ export function Videos({ rows: allRows, historyExists, categories }: { rows: Vid
   const rows = kind === "all" ? allRows : allRows.filter((r) => r.kind === kind);
   const playable = rows.filter((r) => r.localUrl).map(toPlayable);
   const noun = kind === "cut" ? "corte(s)" : "vídeo(s)";
+  const openCutsSettings = () => {
+    window.location.hash = "configuracoes";
+    // The settings page loads its data first; wait for the section, then bring it into view.
+    let tries = 0;
+    const timer = setInterval(() => {
+      const section = document.getElementById("cfg-cortes");
+      if (section || ++tries > 30) clearInterval(timer);
+      section?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 100);
+  };
   const picker = (
-    <select className="input kind-select" value={kind} aria-label="Mostrar" onChange={(e) => choose(e.target.value as Kind)}>
+    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      {kind === "cut" && (
+        <button type="button" className="ghost" onClick={openCutsSettings}>
+          <Scissors size={14} /> Canais de corte
+        </button>
+      )}
+      <select className="input kind-select" value={kind} aria-label="Mostrar" onChange={(e) => choose(e.target.value as Kind)}>
       {KIND_OPTIONS.map((o) => (
         <option key={o.value} value={o.value}>
           {o.label} ({o.value === "all" ? allRows.length : allRows.filter((r) => r.kind === o.value).length})
         </option>
       ))}
-    </select>
+      </select>
+    </div>
   );
 
   return (
