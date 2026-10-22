@@ -1,36 +1,144 @@
-# Máquina de Shorts
+<div align="center">
 
-> **In English.** An unattended pipeline that writes, fact-checks, illustrates, narrates, renders and publishes Brazilian-Portuguese curiosity Shorts with no human review. Node/TypeScript orchestrates resumable stages (topic → script → grounded fact-check → licensed footage scored by a vision model → TTS with word-level alignment → captions → Remotion render → metadata → YouTube/Instagram publishers), with a React dashboard on top. Highlights:
-> - **Zero API cost:** every LLM call goes through the Antigravity CLI agent on the owner's subscription, sandboxed (temp dir, no secrets in env, never auto-approved tools), with per-stage model routing, batched and concurrent image scoring (from ~64 s to ~8 s per clip in production runs) and an optional persistent stream-json session that skips the agent's per-call boot. Voice runs locally with Kokoro.
-> - **Safety gates instead of a human:** grounded fact-check with sources, ≥60 % scenes with an approved image, license filter with CC BY credits, content hashes binding approvals to content, anti-duplicate journal, daily cap, file locks.
-> - **Per-phrase visuals:** the script splits each scene into "beats"; images are searched, judged and cut at the exact word being spoken, zoom only on faces, no repeated stills.
-> - **Clips from authorized channels** (yt-dlp → Whisper → model-picked moments → face-following 9:16 crop with OpenCV), a licensed **meme/SFX layer**, and a **verdict dataset** exported in LlamaFactory format to distill the image judge into a local Qwen3-VL.
-> - 570+ Vitest tests, Python unittest, Linux and Windows. Built by Hélio Vinícius with AI coding agents.
+<img src="assets/readme/painel-visao-geral.jpg" alt="Painel da Máquina de Shorts: visão geral com vídeos gerados, taxa de sucesso, falhas e a galeria dos últimos vídeos" width="820"/>
 
-A Máquina de Shorts faz vídeos curtos (Shorts) de **curiosidades** em português do Brasil: história, ciência e espaço. Ela faz tudo sozinha: escolhe o tema, escreve o roteiro, confere os fatos, busca imagens com licença livre, grava a narração, monta o vídeo com legendas e, se o dono ligar, publica no YouTube e no Instagram. **Ninguém revisa o vídeo antes de ele sair.** Por isso o projeto tem várias travas de segurança e qualidade (veja [Travas](#travas-de-segurança-e-qualidade)).
+<br/>
+<br/>
+
+# 🎬 Máquina de Shorts
+
+**Um pipeline que escolhe o tema, escreve, confere os fatos, ilustra, narra, monta e publica Shorts de curiosidades. Sem revisão humana.**
+
+<img src="assets/readme/hero.svg" width="100%" alt="Faixa animada com as etapas: tema, roteiro, checagem de fatos, imagens com licença, voz local, legendas, vídeo e publicação. Selo: sem revisão humana, custo de API R$ 0."/>
+
+<br/>
+
+![TypeScript 7](https://img.shields.io/badge/TypeScript-7-3178C6?logo=typescript&logoColor=white) ![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-339933?logo=nodedotjs&logoColor=white) ![Python 3.13](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white) ![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black) ![Remotion 4](https://img.shields.io/badge/Remotion-4-0B84F3?logo=remotion&logoColor=white) ![Vitest: 570+ testes](https://img.shields.io/badge/Vitest-570%2B_testes-6E9F18?logo=vitest&logoColor=white) ![Custo de API: R$ 0](https://img.shields.io/badge/custo_de_API-R%24_0-2EA44F) ![Plataformas: Windows e Linux](https://img.shields.io/badge/plataformas-Windows_%7C_Linux-555?logo=windows&logoColor=white)
+
+</div>
+
+<details>
+<summary><b>🇺🇸 English summary</b> (click to expand)</summary>
+
+<br/>
+
+An unattended pipeline that writes, fact-checks, illustrates, narrates, renders and publishes Brazilian-Portuguese curiosity Shorts with no human review. Node/TypeScript orchestrates resumable stages (topic → script → grounded fact-check → licensed footage scored by a vision model → TTS with word-level alignment → captions → Remotion render → metadata → YouTube/Instagram publishers), with a React dashboard on top. Highlights:
+
+- **Zero API cost:** every LLM call goes through the Antigravity CLI agent on the owner's subscription, sandboxed (temp dir, no secrets in env, never auto-approved tools), with per-stage model routing, batched and concurrent image scoring (from ~64 s to ~8 s per clip in production runs) and an optional persistent stream-json session that skips the agent's per-call boot. Voice runs locally with Kokoro.
+- **Safety gates instead of a human:** grounded fact-check with sources, ≥60 % scenes with an approved image, license filter with CC BY credits, content hashes binding approvals to content, anti-duplicate journal, daily cap, file locks.
+- **Per-phrase visuals:** the script splits each scene into "beats"; images are searched, judged and cut at the exact word being spoken, zoom only on faces, no repeated stills.
+- **Clips from authorized channels** (yt-dlp → Whisper → model-picked moments → face-following 9:16 crop with OpenCV), a licensed **meme/SFX layer**, and a **verdict dataset** exported in LlamaFactory format to distill the image judge into a local Qwen3-VL.
+- 570+ Vitest tests, Python unittest, Linux and Windows. Built by Hélio Vinícius with AI coding agents.
+
+</details>
+
+<br/>
+
+<div align="center">
+
+<table>
+  <tr>
+    <td align="right"><b>🚀 Começar</b></td>
+    <td align="center"><a href="#-começar">🚀 Instalação</a></td>
+    <td align="center"><a href="#%EF%B8%8F-configuração">⚙️ Configuração</a></td>
+    <td align="center"><a href="#%EF%B8%8F-comandos-do-dia-a-dia">⌨️ Comandos</a></td>
+    <td align="center"><a href="#%EF%B8%8F-painel">🖥️ Painel</a></td>
+  </tr>
+  <tr>
+    <td align="right"><b>💡 Entender</b></td>
+    <td align="center"><a href="#-a-promessa">💥 A promessa</a></td>
+    <td align="center"><a href="#-por-quê">🤔 Por quê</a></td>
+    <td align="center"><a href="#-como-funciona">🧠 Como funciona</a></td>
+    <td align="center"><a href="#%EF%B8%8F-travas">🛡️ Travas</a></td>
+  </tr>
+  <tr>
+    <td align="right"><b>⚙️ Recursos</b></td>
+    <td align="center"><a href="#-publicação">📣 Publicação</a></td>
+    <td align="center"><a href="#%EF%B8%8F-cortes">✂️ Cortes</a></td>
+    <td align="center"><a href="#-memes">😂 Memes</a></td>
+    <td align="center"><a href="#-dataset-de-vereditos">🧬 Dataset</a></td>
+  </tr>
+  <tr>
+    <td align="right"><b>👀 Ver</b></td>
+    <td align="center"><a href="#-em-ação">🎬 Em ação</a></td>
+    <td align="center"><a href="#-estado-atual">📍 Estado atual</a></td>
+    <td align="center"><a href="#-testes">🧪 Testes</a></td>
+    <td align="center"><a href="#-solução-de-problemas">🩺 Problemas</a></td>
+  </tr>
+  <tr>
+    <td align="right"><b>📦 Projeto</b></td>
+    <td align="center"><a href="#%EF%B8%8F-stack">🛠️ Stack</a></td>
+    <td align="center"><a href="#%EF%B8%8F-estrutura">🗂️ Estrutura</a></td>
+    <td align="center"><a href="#%EF%B8%8F-roteiro">🗺️ Roteiro</a></td>
+    <td align="center"><a href="#-créditos">🙏 Créditos</a></td>
+  </tr>
+</table>
+
+</div>
+
+## 💥 A promessa
+
+A Máquina de Shorts faz vídeos curtos (Shorts) de **curiosidades** em português do Brasil: história, ciência e espaço. Ela faz tudo sozinha: escolhe o tema, escreve o roteiro, confere os fatos, busca imagens com licença livre, grava a narração, monta o vídeo com legendas e, se o dono ligar, publica no YouTube e no Instagram. **Ninguém revisa o vídeo antes de ele sair.** Por isso o projeto tem várias travas de segurança e qualidade (veja [Travas](#%EF%B8%8F-travas)).
+
+<img src="assets/readme/pillars.svg" width="100%" alt="Seis pilares: custo de API R$ 0 com o Antigravity CLI em sandbox e voz local Kokoro (avaliação de imagens de ~64 s para ~8 s por clipe); travas no lugar do humano; imagem casada com a palavra dita, com zoom só em rosto e sem imagem repetida; cortes de canais autorizados com recorte 9:16 que segue o rosto; memes com licença; dataset de vereditos para treinar um juiz de imagem local."/>
 
 A meta é **custo zero de API**. Em produção, a inteligência artificial roda pelo **Antigravity CLI (`agy`)**, usando os créditos do plano do dono, sem chave de API paga. A voz roda no próprio PC com o **Kokoro**. A API paga do Gemini continua funcionando como alternativa, mas não é o caminho desejado.
 
 A produção roda no PC Windows de casa do dono (placa RTX 3050), disparada pelo Agendador de Tarefas. O Linux serve para desenvolvimento. Há também um painel local para acompanhar tudo e mudar as configurações sem editar arquivos.
 
-![Painel da Máquina de Shorts: visão geral com os últimos vídeos gerados](assets/readme/painel-visao-geral.jpg)
+## 🤔 Por quê
 
-## Estado atual (22/10/2026)
+Sem ninguém no meio, cada decisão de projeto responde a um risco concreto:
+
+| Risco | Como a máquina responde |
+|---|---|
+| Um fato errado ir ao ar | Checagem de fatos com busca na web e fontes. Premissa falsa ou afirmação sem respaldo reprova o roteiro. |
+| Imagem que não combina com a fala | Uma busca por trecho da fala (*beat*) e nota do avaliador para cada candidato contra aquela frase |
+| Usar imagem sem direito de uso | Filtro de licença antes do download e créditos CC BY na descrição |
+| Gastar com API a cada vídeo | `agy` nos créditos do plano e voz Kokoro no PC. Sem chave de API paga. |
+| Uma execução cair no meio | Tudo salvo em `context.json` depois de cada estágio; `--resume` retoma de onde parou |
+| Publicar duas vezes ou demais | Diário anti-duplicata, trava de arquivo e limite diário |
+
+## 🎬 Em ação
+
+<div align="center">
+
+<img src="assets/readme/tour-painel.gif" width="100%" alt="Tour animado pelo painel real: Visão geral com números e gráficos, galeria de Vídeos, Execuções com o tempo de cada etapa e a linha do tempo de uma execução, Conteúdo com narração, licenças e relevância das imagens, e Configurações com voz, legendas e prévia do vídeo."/>
+
+<br/>
+
+<sub>Tour gravado no painel do PC de produção em 22/10/2026. A seção de chaves da aba Configurações foi omitida.</sub>
+
+</div>
+
+| Vídeos | Execuções |
+|---|---|
+| ![Galeria de vídeos gerados, com categoria, texto de capa e duração](assets/readme/painel-videos.jpg) | ![Execuções: tempo de cada etapa por vídeo e tempo de render](assets/readme/painel-execucoes.jpg) |
+| **Conteúdo** | **Configurações** |
+| ![Conteúdo: duração da narração dentro da faixa alvo, formatos e roteiros recentes](assets/readme/painel-conteudo.jpg) | ![Configurações: voz Kokoro local e prévia real da legenda](assets/readme/painel-configuracoes.jpg) |
+
+*Prints do painel do PC de produção em 22/10/2026, abertos pelo Tailscale.*
+
+## 📍 Estado atual
+
+Em 22/10/2026:
 
 | Parte | Estado |
 |---|---|
-| Vídeo de curiosidades (estágios 01 a 07) | Pronto |
-| IA pelo Antigravity CLI (`agy`) | Pronto; é o motor de produção |
-| Voz local Kokoro | Pronta; é o padrão do código (`voice.engine: kokoro`) |
-| Publicação no YouTube | Pronta, **desligada pelo dono** (`upload.enabled: false`) |
-| Publicação no Instagram Reels | Pronta, **desligada**; falta configurar o app na Meta |
-| TikTok | Pendente (a API direta só publica como privado) |
-| Agendador do Windows | Scripts prontos; tarefa **removida** pelo dono (pausado) |
-| Memes e efeitos (Onda 2) | Pronto, **desligado** por padrão |
-| Cortes de canais autorizados (Onda 4) | Pronto para gerar cortes; ainda não publica (o estágio 07 não trata cortes) |
-| Painel local + acesso pelo Tailscale | Pronto; no PC de casa falta habilitar Serve/HTTPS na conta do Tailscale |
+| Vídeo de curiosidades (estágios 01 a 07) | ✅ Pronto |
+| IA pelo Antigravity CLI (`agy`) | ✅ Pronto; é o motor de produção |
+| Voz local Kokoro | ✅ Pronta; é o padrão do código (`voice.engine: kokoro`) |
+| Publicação no YouTube | ⏸️ Pronta, **desligada pelo dono** (`upload.enabled: false`) |
+| Publicação no Instagram Reels | ⏸️ Pronta, **desligada**; falta configurar o app na Meta |
+| TikTok | ⏳ Pendente (a API direta só publica como privado) |
+| Agendador do Windows | ⏸️ Scripts prontos; tarefa **removida** pelo dono (pausado) |
+| Memes e efeitos (Onda 2) | ⏸️ Pronto, **desligado** por padrão |
+| Cortes de canais autorizados (Onda 4) | 🟡 Pronto para gerar cortes; ainda não publica (o estágio 07 não trata cortes) |
+| Painel local + acesso pelo Tailscale | 🟡 Pronto; no PC de casa falta habilitar Serve/HTTPS na conta do Tailscale |
 
-## Como funciona
+## 🧠 Como funciona
+
+<img src="assets/readme/pipeline.svg" width="100%" alt="Fluxo dos estágios 01 a 08, com 02b e 05b. 01 Tema (local), 02 Roteiro (agy), 02b Checagem de fatos (agy com busca na web), 03 Imagens (web e agy vendo as imagens), 04 Voz (Kokoro e Whisper locais), 05 Legendas (local), 05b Memes e efeitos (agy, desligado), 06 Render (Remotion, local), 07 Metadados (agy), 08 Publicação (APIs do YouTube e da Meta). Travas: checagem de fatos, pelo menos 60% das cenas com imagem aprovada e filtro de licença, créditos CC BY, publicação só ligada pelo dono, limite diário e anti-duplicata. Reprovou numa trava, troca de tema; se nada passar, sai com código 3."/>
 
 Cada execução ganha um código (`runId`) e uma pasta `render_output/<runId>/`. Depois de cada estágio, tudo o que foi feito é salvo em `render_output/<runId>/context.json`. Assim uma execução que parou no meio pode ser retomada de onde parou. O log fica em `logs/<runId>.log` e o vídeo final em `render_output/<runId>/final.mp4`.
 
@@ -53,9 +161,17 @@ Detalhes que valem saber:
 - **Zoom só em rosto.** Com `visual.zoomOnlyOnFaces: true` (padrão), só há zoom quando o assunto principal é um rosto. Imagem sem rosto fica parada. Nenhuma imagem se repete no mesmo vídeo.
 - **Novas tentativas de tema.** Se o roteiro for reprovado na checagem de fatos, se faltarem imagens boas ou se a narração sair fora da duração, a máquina troca de tema e tenta de novo (até `pipeline.maxScriptAttempts`, padrão 2 tentativas extras). Se nada passar, sai com código `3` e não produz vídeo.
 
+O painel mede cada estágio de cada execução:
+
+<div align="center">
+
+<img src="assets/readme/metricas-execucoes.gif" width="100%" alt="Aba Execuções do painel: gráfico 'Onde vai o tempo' com a duração de cada etapa por execução, gráfico 'Tempo de render' e a linha do tempo de uma execução, etapa por etapa, com a checagem de fatos aberta logo abaixo."/>
+
+</div>
+
 ### Fluxo dos cortes (Onda 4)
 
-Uma vertente separada, rodada por `npm run cuts`: pega vídeos longos de canais **que autorizaram cortes por escrito** e devolve trechos verticais prontos. Veja [Cortes](#cortes-onda-4).
+Uma vertente separada, rodada por `npm run cuts`: pega vídeos longos de canais **que autorizaram cortes por escrito** e devolve trechos verticais prontos. Veja [Cortes](#%EF%B8%8F-cortes).
 
 1. Confere a autorização do canal em `config/cuts.json` (sem link de autorização, recusa).
 2. Descobre vídeos novos pelo RSS do canal (ou recebe um vídeo específico).
@@ -65,27 +181,27 @@ Uma vertente separada, rodada por `npm run cuts`: pega vídeos longos de canais 
 6. Recorta em vertical seguindo o rosto de quem fala, com legenda e crédito do canal.
 7. Salva cada corte em `render_output/<runId>/` (`final.mp4` + `context.json`). **Não publica.**
 
-## Travas de segurança e qualidade
+## 🛡️ Travas
 
 Estas travas são inegociáveis. Se alguma atrapalhar, o certo é explicar ao dono, nunca contornar.
 
 | Trava | O que garante |
 |---|---|
-| Checagem de fatos | Até 3 rodadas com busca na web. Premissa falsa ou afirmação sem respaldo reprova o roteiro. Checagem sem fontes também reprova. |
-| Trava de qualidade | Pelo menos 60% das cenas precisam de uma imagem aprovada pelo avaliador (`footage.minPassingSceneRatio`). Senão, não renderiza. |
-| Filtro de licença | Só domínio público, CC0 e CC BY (Wikimedia), licenças próprias de Pexels e Pixabay, e NASA só quando o crédito é da NASA. Archive.org e licenças incertas ficam de fora. |
-| Créditos CC BY | Autor, link e "(recortado e editado)" vão na descrição. Se não couberem, o tema é trocado. |
-| Hashes de conteúdo | As aprovações ficam presas ao conteúdo exato. Se o roteiro ou o vídeo mudar depois, a aprovação deixa de valer. |
-| Diário anti-duplicata | Um diário por plataforma na pasta da execução (`upload.<plataforma>.journal.json`). Uma nova tentativa retoma o envio, nunca publica duas vezes. |
-| Limite diário | `upload.maxUploadsPerDay` (YouTube) e `instagram.maxPostsPerDay` contam as últimas 24 h. |
-| Trava de arquivo | Dois processos nunca publicam ao mesmo tempo. Se `data/history.json` estiver ilegível, a publicação para. |
-| Sem repetir assunto | O roteiro recebe os ~30 assuntos mais recentes e é rejeitado se repetir um deles. |
-| Publicação desligada | Nada sai com `upload.enabled: false` (padrão). Só o dono liga. |
-| Segredos | Chaves e tokens são mascarados nos logs. Cada processo filho (Python, ffmpeg, `agy`) recebe só as variáveis de que precisa. |
-| `agy` isolado | Sempre com `--sandbox`, numa pasta temporária só com as imagens da chamada e sem nenhuma chave no ambiente. **Nunca** com `--dangerously-skip-permissions`. |
-| Autorização dos cortes | Canal sem link público de autorização não é cortado. Não existe opção para desligar essa trava. |
+| 🔎 Checagem de fatos | Até 3 rodadas com busca na web. Premissa falsa ou afirmação sem respaldo reprova o roteiro. Checagem sem fontes também reprova. |
+| 🖼️ Trava de qualidade | Pelo menos 60% das cenas precisam de uma imagem aprovada pelo avaliador (`footage.minPassingSceneRatio`). Senão, não renderiza. |
+| 📜 Filtro de licença | Só domínio público, CC0 e CC BY (Wikimedia), licenças próprias de Pexels e Pixabay, e NASA só quando o crédito é da NASA. Archive.org e licenças incertas ficam de fora. |
+| ✍️ Créditos CC BY | Autor, link e "(recortado e editado)" vão na descrição. Se não couberem, o tema é trocado. |
+| 🔗 Hashes de conteúdo | As aprovações ficam presas ao conteúdo exato. Se o roteiro ou o vídeo mudar depois, a aprovação deixa de valer. |
+| 📒 Diário anti-duplicata | Um diário por plataforma na pasta da execução (`upload.<plataforma>.journal.json`). Uma nova tentativa retoma o envio, nunca publica duas vezes. |
+| 📅 Limite diário | `upload.maxUploadsPerDay` (YouTube) e `instagram.maxPostsPerDay` contam as últimas 24 h. |
+| 🔒 Trava de arquivo | Dois processos nunca publicam ao mesmo tempo. Se `data/history.json` estiver ilegível, a publicação para. |
+| 🔁 Sem repetir assunto | O roteiro recebe os ~30 assuntos mais recentes e é rejeitado se repetir um deles. |
+| ⏸️ Publicação desligada | Nada sai com `upload.enabled: false` (padrão). Só o dono liga. |
+| 🗝️ Segredos | Chaves e tokens são mascarados nos logs. Cada processo filho (Python, ffmpeg, `agy`) recebe só as variáveis de que precisa. |
+| 📦 `agy` isolado | Sempre com `--sandbox`, numa pasta temporária só com as imagens da chamada e sem nenhuma chave no ambiente. **Nunca** com `--dangerously-skip-permissions`. |
+| ✋ Autorização dos cortes | Canal sem link público de autorização não é cortado. Não existe opção para desligar essa trava. |
 
-## Instalação
+## 🚀 Começar
 
 ### Windows (produção)
 
@@ -119,10 +235,13 @@ Precisa de: Windows 10/11, Git, Node.js 22 ou mais novo (o pipeline aceita 20, o
    ```powershell
    copy .env.example .env
    ```
-7. Só para os cortes: o ambiente `.venv-cuts` com OpenCV e `yt-dlp` (veja [Cortes](#cortes-onda-4)).
+7. Só para os cortes: o ambiente `.venv-cuts` com OpenCV e `yt-dlp` (veja [Cortes](#%EF%B8%8F-cortes)).
 8. Teste sem publicar: `npm run pipeline -- --until 06-renderVideo`.
 
-### Linux (desenvolvimento)
+<details>
+<summary><b>🐧 Linux (desenvolvimento)</b></summary>
+
+<br/>
 
 O mesmo projeto roda no Linux. O agendador (`scheduler/`) é só do Windows.
 
@@ -143,11 +262,77 @@ git -C vendor/openmontage fetch --depth 1 --filter=blob:none origin 08e2151fa02d
 git -C vendor/openmontage -c advice.detachedHead=false checkout --force 08e2151fa02de28a5d6a312b3d575692bf147ad7
 ```
 
-Kokoro no Linux sem placa de vídeo: acrescente `--index-url https://download.pytorch.org/whl/cpu` ao `uv pip install` e use `KOKORO_PYTHON=<pasta>/bin/python`. Ele precisa do `espeak-ng` da distribuição (veja [Solução de problemas](#solução-de-problemas)). O ffmpeg vem do Remotion da plataforma; se faltar, o do PATH é usado.
+Kokoro no Linux sem placa de vídeo: acrescente `--index-url https://download.pytorch.org/whl/cpu` ao `uv pip install` e use `KOKORO_PYTHON=<pasta>/bin/python`. Ele precisa do `espeak-ng` da distribuição (veja [Solução de problemas](#-solução-de-problemas)). O ffmpeg vem do Remotion da plataforma; se faltar, o do PATH é usado.
 
-## Configuração
+</details>
 
-### `.env` (chaves e caminhos)
+### ⌨️ Comandos do dia a dia
+
+```bash
+npm run pipeline                                   # gera um vídeo (e publica, se a publicação estiver ligada)
+npm run pipeline -- --until 06-renderVideo         # gera sem publicar
+npm run pipeline -- --resume <runId>               # retoma uma execução, pulando o que já está pronto
+npm run pipeline -- --fixture test/fixtures/context.script-only.json   # usa um roteiro pronto, sem IA
+npm run stage -- 06-renderVideo --run <runId>      # refaz um estágio (aceita "06" ou "renderVideo")
+npm run stage -- 08-uploadYouTube --run <runId>    # publica um vídeo já pronto (ex.: depois do limite diário)
+npm run dashboard                                  # painel em http://localhost:5180
+npm run memes -- list                              # biblioteca de memes (veja a seção Memes)
+npm run cuts -- --scan                             # cortes dos canais autorizados, sem publicar
+npx tsx scripts/export_verdicts_dataset.ts         # monta o dataset do juiz de imagem local
+npx tsx scripts/test_agy_relevance.ts              # benchmark: agy x API do Gemini nas mesmas imagens
+npm run auth:youtube                               # login do YouTube (uma vez)
+npm run auth:instagram                             # login do Instagram (uma vez)
+```
+
+> [!IMPORTANT]
+> Antes de rodar `npm run pipeline` à mão, confira `LLM_PROVIDER` no `.env`: quem atualizou de uma versão antiga pode ainda estar com `gemini` (API paga), mesmo com o novo padrão `antigravity-cli`.
+
+**Códigos de saída do pipeline:** `0` deu certo, `1` erro, `3` nenhum vídeo publicável (trava de qualidade ou de fatos; não é falha da máquina). Uma execução rejeitada não pode ser retomada com `--resume`: comece outra.
+
+O benchmark `test_agy_relevance.ts` chama a **API paga do Gemini** (precisa de `GEMINI_API_KEY`) e grava o resultado em `data/agy_benchmark_results.json`. Só rode se o dono aprovar o gasto.
+
+### ⏰ Agendamento (Windows)
+
+Os scripts ficam em `scheduler/` e rodam no PowerShell que já vem no Windows. Nada é registrado sozinho, e **só o dono decide registrar a tarefa**.
+
+| Script | O que faz |
+|---|---|
+| `run_once.ps1` | Uma execução sem ninguém olhando: impede execução dupla, encerra após 60 min, log em `logs/scheduler/<data>.log`, alerta em `data/alerts.jsonl` e notificação do Windows quando falha |
+| `register_task.ps1` | Cria a tarefa "Maquina de Shorts" (padrão 09:00 e 18:00, atraso aleatório de até 20 min). `-DryRun` só mostra. |
+| `unregister_task.ps1` | Remove a tarefa (mantém logs e alertas) |
+| `status.ps1` | Estado da tarefa, última e próxima execução, últimos alertas |
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scheduler\register_task.ps1 -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File scheduler\register_task.ps1 -Times 11:45,18:45
+powershell -NoProfile -ExecutionPolicy Bypass -File scheduler\status.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scheduler\unregister_task.ps1
+```
+
+A auditoria sugeriu 11:45 e 18:45 para o público brasileiro. Por padrão a tarefa só roda com o dono logado (`-LogonType Interactive`); `S4U` e `Password` rodam deslogado (registrar como administrador). O `run_once.ps1` devolve `0`, `1`, `3` como o pipeline e `124` quando estoura o tempo. Para testar sem o pipeline real: `$env:MAQUINA_SCHEDULER_TEST='fail'` (ou `ok`, `quality`, `hang`).
+
+## ⚙️ Configuração
+
+Duas fontes: o `.env` (chaves e caminhos, fora do git) e o `config/pipeline.config.json` (como o vídeo é feito, versionado e editável pelo painel).
+
+Exemplo de produção com custo zero (os números são exemplos):
+
+```ini
+LLM_PROVIDER=antigravity-cli
+ANTIGRAVITY_FALLBACK=none
+ANTIGRAVITY_CLI_CONCURRENCY=4
+ANTIGRAVITY_CLI_TIMEOUT_S=240
+ANTIGRAVITY_CLI_SESSION_TURNS=6
+KOKORO_PYTHON=C:\Users\<você>\AppData\Local\maquina-tts\kokoro\Scripts\python.exe
+```
+
+> [!WARNING]
+> **Atenção aos modelos Claude e GPT dentro do `agy`.** Eles gastam um saldo separado de "AI credits", que acabou no teste ("AI credits balance is too low"). Não use esses modelos em produção até o dono confirmar. Fique nos modelos Gemini.
+
+<details>
+<summary><b>🔑 <code>.env</code>: todas as variáveis (chaves e caminhos)</b></summary>
+
+<br/>
 
 O `.env` nunca entra no git. O modelo comentado é o `.env.example`. A tabela abaixo não traz valores reais.
 
@@ -176,20 +361,12 @@ O `.env` nunca entra no git. O modelo comentado é o `.env.example`. A tabela ab
 | Cortes | `CUTS_FONT` | Fonte TTF das legendas dos cortes |
 | Diagnóstico | `LOG_LEVEL=debug` | Mostra também as mensagens de depuração no terminal |
 
-Exemplo de produção com custo zero (os números são exemplos):
+</details>
 
-```ini
-LLM_PROVIDER=antigravity-cli
-ANTIGRAVITY_FALLBACK=none
-ANTIGRAVITY_CLI_CONCURRENCY=4
-ANTIGRAVITY_CLI_TIMEOUT_S=240
-ANTIGRAVITY_CLI_SESSION_TURNS=6
-KOKORO_PYTHON=C:\Users\<você>\AppData\Local\maquina-tts\kokoro\Scripts\python.exe
-```
+<details>
+<summary><b>🎛️ <code>config/pipeline.config.json</code>: como o vídeo é feito</b></summary>
 
-> **Atenção aos modelos Claude e GPT dentro do `agy`.** Eles gastam um saldo separado de "AI credits", que acabou no teste ("AI credits balance is too low"). Não use esses modelos em produção até o dono confirmar. Fique nos modelos Gemini.
-
-### `config/pipeline.config.json` (como o vídeo é feito)
+<br/>
 
 Este arquivo é versionado. Quase tudo dá para mudar na aba **Configurações** do painel, que guarda um backup em `config/backups/` a cada gravação. Os padrões estão em `src/shared/settings.ts` e o formato é validado em `src/orchestrator/lib/config.ts`. As mudanças valem a partir da próxima execução.
 
@@ -226,66 +403,24 @@ Exemplo de modelos por etapa (confira os nomes com `agy models`):
 
 Os temas ficam em `config/topics.seed.json` (também editáveis na aba Configurações → Temas).
 
-## Comandos do dia a dia
+</details>
 
-```bash
-npm run pipeline                                   # gera um vídeo (e publica, se a publicação estiver ligada)
-npm run pipeline -- --until 06-renderVideo         # gera sem publicar
-npm run pipeline -- --resume <runId>               # retoma uma execução, pulando o que já está pronto
-npm run pipeline -- --fixture test/fixtures/context.script-only.json   # usa um roteiro pronto, sem IA
-npm run stage -- 06-renderVideo --run <runId>      # refaz um estágio (aceita "06" ou "renderVideo")
-npm run stage -- 08-uploadYouTube --run <runId>    # publica um vídeo já pronto (ex.: depois do limite diário)
-npm run dashboard                                  # painel em http://localhost:5180
-npm run memes -- list                              # biblioteca de memes (veja a seção Memes)
-npm run cuts -- --scan                             # cortes dos canais autorizados, sem publicar
-npx tsx scripts/export_verdicts_dataset.ts         # monta o dataset do juiz de imagem local
-npx tsx scripts/test_agy_relevance.ts              # benchmark: agy x API do Gemini nas mesmas imagens
-npm run auth:youtube                               # login do YouTube (uma vez)
-npm run auth:instagram                             # login do Instagram (uma vez)
-```
-
-> Antes de rodar `npm run pipeline` à mão, confira `LLM_PROVIDER` no `.env`: quem atualizou de uma versão antiga pode ainda estar com `gemini` (API paga), mesmo com o novo padrão `antigravity-cli`.
-
-**Códigos de saída do pipeline:** `0` deu certo, `1` erro, `3` nenhum vídeo publicável (trava de qualidade ou de fatos; não é falha da máquina). Uma execução rejeitada não pode ser retomada com `--resume`: comece outra.
-
-O benchmark `test_agy_relevance.ts` chama a **API paga do Gemini** (precisa de `GEMINI_API_KEY`) e grava o resultado em `data/agy_benchmark_results.json`. Só rode se o dono aprovar o gasto.
-
-### Agendamento (Windows)
-
-Os scripts ficam em `scheduler/` e rodam no PowerShell que já vem no Windows. Nada é registrado sozinho, e **só o dono decide registrar a tarefa**.
-
-| Script | O que faz |
-|---|---|
-| `run_once.ps1` | Uma execução sem ninguém olhando: impede execução dupla, encerra após 60 min, log em `logs/scheduler/<data>.log`, alerta em `data/alerts.jsonl` e notificação do Windows quando falha |
-| `register_task.ps1` | Cria a tarefa "Maquina de Shorts" (padrão 09:00 e 18:00, atraso aleatório de até 20 min). `-DryRun` só mostra. |
-| `unregister_task.ps1` | Remove a tarefa (mantém logs e alertas) |
-| `status.ps1` | Estado da tarefa, última e próxima execução, últimos alertas |
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scheduler\register_task.ps1 -DryRun
-powershell -NoProfile -ExecutionPolicy Bypass -File scheduler\register_task.ps1 -Times 11:45,18:45
-powershell -NoProfile -ExecutionPolicy Bypass -File scheduler\status.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scheduler\unregister_task.ps1
-```
-
-A auditoria sugeriu 11:45 e 18:45 para o público brasileiro. Por padrão a tarefa só roda com o dono logado (`-LogonType Interactive`); `S4U` e `Password` rodam deslogado (registrar como administrador). O `run_once.ps1` devolve `0`, `1`, `3` como o pipeline e `124` quando estoura o tempo. Para testar sem o pipeline real: `$env:MAQUINA_SCHEDULER_TEST='fail'` (ou `ok`, `quality`, `hang`).
-
-## Painel e acesso remoto
+## 🖥️ Painel
 
 `npm run dashboard` abre o painel em http://localhost:5180. Ele só escuta no próprio PC (`127.0.0.1`). As chaves ficam no servidor e nunca vão para o navegador.
 
-- **Visão geral:** vídeos feitos e publicados, taxa de sucesso, views, inscritos e galeria com player.
-- **Vídeos** e **Execuções:** cada vídeo, cada estágio, quanto tempo levou e onde falhou.
-- **Conteúdo:** duração da narração, fontes e licenças das imagens, notas do avaliador, uso de tokens e custo estimado.
-- **Configurações:** voz, legendas, visual, roteiro, formato, temas, upload, edição (memes) e o estado das chaves, com prévia de um quadro real do vídeo.
-
-| Vídeos | Execuções |
+| Aba | O que mostra |
 |---|---|
-| ![Galeria de vídeos gerados, com categoria, texto de capa e duração](assets/readme/painel-videos.jpg) | ![Execuções: tempo de cada etapa por vídeo e tempo de render](assets/readme/painel-execucoes.jpg) |
-| **Conteúdo** | **Configurações** |
-| ![Conteúdo: duração da narração dentro da faixa alvo, formatos e roteiros recentes](assets/readme/painel-conteudo.jpg) | ![Configurações: voz Kokoro local e prévia real da legenda](assets/readme/painel-configuracoes.jpg) |
+| 📊 **Visão geral** | Vídeos feitos e publicados, taxa de sucesso, views, inscritos e galeria com player |
+| 🎞️ **Vídeos** e ⏱️ **Execuções** | Cada vídeo, cada estágio, quanto tempo levou e onde falhou |
+| ✨ **Conteúdo** | Duração da narração, fontes e licenças das imagens, notas do avaliador, uso de tokens e custo estimado |
+| ⚙️ **Configurações** | Voz, legendas, visual, roteiro, formato, temas, upload, edição (memes) e o estado das chaves, com prévia de um quadro real do vídeo |
 
-*Prints do painel do PC de produção em 22/10/2026, abertos pelo Tailscale.*
+<div align="center">
+
+<img src="assets/readme/metricas-conteudo.gif" width="100%" alt="Aba Conteúdo do painel: gráfico 'Narração vs alvo' com cada narração dentro da faixa de 45 a 90 segundos, tamanho do arquivo por vídeo, formatos usados e roteiros recentes com categoria, formato e texto de capa."/>
+
+</div>
 
 **Acesso de outro aparelho (celular, trabalho):** use o [Tailscale](https://tailscale.com), uma rede privada entre os seus aparelhos.
 
@@ -293,9 +428,10 @@ A auditoria sugeriu 11:45 e 18:45 para o público brasileiro. Por padrão a tare
 2. No PC, rode `tailscale serve --bg 5180`.
 3. Coloque o nome do PC na rede (ex.: `pc-casa.tail1234.ts.net`) em `DASHBOARD_ALLOWED_HOSTS` no `.env` e reinicie o painel.
 
-**Nunca use um túnel público.** O painel não tem login, e a tela Configurações grava arquivos.
+> [!CAUTION]
+> **Nunca use um túnel público.** O painel não tem login, e a tela Configurações grava arquivos.
 
-## Publicação
+## 📣 Publicação
 
 Regras que valem para todas as redes:
 
@@ -305,13 +441,25 @@ Regras que valem para todas as redes:
 
 | Rede | Estado | O que falta |
 |---|---|---|
-| YouTube | Pronto e autorizado (canal "C9hesky ft"). Desligado pelo dono. | Ligar `upload.enabled` e registrar o agendador |
-| Instagram Reels | Pronto e desligado | Conta profissional, app na Meta, `npm run auth:instagram` |
-| TikTok | Não implementado | Decisão do dono (ver `planejamento/marco-4-tiktok-instagram.md`) |
+| ▶️ YouTube | Pronto e autorizado (canal "C9hesky ft"). Desligado pelo dono. | Ligar `upload.enabled` e registrar o agendador |
+| 📸 Instagram Reels | Pronto e desligado | Conta profissional, app na Meta, `npm run auth:instagram` |
+| 🎵 TikTok | Não implementado | Decisão do dono (ver `planejamento/marco-4-tiktok-instagram.md`) |
 
-**YouTube.** `npm run auth:youtube` abre o login do Google. Como o app não é verificado, aparece "O Google não verificou este app": clique em **Avançado** e depois em **Acessar Máquina de Shorts**. O terminal mostra o ID do canal; coloque-o em `YOUTUBE_CHANNEL_ID`. O token fica em `secrets/youtube.token.json` e se renova sozinho. Depois do envio, a máquina confere a privacidade que o YouTube realmente aplicou e avisa no log se ele travou o vídeo como privado. A narração sintética sobre imagens reais não precisa ser declarada, então `upload.containsSyntheticMedia` fica `false`.
+<details>
+<summary><b>▶️ YouTube: login e envio</b></summary>
 
-**Instagram Reels.** Usa a "API do Instagram com login do Instagram" (sem página do Facebook). Passo a passo, uma vez só:
+<br/>
+
+`npm run auth:youtube` abre o login do Google. Como o app não é verificado, aparece "O Google não verificou este app": clique em **Avançado** e depois em **Acessar Máquina de Shorts**. O terminal mostra o ID do canal; coloque-o em `YOUTUBE_CHANNEL_ID`. O token fica em `secrets/youtube.token.json` e se renova sozinho. Depois do envio, a máquina confere a privacidade que o YouTube realmente aplicou e avisa no log se ele travou o vídeo como privado. A narração sintética sobre imagens reais não precisa ser declarada, então `upload.containsSyntheticMedia` fica `false`.
+
+</details>
+
+<details>
+<summary><b>📸 Instagram Reels: passo a passo, uma vez só</b></summary>
+
+<br/>
+
+Usa a "API do Instagram com login do Instagram" (sem página do Facebook).
 
 1. No app do Instagram, mude a conta para **profissional** (Criador ou Empresa).
 2. Em [developers.facebook.com/apps](https://developers.facebook.com/apps), crie um app do tipo **Empresa** com o caso de uso "Gerenciar mensagens e conteúdo no Instagram".
@@ -323,11 +471,60 @@ Regras que valem para todas as redes:
 
 Para enviar o vídeo, a máquina abre por poucos minutos um **túnel temporário do `cloudflared`** (precisa estar instalado) e passa o endereço ao Instagram. Enquanto o túnel está aberto, quem souber o endereço aleatório pode baixar o vídeo; ele fecha assim que o Instagram termina de buscar. O token vale 60 dias e se renova sozinho quando faltam menos de 10. A legenda reaproveita título, gancho, hashtags e créditos; se os créditos não couberem, o Instagram é pulado naquele vídeo.
 
+</details>
+
 **TikTok.** Pela API direta, sem auditoria, todo post sai privado. A pesquisa sugeriu testar um intermediário (Zernio grátis ou Upload-Post pago). Nada foi implementado.
 
-## Memes e efeitos (Onda 2)
+## ✂️ Cortes
 
-Figurinhas e sons curtos que reforçam a fala (surpresa, erro, vitória). **Desligado por padrão** (`editing.enabled`, aba Configurações → Edição).
+Vertente separada do vídeo de curiosidades (Onda 4). Pega vídeos de canais **que autorizaram cortes por escrito**, transcreve, escolhe trechos de 30 a 60 s com o `agy`, recorta em vertical seguindo o rosto de quem fala e deixa cada corte em `render_output/<runId>/` (`final.mp4` + `context.json`), no formato que os estágios 07 e 08 leem. **O comando não publica nada.**
+
+> [!IMPORTANT]
+> **Trava de autorização (sem opção para desligar).** Um canal só é cortado quando, em `config/cuts.json`, tem `enabled: true` **e** `authorization.url` com o link da autorização pública do dono do canal. Sem link, o comando recusa e sai com código `3`. Para começar, copie `config/cuts.example.json` para `config/cuts.json` (este fica fora do git).
+
+O que o `config/cuts.json` define: os canais (`id`, `name`, `enabled`, `authorization`, `credit` gravado no vídeo, `maxVideosPerDay`), o tamanho dos cortes (`clip.minSeconds`/`maxSeconds`, padrão do exemplo 30–60 s; `clip.perVideo`; `clip.framing`; cor e palavras por legenda) e o download (`download.maxHeight`, `download.ytDlp`).
+
+```bash
+npm run cuts -- --scan                                       # RSS dos canais autorizados, processa o que for novo
+npm run cuts -- --video https://www.youtube.com/watch?v=ID   # um vídeo (--channel UC... se houver mais de um canal)
+npm run cuts -- --video ID --framing open --clips 2          # "open" = janela 4:5 sobre fundo desfocado; "face" = 9:16 cheio
+npm run cuts -- --video ID --source video.mp4 --transcript t.json   # desenvolvimento: sem download nem Whisper
+```
+
+Códigos de saída: `0` ok, `1` erro, `3` nada a fazer (nenhum canal autorizado ou nenhum vídeo novo).
+
+**Teste real:** um vídeo de 40 min virou 2 cortes em 2 min 41 s, no processador, sem contar o download.
+
+<details>
+<summary><b>Requisitos, o que é pulado e onde ficam os arquivos</b></summary>
+
+<br/>
+
+Requisitos:
+
+- Um ambiente Python só dos cortes, `.venv-cuts`, com OpenCV e `yt-dlp`:
+  ```bash
+  uv venv .venv-cuts
+  uv pip install --python .venv-cuts/bin/python opencv-python-headless numpy pillow yt-dlp   # Windows: .venv-cuts\Scripts\python.exe
+  ```
+  Em outra pasta, aponte `CUTS_PYTHON`. A transcrição usa o faster-whisper do `.venv` do projeto (`CUTS_WHISPER_MODEL`, `CUTS_WHISPER_DEVICE`).
+- `yt-dlp` **atualizado**. O comando chama `yt-dlp` do PATH; para usar o do `.venv-cuts`, ponha o caminho em `download.ytDlp` (ex.: `.venv-cuts/bin/yt-dlp`; caminhos relativos partem da raiz do projeto). Ele baixa sem login e sem cookies; versões velhas levam erro 403 do YouTube.
+- O detector de rostos YuNet (~230 KB) é baixado uma vez para `models/yunet/`.
+
+O que é pulado: vídeos com restrição de idade ou privados (a máquina nunca faz login) e, no `--scan`, vídeos com "ao vivo" ou "live" no título.
+
+Onde ficam as coisas: vídeo-fonte e transcrição em `data/cuts/sources/`, diário anti-duplicata em `data/cuts/processed.json`, cortes prontos em `render_output/<runId>/`.
+
+</details>
+
+**Limitações conhecidas:**
+
+- O estágio 07 ainda não usa o crédito do canal e o link do vídeo original (`context.cut.credit`, `context.cut.sourceUrl`) na descrição dos cortes. Por isso os cortes ainda não seguem para publicação.
+- A troca de quem está falando ainda fica nervosa quando a pessoa aparece de perfil.
+
+## 😂 Memes
+
+Figurinhas e sons curtos que reforçam a fala (surpresa, erro, vitória), da Onda 2. **Desligado por padrão** (`editing.enabled`, aba Configurações → Edição).
 
 Quando ligado, o estágio `05b-planEdits` manda ao `agy` a narração com o tempo de cada palavra e a lista da biblioteca `assets/memes/`. As regras:
 
@@ -350,50 +547,11 @@ npm run memes -- check                    # confere licenças e arquivos
 
 Cada comando baixa no máximo 25 arquivos. A Pixabay não tem API de áudio: sons dela e do Freesound são baixados à mão e registrados com `add-file`. Animações Lottie entram no inventário, mas **ainda não aparecem no vídeo**, porque o pacote `@remotion/lottie` não está instalado. Os arquivos (`assets/memes/files/`) ficam fora do git; só o `inventory.json` é versionado.
 
-## Cortes (Onda 4)
-
-Vertente separada do vídeo de curiosidades. Pega vídeos de canais **que autorizaram cortes por escrito**, transcreve, escolhe trechos de 30 a 60 s com o `agy`, recorta em vertical seguindo o rosto de quem fala e deixa cada corte em `render_output/<runId>/` (`final.mp4` + `context.json`), no formato que os estágios 07 e 08 leem. **O comando não publica nada.**
-
-**Trava de autorização (sem opção para desligar).** Um canal só é cortado quando, em `config/cuts.json`, tem `enabled: true` **e** `authorization.url` com o link da autorização pública do dono do canal. Sem link, o comando recusa e sai com código `3`. Para começar, copie `config/cuts.example.json` para `config/cuts.json` (este fica fora do git).
-
-O que o `config/cuts.json` define: os canais (`id`, `name`, `enabled`, `authorization`, `credit` gravado no vídeo, `maxVideosPerDay`), o tamanho dos cortes (`clip.minSeconds`/`maxSeconds`, padrão do exemplo 30–60 s; `clip.perVideo`; `clip.framing`; cor e palavras por legenda) e o download (`download.maxHeight`, `download.ytDlp`).
-
-```bash
-npm run cuts -- --scan                                       # RSS dos canais autorizados, processa o que for novo
-npm run cuts -- --video https://www.youtube.com/watch?v=ID   # um vídeo (--channel UC... se houver mais de um canal)
-npm run cuts -- --video ID --framing open --clips 2          # "open" = janela 4:5 sobre fundo desfocado; "face" = 9:16 cheio
-npm run cuts -- --video ID --source video.mp4 --transcript t.json   # desenvolvimento: sem download nem Whisper
-```
-
-Códigos de saída: `0` ok, `1` erro, `3` nada a fazer (nenhum canal autorizado ou nenhum vídeo novo).
-
-Requisitos:
-
-- Um ambiente Python só dos cortes, `.venv-cuts`, com OpenCV e `yt-dlp`:
-  ```bash
-  uv venv .venv-cuts
-  uv pip install --python .venv-cuts/bin/python opencv-python-headless numpy pillow yt-dlp   # Windows: .venv-cuts\Scripts\python.exe
-  ```
-  Em outra pasta, aponte `CUTS_PYTHON`. A transcrição usa o faster-whisper do `.venv` do projeto (`CUTS_WHISPER_MODEL`, `CUTS_WHISPER_DEVICE`).
-- `yt-dlp` **atualizado**. O comando chama `yt-dlp` do PATH; para usar o do `.venv-cuts`, ponha o caminho em `download.ytDlp` (ex.: `.venv-cuts/bin/yt-dlp`; caminhos relativos partem da raiz do projeto). Ele baixa sem login e sem cookies; versões velhas levam erro 403 do YouTube.
-- O detector de rostos YuNet (~230 KB) é baixado uma vez para `models/yunet/`.
-
-O que é pulado: vídeos com restrição de idade ou privados (a máquina nunca faz login) e, no `--scan`, vídeos com "ao vivo" ou "live" no título.
-
-Onde ficam as coisas: vídeo-fonte e transcrição em `data/cuts/sources/`, diário anti-duplicata em `data/cuts/processed.json`, cortes prontos em `render_output/<runId>/`.
-
-Teste real: um vídeo de 40 min virou 2 cortes em 2 min 41 s, no processador, sem contar o download.
-
-**Limitações conhecidas:**
-
-- O estágio 07 ainda não usa o crédito do canal e o link do vídeo original (`context.cut.credit`, `context.cut.sourceUrl`) na descrição dos cortes. Por isso os cortes ainda não seguem para publicação.
-- A troca de quem está falando ainda fica nervosa quando a pessoa aparece de perfil.
-
-## Dataset de vereditos (juiz de imagem local)
+## 🧬 Dataset de vereditos
 
 Cada execução grava `render_output/<runId>/footage_verdicts.jsonl` com **todas** as imagens avaliadas: as aprovadas, as rejeitadas e as que deram erro, com os quadros enviados, o trecho da fala, a nota e o motivo. A limpeza automática guarda esses arquivos em `data/verdicts/`.
 
-O objetivo é treinar um modelo de visão que rode na RTX 3050 e substitua parte das chamadas ao `agy`.
+O objetivo é treinar um modelo de visão que rode na RTX 3050 e substitua parte das chamadas ao `agy` (o juiz de imagem local).
 
 ```bash
 npx tsx scripts/export_verdicts_dataset.ts --out data/datasets/vision_judge --min-runs 1
@@ -401,7 +559,7 @@ npx tsx scripts/export_verdicts_dataset.ts --out data/datasets/vision_judge --mi
 
 O script monta o dataset no formato do LlamaFactory (ShareGPT multimodal): `train.json`, `val.json`, `dataset_info.json`, `stats.json` e as imagens. A separação 90/10 é por execução, para que imagens da mesma cena nunca caiam no treino e na validação ao mesmo tempo.
 
-## Testes e verificação antes de commit
+## 🧪 Testes
 
 Tudo precisa passar antes de qualquer commit:
 
@@ -422,7 +580,12 @@ git diff --cached --name-only -z | xargs -0 grep -lE 'AIza[0-9A-Za-z_-]{30,}|sk-
 
 Os testes têm valores falsos de propósito (`AIzaFAKE…`, `GOCSPX-FAKE…`, `IGAAfake…`); confirme que é falso antes de seguir. Nunca commite `.env`, `secrets/`, `render_output/`, `logs/`, `data/history.json`, `models/`, vídeos ou áudios.
 
-## Solução de problemas
+## 🩺 Solução de problemas
+
+<details>
+<summary><b>Sintomas conhecidos e o que fazer</b> (13 casos)</summary>
+
+<br/>
 
 | Sintoma | Causa e o que fazer |
 |---|---|
@@ -440,7 +603,14 @@ Os testes têm valores falsos de propósito (`AIzaFAKE…`, `GOCSPX-FAKE…`, `I
 | Saída com código `3` | Não é defeito: nenhum tema passou nas travas. Veja o motivo no fim do log. |
 | Aviso do Remotion sobre a versão do zod, ou `Page.bringToFront: Target closed` | Inofensivos; o render termina normalmente. |
 
-## Estrutura de pastas
+</details>
+
+## 🗂️ Estrutura
+
+<details>
+<summary><b>Pastas do projeto</b></summary>
+
+<br/>
 
 | Pasta | O que tem |
 |---|---|
@@ -460,15 +630,25 @@ Os testes têm valores falsos de propósito (`AIzaFAKE…`, `GOCSPX-FAKE…`, `I
 | `test/` | Testes (vitest) e roteiros de exemplo em `test/fixtures/` |
 | `render_output/`, `logs/`, `data/`, `models/`, `secrets/` | Gerados no PC, fora do git |
 
-## Licenças e créditos
+</details>
 
-- **Imagens e vídeos:** só fontes da lista permitida, cada candidato checado antes do download. Autor, licença e link ficam no `context.json`, e o estágio 07 escreve os créditos na descrição, com "(recortado e editado)".
-- **Memes e sons:** só as licenças da [lista](#memes-e-efeitos-onda-2), com crédito quando a licença pede.
-- **Cortes:** só canais com autorização pública por escrito; o crédito do canal é gravado no próprio corte.
-- **Voz:** Kokoro é Apache-2.0. O edge-tts não tem licença comercial e ficou só como legado.
-- **OpenMontage:** `vendor/openmontage_adapter/` usa código do [OpenMontage](https://github.com/calesthio/OpenMontage), licenciado sob **AGPL-3.0**. O resto do projeto só o chama como processo separado e **nunca importa** dele em `src/` ou `python/`. Se este repositório for distribuído ou ficar público, o adaptador precisa ser publicado sob AGPL-3.0. O clone em `vendor/openmontage/` não é versionado.
+## 🛠️ Stack
 
-## Roteiro
+<table>
+  <tr><th align="left">Camada</th><th align="left">Tecnologia</th></tr>
+  <tr><td nowrap>🟦 <b>Orquestração</b></td><td>Node.js + TypeScript (<code>tsx</code>): estágios retomáveis, publicadores plugáveis, travas</td></tr>
+  <tr><td nowrap>🎞️ <b>Render</b></td><td>Remotion 4 com React 19: tomadas, texto de capa, legendas com a palavra falada em destaque, camada de memes</td></tr>
+  <tr><td nowrap>📊 <b>Painel</b></td><td>React + Vite no navegador, Express no servidor local</td></tr>
+  <tr><td nowrap>🧾 <b>Configuração</b></td><td>Zod: padrões e validação de <code>pipeline.config.json</code></td></tr>
+  <tr><td nowrap>🤖 <b>IA</b></td><td>Antigravity CLI (<code>agy</code>) em sandbox, nos créditos do plano; API do Gemini como alternativa paga</td></tr>
+  <tr><td nowrap>🐍 <b>Voz e visão</b></td><td>Python: Kokoro (voz local), faster-whisper (tempo de cada palavra), OpenCV com YuNet (rosto nos cortes)</td></tr>
+  <tr><td nowrap>🎬 <b>Mídia</b></td><td>ffmpeg (o do Remotion), yt-dlp (download dos cortes)</td></tr>
+  <tr><td nowrap>🌐 <b>Acesso remoto</b></td><td>Tailscale (rede privada, sem túnel público)</td></tr>
+  <tr><td nowrap>⏰ <b>Agendamento</b></td><td>Agendador de Tarefas do Windows via PowerShell</td></tr>
+  <tr><td nowrap>🧪 <b>Testes</b></td><td>Vitest (570+ testes) e unittest do Python</td></tr>
+</table>
+
+## 🗺️ Roteiro
 
 O planejamento vivo fica no ClickUp, na lista **"Máquina de Shorts"** (ondas 0 a 5), e os planos detalhados em [`planejamento/`](planejamento/).
 
@@ -481,3 +661,24 @@ O planejamento vivo fica no ClickUp, na lista **"Máquina de Shorts"** (ondas 0 
 - [ ] **Onda 4:** cortes de canais autorizados (gera os cortes; falta a descrição com crédito e a publicação)
 - [ ] Juiz de imagem local treinado com o dataset de vereditos
 - [ ] Amostra de voz do painel com Kokoro/Gemini no lugar do edge-tts
+
+## 🙏 Créditos
+
+| Projeto | Uso aqui |
+|---|---|
+| [OpenMontage](https://github.com/calesthio/OpenMontage) | Busca de imagens com filtro de licença. **AGPL-3.0**, chamado só como processo separado. |
+| [Remotion](https://www.remotion.dev) | Montagem e render do vídeo |
+| [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) | Voz local (Apache-2.0) |
+| [faster-whisper](https://github.com/SYSTRAN/faster-whisper) | Tempo de cada palavra e transcrição dos cortes |
+| [OpenCV YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) | Detector de rostos dos cortes |
+| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Download dos vídeos dos canais autorizados |
+| [Wikimedia Commons](https://commons.wikimedia.org), [NASA](https://images.nasa.gov), [Pexels](https://www.pexels.com), [Pixabay](https://pixabay.com) | Imagens e vídeos com licença livre |
+| [LlamaFactory](https://github.com/hiyouga/LlamaFactory) | Formato do dataset de vereditos (treino planejado) |
+
+**Licenças do conteúdo:**
+
+- **Imagens e vídeos:** só fontes da lista permitida, cada candidato checado antes do download. Autor, licença e link ficam no `context.json`, e o estágio 07 escreve os créditos na descrição, com "(recortado e editado)".
+- **Memes e sons:** só as licenças da [lista](#-memes), com crédito quando a licença pede.
+- **Cortes:** só canais com autorização pública por escrito; o crédito do canal é gravado no próprio corte.
+- **Voz:** Kokoro é Apache-2.0. O edge-tts não tem licença comercial e ficou só como legado.
+- **OpenMontage:** `vendor/openmontage_adapter/` usa código do [OpenMontage](https://github.com/calesthio/OpenMontage), licenciado sob **AGPL-3.0**. O resto do projeto só o chama como processo separado e **nunca importa** dele em `src/` ou `python/`. Se este repositório for distribuído ou ficar público, o adaptador precisa ser publicado sob AGPL-3.0. O clone em `vendor/openmontage/` não é versionado.

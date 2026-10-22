@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 330" width="1200" height="330" role="img" aria-labelledby="t d">
+<title id="t">Máquina de Shorts</title>
+<desc id="d">Tema, roteiro, checagem de fatos, imagens com licença, voz local, legendas, vídeo e publicação, sem revisão humana e com custo de API de R$ 0.</desc>
+<style>
+text{font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif}
+
+.hl{opacity:0;animation:lit 9s ease-in-out infinite}
+@keyframes lit{0%{opacity:0}3%{opacity:1}12%{opacity:1}20%{opacity:0}100%{opacity:0}}
+.dot{opacity:0;animation:hop 9s linear infinite}
+@keyframes hop{0%{opacity:0;transform:translateX(0)}1%{opacity:1}7%{opacity:1;transform:translateX(12px)}8%{opacity:0;transform:translateX(12px)}100%{opacity:0}}
+.bar{transform-box:fill-box;transform-origin:left center;animation:fill 9s ease-in-out infinite}
+@keyframes fill{0%{transform:scaleX(0.02)}85%{transform:scaleX(1)}95%{transform:scaleX(1)}100%{transform:scaleX(0.02)}}
+.seal{transform-box:fill-box;transform-origin:center;animation:pulse 3s ease-in-out infinite}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}
+
+@media (prefers-reduced-motion: reduce){*{animation:none!important}}
+</style>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0d1117"/><stop offset="1" stop-color="#17142b"/></linearGradient>
+<radialGradient id="glowA" cx="0.88" cy="0" r="0.7"><stop offset="0" stop-color="#ef4444" stop-opacity="0.20"/><stop offset="1" stop-color="#ef4444" stop-opacity="0"/></radialGradient>
+<radialGradient id="glowB" cx="0.08" cy="1" r="0.6"><stop offset="0" stop-color="#8b5cf6" stop-opacity="0.20"/><stop offset="1" stop-color="#8b5cf6" stop-opacity="0"/></radialGradient>
+<linearGradient id="card" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1c2540"/><stop offset="1" stop-color="#161d2e"/></linearGradient>
+<linearGradient id="hot" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ef4444"/><stop offset="1" stop-color="#f97316"/></linearGradient>
+<linearGradient id="pill" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#7c3aed"/><stop offset="1" stop-color="#db2777"/></linearGradient>
+</defs>
+<rect width="1200" height="330" rx="20" fill="url(#bg)"/>
+<rect width="1200" height="330" rx="20" fill="url(#glowA)"/>
+<rect width="1200" height="330" rx="20" fill="url(#glowB)"/>
+<rect x="0.5" y="0.5" width="1199" height="329" rx="20" fill="none" stroke="#30363d"/>
+
+<text x="600" y="66" font-size="32" font-weight="800" fill="#f0f6fc" text-anchor="middle" >Do tema ao Short publicado, sem ninguém no meio</text>
+<text x="600" y="102" font-size="17" font-weight="400" fill="#9aa7b8" text-anchor="middle" >Curiosidades em pt-BR: o roteiro é checado, as imagens têm licença livre e a voz roda no próprio PC</text>
+<rect x="42" y="146" width="122" height="92" rx="14" fill="url(#card)" stroke="#2d3a57"/>
+<rect class="hl" style="animation-delay:0.00s" x="42" y="146" width="122" height="92" rx="14" fill="#a78bfa" fill-opacity="0.16" stroke="#a78bfa" stroke-width="2"/>
+<text x="103.0" y="172" font-size="13" font-weight="700" fill="#a78bfa" text-anchor="middle" letter-spacing="1">01</text>
+<text x="103.0" y="207" font-size="16" font-weight="700" fill="#f0f6fc" text-anchor="middle" >Tema</text>
+<path d="M167 192.0 h12 m-5 -5 l5 5 l-5 5" fill="none" stroke="#5b6884" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle class="dot" style="animation-delay:0.55s" cx="169" cy="192.0" r="3.5" fill="#a78bfa"/>
+<rect x="184" y="146" width="122" height="92" rx="14" fill="url(#card)" stroke="#2d3a57"/>
+<rect class="hl" style="animation-delay:0.90s" x="184" y="146" width="122" height="92" rx="14" fill="#a78bfa" fill-opacity="0.16" stroke="#a78bfa" stroke-width="2"/>
+<text x="245.0" y="172" font-size="13" font-weight="700" fill="#a78bfa" text-anchor="middle" letter-spacing="1">02</text>
+<text x="245.0" y="207" font-size="16" font-weight="700" fill="#f0f6fc" text-anchor="middle" >Roteiro</text>
+<path d="M309 192.0 h12 m-5 -5 l5 5 l-5 5" fill="none" stroke="#5b6884" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle class="dot" style="animation-delay:1.45s" cx="311" cy="192.0" r="3.5" fill="#a78bfa"/>
+<rect x="326" y="146" width="122" height="92" rx="14" fill="url(#card)" stroke="#2d3a57"/>
+<rect class="hl" style="animation-delay:1.80s" x="326" y="146" width="122" height="92" rx="14" fill="#a78bfa" fill-opacity="0.16" stroke="#a78bfa" stroke-width="2"/>
+<text x="387.0" y="172" font-size="13" font-weight="700" fill="#a78bfa" text-anchor="middle" letter-spacing="1">02b</text>
+<text x="387.0" y="198" font-size="16" font-weight="700" fill="#f0f6fc" text-anchor="middle" >Checagem</text>
+<text x="387.0" y="218" font-size="16" font-weight="700" fill="#f0f6fc" text-anchor="middle" >de fatos</text>
+<path d="M451 192.0 h12 m-5 -5 l5 5 l-5 5" fill="none" stroke="#5b6884" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle class="dot" style="animation-delay:2.35s" cx="453" cy="192.0" r="3.5" fill="#a78bfa"/>
+<rect x="468" y="146" width="122" height="92" rx="14" fill="url(#card)" stroke="#2d3a57"/>
+<rect class="hl" style="animation-delay:2.70s" x="468" y="146" width="122" height="92" rx="14" fill="#a78bfa" fill-opacity="0.16" stroke="#a78bfa" stroke-width="2"/>
+<text x="529.0" y="172" font-size="13" font-weight="700" fill="#a78bfa" text-anchor="middle" letter-spacing="1">03</text>
+<text x="529.0" y="198" font-size="16" font-weight="700" fill="#f0f6fc" text-anchor="middle" >Imagens</text>
+<text x="529.0" y="218" font-size="16" font-weight="700" fill="#f0f6fc" text-anchor="middle" >com licença</text>
+<path d="M593 192.0 h12 m-5 -5 l5 5 l-5 5" fill="none" stroke="#5b6884" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle class="dot" style="animation-delay:3.25s" cx="595" cy="192.0" r="3.5" fill="#a78bfa"/>
+<rect x="610" y="146" width="122" height="92" rx="14" fill="url(#card)" stroke="#2d3a57"/>
+<rect class="hl" style="animation-delay:3.60s" x="610" y="146" width="122" height="92" rx="14" fill="#a78bfa" fill-opacity="0.16" stroke="#a78bfa" stroke-width="2"/>
+<text x="671.0" y="172" font-size="13" font-weight="700" fill="#a78bfa" text-anchor="middle" letter-spacing="1">04</text>
+<text x="671.0" y="198" font-size="16" font-weight="700" fill="#f0f6fc" text-anchor="middle" >Voz</text>
+<text x="671.0" y="218" font-size="16" font-weight="700" fill="#f0f6fc" text-anchor="middle" >local</text>
+<path d="M735 192.0 h12 m-5 -5 l5 5 l-5 5" fill="none" stroke="#5b6884" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle class="dot" style="animation-delay:4.15s" cx="737" cy="192.0" r="3.5" fill="#a78bfa"/>
+<rect x="752" y="146" width="122" height="92" rx="14" fill="url(#card)" stroke="#2d3a57"/>
+<rect class="hl" style="animation-delay:4.50s" x="752" y="146" width="122" height="92" rx="14" fill="#a78bfa" fill-opacity="0.16" stroke="#a78bfa" stroke-width="2"/>
+<text x="813.0" y="172" font-size="13" font-weight="700" fill="#a78bfa" text-anchor="middle" letter-spacing="1">05</text>
+<text x="813.0" y="207" font-size="16" font-weight="700" fill="#f0f6fc" text-anchor="middle" >Legendas</text>
+<path d="M877 192.0 h12 m-5 -5 l5 5 l-5 5" fill="none" stroke="#5b6884" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle class="dot" style="animation-delay:5.05s" cx="879" cy="192.0" r="3.5" fill="#a78bfa"/>
+<rect x="894" y="146" width="122" height="92" rx="14" fill="url(#card)" stroke="#2d3a57"/>
+<rect class="hl" style="animation-delay:5.40s" x="894" y="146" width="122" height="92" rx="14" fill="#a78bfa" fill-opacity="0.16" stroke="#a78bfa" stroke-width="2"/>
+<text x="955.0" y="172" font-size="13" font-weight="700" fill="#a78bfa" text-anchor="middle" letter-spacing="1">06</text>
+<text x="955.0" y="207" font-size="16" font-weight="700" fill="#f0f6fc" text-anchor="middle" >Vídeo</text>
+<path d="M1019 192.0 h12 m-5 -5 l5 5 l-5 5" fill="none" stroke="#5b6884" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle class="dot" style="animation-delay:5.95s" cx="1021" cy="192.0" r="3.5" fill="#a78bfa"/>
+<rect x="1036" y="146" width="122" height="92" rx="14" fill="url(#hot)" stroke="none"/>
+<rect class="hl" style="animation-delay:6.30s" x="1036" y="146" width="122" height="92" rx="14" fill="#a78bfa" fill-opacity="0.16" stroke="#a78bfa" stroke-width="2"/>
+<text x="1097.0" y="172" font-size="13" font-weight="700" fill="#fff1f0" text-anchor="middle" letter-spacing="1">08</text>
+<text x="1097.0" y="207" font-size="16" font-weight="700" fill="#f0f6fc" text-anchor="middle" >Publicação</text>
+<rect x="42" y="254" width="1116" height="4" rx="2" fill="#222b40"/>
+<rect class="bar" x="42" y="254" width="1116" height="4" rx="2" fill="url(#pill)"/>
+<g class="seal"><rect x="390" y="272" width="420" height="38" rx="19" fill="url(#pill)"/>
+<text x="600" y="297" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle" >sem revisão humana  ·  custo de API R$ 0</text></g>
+</svg>

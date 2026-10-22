@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 640" width="1200" height="640" role="img" aria-labelledby="t d">
+<title id="t">Seis pilares da Máquina de Shorts</title>
+<desc id="d">Custo de API R$ 0 com o Antigravity CLI em sandbox e voz local Kokoro; travas no lugar do humano; imagem casada com a palavra dita; cortes de canais autorizados com recorte que segue o rosto; memes com licença; dataset de vereditos para treinar um juiz de imagem local.</desc>
+<style>
+text{font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif}
+
+.edge{opacity:.35;animation:edge 9s ease-in-out infinite}
+@keyframes edge{0%{opacity:.35}4%{opacity:1}14%{opacity:1}22%{opacity:.35}100%{opacity:.35}}
+.shrink{transform-box:fill-box;transform-origin:left center;animation:shrink 4.5s ease-in-out infinite}
+@keyframes shrink{0%,15%{transform:scaleX(1)}55%,85%{transform:scaleX(0.125)}100%{transform:scaleX(1)}}
+.ck{transform-box:fill-box;transform-origin:center;animation:pop 4s ease-out infinite}
+@keyframes pop{0%{transform:scale(0.2);opacity:0}6%{transform:scale(1.2);opacity:1}10%{transform:scale(1)}85%{opacity:1}95%,100%{opacity:0}}
+.beat{opacity:.25;animation:beat 4s steps(1) infinite}
+@keyframes beat{0%{opacity:1}25%,100%{opacity:.25}}
+.win{animation:pan 5s ease-in-out infinite}
+@keyframes pan{0%,100%{transform:translateX(0)}45%,55%{transform:translateX(55px)}}
+.pop{transform-box:fill-box;transform-origin:center;animation:sticker 3s ease-in-out infinite}
+@keyframes sticker{0%,60%,100%{transform:scale(0)}68%{transform:scale(1.15)}74%,92%{transform:scale(1)}}
+.grow{transform-box:fill-box;transform-origin:center bottom;animation:grow 4.5s ease-out infinite}
+@keyframes grow{0%{transform:scaleY(0.1)}40%,85%{transform:scaleY(1)}100%{transform:scaleY(0.1)}}
+
+@media (prefers-reduced-motion: reduce){*{animation:none!important}}
+</style>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0d1117"/><stop offset="1" stop-color="#17142b"/></linearGradient>
+<radialGradient id="glowA" cx="0.88" cy="0" r="0.7"><stop offset="0" stop-color="#ef4444" stop-opacity="0.20"/><stop offset="1" stop-color="#ef4444" stop-opacity="0"/></radialGradient>
+<radialGradient id="glowB" cx="0.08" cy="1" r="0.6"><stop offset="0" stop-color="#8b5cf6" stop-opacity="0.20"/><stop offset="1" stop-color="#8b5cf6" stop-opacity="0"/></radialGradient>
+<linearGradient id="card" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1c2540"/><stop offset="1" stop-color="#161d2e"/></linearGradient>
+<linearGradient id="hot" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ef4444"/><stop offset="1" stop-color="#f97316"/></linearGradient>
+<linearGradient id="pill" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#7c3aed"/><stop offset="1" stop-color="#db2777"/></linearGradient>
+</defs>
+<rect width="1200" height="640" rx="20" fill="url(#bg)"/>
+<rect width="1200" height="640" rx="20" fill="url(#glowA)"/>
+<rect width="1200" height="640" rx="20" fill="url(#glowB)"/>
+<rect x="0.5" y="0.5" width="1199" height="639" rx="20" fill="none" stroke="#30363d"/>
+
+<text x="40" y="56" font-size="28" font-weight="800" fill="#f0f6fc" text-anchor="start" >Seis decisões por trás da máquina</text>
+<text x="40" y="86" font-size="15" font-weight="400" fill="#9aa7b8" text-anchor="start" >O que deixa um pipeline sem revisão humana publicável, barato e fiel ao que a narração diz.</text>
+<rect x="40" y="112" width="353" height="240" rx="16" fill="url(#card)" stroke="#2d3a57"/>
+<rect class="edge" style="animation-delay:0.0s" x="58" y="112" width="317" height="3" rx="1.5" fill="#34d399"/>
+<circle cx="76" cy="152" r="18" fill="#34d399" fill-opacity="0.15" stroke="#34d399" stroke-opacity="0.6"/>
+<text x="76" y="158" font-size="14" font-weight="800" fill="#34d399" text-anchor="middle" >01</text>
+<text x="106" y="158" font-size="18" font-weight="700" fill="#f0f6fc" text-anchor="start" >Custo de API R$ 0</text>
+<text x="62" y="200" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >A IA roda pelo Antigravity CLI (agy), nos</text>
+<text x="62" y="221" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >créditos do plano, em sandbox: pasta</text>
+<text x="62" y="242" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >temporária e nenhuma chave no ambiente.</text>
+<text x="62" y="263" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >A voz roda no PC com o Kokoro.</text>
+<text x="62" y="300" font-size="12" font-weight="400" fill="#9aa7b8" text-anchor="start" >avaliação de imagens por clipe</text>
+<rect x="62" y="310" width="200" height="10" rx="5" fill="#222b40"/>
+<rect class="shrink" x="62" y="310" width="200" height="10" rx="5" fill="#34d399"/>
+<text x="274" y="320" font-size="12.5" font-weight="700" fill="#34d399" text-anchor="start" >~64 s → ~8 s</text>
+<rect x="423" y="112" width="353" height="240" rx="16" fill="url(#card)" stroke="#2d3a57"/>
+<rect class="edge" style="animation-delay:1.2s" x="441" y="112" width="317" height="3" rx="1.5" fill="#f87171"/>
+<circle cx="459" cy="152" r="18" fill="#f87171" fill-opacity="0.15" stroke="#f87171" stroke-opacity="0.6"/>
+<text x="459" y="158" font-size="14" font-weight="800" fill="#f87171" text-anchor="middle" >02</text>
+<text x="489" y="158" font-size="18" font-weight="700" fill="#f0f6fc" text-anchor="start" >Travas no lugar do humano</text>
+<text x="445" y="200" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >Ninguém revisa o vídeo, então ele só sai</text>
+<text x="445" y="221" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >se passar: checagem de fatos com fontes,</text>
+<text x="445" y="242" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >≥60% das cenas com imagem aprovada,</text>
+<text x="445" y="263" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >filtro de licença e limite diário.</text>
+<g class="ck" style="animation-delay:0.0s"><circle cx="454" cy="312" r="9" fill="#34d399"/><path d="M449.95 312 l2.88 3.06 l5.3999999999999995 -6.3" fill="none" stroke="#06281c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></g>
+<text x="469" y="317" font-size="12.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >fatos</text>
+<g class="ck" style="animation-delay:0.5s"><circle cx="526" cy="312" r="9" fill="#34d399"/><path d="M521.95 312 l2.88 3.06 l5.3999999999999995 -6.3" fill="none" stroke="#06281c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></g>
+<text x="541" y="317" font-size="12.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >imagens</text>
+<g class="ck" style="animation-delay:1.0s"><circle cx="620" cy="312" r="9" fill="#34d399"/><path d="M615.95 312 l2.88 3.06 l5.3999999999999995 -6.3" fill="none" stroke="#06281c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></g>
+<text x="635" y="317" font-size="12.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >licença</text>
+<g class="ck" style="animation-delay:1.5s"><circle cx="710" cy="312" r="9" fill="#34d399"/><path d="M705.95 312 l2.88 3.06 l5.3999999999999995 -6.3" fill="none" stroke="#06281c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></g>
+<text x="725" y="317" font-size="12.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >limite</text>
+<rect x="806" y="112" width="353" height="240" rx="16" fill="url(#card)" stroke="#2d3a57"/>
+<rect class="edge" style="animation-delay:2.4s" x="824" y="112" width="317" height="3" rx="1.5" fill="#a78bfa"/>
+<circle cx="842" cy="152" r="18" fill="#a78bfa" fill-opacity="0.15" stroke="#a78bfa" stroke-opacity="0.6"/>
+<text x="842" y="158" font-size="14" font-weight="800" fill="#a78bfa" text-anchor="middle" >03</text>
+<text x="872" y="158" font-size="18" font-weight="700" fill="#f0f6fc" text-anchor="start" >Imagem casada com a fala</text>
+<text x="828" y="200" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >Cada cena vira trechos (beats); cada</text>
+<text x="828" y="221" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >trecho tem a sua busca e entra na tela</text>
+<text x="828" y="242" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >na palavra dita. Zoom só em rosto e</text>
+<text x="828" y="263" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >nenhuma imagem repetida no vídeo.</text>
+<g class="beat" style="animation-delay:0s"><rect x="828" y="298" width="71" height="26" rx="8" fill="#a78bfa" fill-opacity="0.22" stroke="#a78bfa"/><text x="863.5" y="316" font-size="12.5" font-weight="600" fill="#f0f6fc" text-anchor="middle" >o hélio</text></g>
+<g class="beat" style="animation-delay:1s"><rect x="907" y="298" width="50" height="26" rx="8" fill="#a78bfa" fill-opacity="0.22" stroke="#a78bfa"/><text x="932.0" y="316" font-size="12.5" font-weight="600" fill="#f0f6fc" text-anchor="middle" >sobe</text></g>
+<g class="beat" style="animation-delay:2s"><rect x="965" y="298" width="71" height="26" rx="8" fill="#a78bfa" fill-opacity="0.22" stroke="#a78bfa"/><text x="1000.5" y="316" font-size="12.5" font-weight="600" fill="#f0f6fc" text-anchor="middle" >sozinho</text></g>
+<g class="beat" style="animation-delay:3s"><rect x="1044" y="298" width="85" height="26" rx="8" fill="#a78bfa" fill-opacity="0.22" stroke="#a78bfa"/><text x="1086.5" y="316" font-size="12.5" font-weight="600" fill="#f0f6fc" text-anchor="middle" >na parede</text></g>
+<rect x="40" y="376" width="353" height="240" rx="16" fill="url(#card)" stroke="#2d3a57"/>
+<rect class="edge" style="animation-delay:3.6s" x="58" y="376" width="317" height="3" rx="1.5" fill="#fb923c"/>
+<circle cx="76" cy="416" r="18" fill="#fb923c" fill-opacity="0.15" stroke="#fb923c" stroke-opacity="0.6"/>
+<text x="76" y="422" font-size="14" font-weight="800" fill="#fb923c" text-anchor="middle" >04</text>
+<text x="106" y="422" font-size="18" font-weight="700" fill="#f0f6fc" text-anchor="start" >Cortes de canais autorizados</text>
+<text x="62" y="464" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >yt-dlp, Whisper e o agy escolhendo</text>
+<text x="62" y="485" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >trechos de 30 a 60 s; recorte 9:16 que</text>
+<text x="62" y="506" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >segue o rosto de quem fala (YuNet).</text>
+<text x="62" y="527" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >Sem autorização pública, não corta.</text>
+<rect x="62" y="552" width="80" height="45" rx="5" fill="#222b40" stroke="#3a4766"/>
+<g class="win"><rect x="62" y="552" width="25" height="45" rx="4" fill="#fb923c" fill-opacity="0.22" stroke="#fb923c" stroke-width="2"/><circle cx="74.5" cy="568" r="6" fill="none" stroke="#fb923c" stroke-width="2"/></g>
+<text x="156" y="580" font-size="12.5" font-weight="700" fill="#fb923c" text-anchor="start" >16:9 → 9:16, seguindo o rosto</text>
+<rect x="423" y="376" width="353" height="240" rx="16" fill="url(#card)" stroke="#2d3a57"/>
+<rect class="edge" style="animation-delay:4.8s" x="441" y="376" width="317" height="3" rx="1.5" fill="#fbbf24"/>
+<circle cx="459" cy="416" r="18" fill="#fbbf24" fill-opacity="0.15" stroke="#fbbf24" stroke-opacity="0.6"/>
+<text x="459" y="422" font-size="14" font-weight="800" fill="#fbbf24" text-anchor="middle" >05</text>
+<text x="489" y="422" font-size="18" font-weight="700" fill="#f0f6fc" text-anchor="start" >Memes com licença</text>
+<text x="445" y="464" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >Figurinhas e sons curtos só de licenças</text>
+<text x="445" y="485" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >aceitas (Pixabay, Freesound, emojis</text>
+<text x="445" y="506" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >abertos), fora do gancho e nunca sobre</text>
+<text x="445" y="527" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >a legenda. Desligado por padrão.</text>
+<rect x="445" y="560" width="190" height="32" rx="6" fill="#222b40"/>
+<text x="540" y="581" font-size="12" font-weight="400" fill="#9aa7b8" text-anchor="middle" >legenda fica livre</text>
+<g class="pop"><circle cx="655" cy="570" r="15" fill="#fbbf24"/><circle cx="650" cy="566" r="2" fill="#3b2a00"/><circle cx="660" cy="566" r="2" fill="#3b2a00"/><ellipse cx="655" cy="576" rx="4" ry="5" fill="#3b2a00"/></g>
+<text x="679" y="581" font-size="12" font-weight="700" fill="#fbbf24" text-anchor="start" >só licença ok</text>
+<rect x="806" y="376" width="353" height="240" rx="16" fill="url(#card)" stroke="#2d3a57"/>
+<rect class="edge" style="animation-delay:6.0s" x="824" y="376" width="317" height="3" rx="1.5" fill="#60a5fa"/>
+<circle cx="842" cy="416" r="18" fill="#60a5fa" fill-opacity="0.15" stroke="#60a5fa" stroke-opacity="0.6"/>
+<text x="842" y="422" font-size="14" font-weight="800" fill="#60a5fa" text-anchor="middle" >06</text>
+<text x="872" y="422" font-size="18" font-weight="700" fill="#f0f6fc" text-anchor="start" >Dataset do juiz de imagem</text>
+<text x="828" y="464" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >Cada veredito do avaliador (aprovado,</text>
+<text x="828" y="485" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >rejeitado ou erro) vira dado, exportado</text>
+<text x="828" y="506" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >no formato do LlamaFactory, separado</text>
+<text x="828" y="527" font-size="13.5" font-weight="400" fill="#9aa7b8" text-anchor="start" >90/10 por execução.</text>
+<rect class="grow" style="animation-delay:0.00s" x="828" y="582" width="11" height="10" rx="2" fill="#60a5fa" fill-opacity="0.45"/>
+<rect class="grow" style="animation-delay:0.12s" x="844" y="576" width="11" height="16" rx="2" fill="#60a5fa" fill-opacity="0.52"/>
+<rect class="grow" style="animation-delay:0.24s" x="860" y="579" width="11" height="13" rx="2" fill="#60a5fa" fill-opacity="0.59"/>
+<rect class="grow" style="animation-delay:0.36s" x="876" y="570" width="11" height="22" rx="2" fill="#60a5fa" fill-opacity="0.66"/>
+<rect class="grow" style="animation-delay:0.48s" x="892" y="573" width="11" height="19" rx="2" fill="#60a5fa" fill-opacity="0.73"/>
+<rect class="grow" style="animation-delay:0.60s" x="908" y="566" width="11" height="26" rx="2" fill="#60a5fa" fill-opacity="0.80"/>
+<rect class="grow" style="animation-delay:0.72s" x="924" y="568" width="11" height="24" rx="2" fill="#60a5fa" fill-opacity="0.87"/>
+<rect class="grow" style="animation-delay:0.84s" x="940" y="562" width="11" height="30" rx="2" fill="#60a5fa" fill-opacity="0.94"/>
+<text x="964" y="581" font-size="12.5" font-weight="700" fill="#60a5fa" text-anchor="start" >meta: juiz local na RTX 3050</text>
+</svg>
