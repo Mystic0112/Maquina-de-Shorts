@@ -15,7 +15,7 @@ import { parseArgs } from "node:util";
 import { loadCutsConfig } from "../src/orchestrator/cuts/config.js";
 import { paths } from "../src/orchestrator/lib/config.js";
 import { runBinary } from "../src/orchestrator/lib/ffmpeg.js";
-import { labelChannel, parseShortsTab, tallyCandidates, type ChannelCandidate, type ShortStat } from "../src/orchestrator/viral/shortsStats.js";
+import { labelChannel, parseShortsTab, tallyCandidates, withTitles, type ChannelCandidate, type ShortStat } from "../src/orchestrator/viral/shortsStats.js";
 
 const OUT_DIR = join(paths.root, "data", "datasets", "viral");
 const CANDIDATES = join(OUT_DIR, "candidates.json");
@@ -38,9 +38,14 @@ function ytDlp(): string {
   return configured.includes("/") || configured.includes("\\") ? paths.fromRoot(configured) : configured;
 }
 
-async function flatJson(target: string, extra: string[] = []): Promise<unknown> {
-  // lang=pt: original Brazilian titles; without it YouTube serves machine-translated English titles.
-  const { stdout } = await runBinary(ytDlp(), ["--flat-playlist", "-J", "--no-warnings", "--extractor-args", "youtube:lang=pt", ...extra, target], TIMEOUT_MS);
+/**
+ * Default language = numbers yt-dlp parses (views, subscribers); `pt` = the original Brazilian titles. Both are
+ * needed: with lang=pt the titles come untranslated but "23 mil visualizações" is parsed as 23 and subscribers
+ * vanish; without it the numbers are right but titles come machine-translated to English.
+ */
+async function flatJson(target: string, extra: string[] = [], lang?: "pt"): Promise<unknown> {
+  const langArgs = lang ? ["--extractor-args", `youtube:lang=${lang}`] : [];
+  const { stdout } = await runBinary(ytDlp(), ["--flat-playlist", "-J", "--no-warnings", ...langArgs, ...extra, target], TIMEOUT_MS);
   return JSON.parse(stdout) as unknown;
 }
 
@@ -81,7 +86,10 @@ async function collect(max: number): Promise<void> {
   for (const { id, group } of channels) {
     const url = id.startsWith("UC") ? `https://www.youtube.com/channel/${id}/shorts` : `${id.replace(/\/$/, "")}/shorts`;
     try {
-      const labelled = labelChannel(parseShortsTab(await flatJson(url, ["--playlist-items", `1:${max}`]), group));
+      const items = ["--playlist-items", `1:${max}`];
+      const counts = await flatJson(url, items);
+      await sleep(PAUSE_MS);
+      const labelled = labelChannel(withTitles(parseShortsTab(counts, group), await flatJson(url, items, "pt")));
       rows.push(...labelled);
       const viral = labelled.filter((r) => r.label === "viral").length;
       console.log(`${labelled[0]?.channelName ?? id}: ${labelled.length} Shorts, ${viral} viral`);

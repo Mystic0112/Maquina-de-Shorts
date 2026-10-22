@@ -75,6 +75,17 @@ export function parseShortsTab(json: unknown, group: string): ShortStat[] {
   return rows;
 }
 
+/** Swaps in the original-language titles (from a lang=pt listing of the same tab), matched by video id. */
+export function withTitles(rows: readonly ShortStat[], originalTab: unknown): ShortStat[] {
+  const titles = new Map<string, string>();
+  for (const e of ((originalTab ?? {}) as FlatPlaylist).entries ?? []) {
+    const id = str(e.id);
+    const title = str(e.title);
+    if (id && title) titles.set(id, title);
+  }
+  return rows.map((r) => ({ ...r, title: titles.get(r.videoId) ?? r.title }));
+}
+
 /** Labels one channel's Shorts against that channel's median (skipping the newest; too few = no labels). */
 export function labelChannel(rows: readonly ShortStat[]): ShortStat[] {
   const settled = rows.filter((r) => r.position >= SKIP_NEWEST);

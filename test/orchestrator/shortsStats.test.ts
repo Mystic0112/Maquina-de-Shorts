@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildLayaSets, isEvalChannel, labelChannel, MIN_LABELLED, MIN_MEDIAN_VIEWS, parseShortsTab, SKIP_NEWEST, tallyCandidates, VIRAL_QUESTION } from "../../src/orchestrator/viral/shortsStats.js";
+import { buildLayaSets, isEvalChannel, labelChannel, withTitles, MIN_LABELLED, MIN_MEDIAN_VIEWS, parseShortsTab, SKIP_NEWEST, tallyCandidates, VIRAL_QUESTION } from "../../src/orchestrator/viral/shortsStats.js";
 
 const tab = (views: (number | null)[]) => ({
   channel: "Cortes X",
@@ -13,6 +13,12 @@ describe("viral training data from other channels' Shorts", () => {
     const rows = parseShortsTab(tab([10, null, 30]), "cortes");
     expect(rows.map((r) => [r.videoId, r.views, r.position])).toEqual([["v0", 10, 0], ["v2", 30, 2]]);
     expect(rows[0]).toMatchObject({ channelName: "Cortes X", subscribers: 1790, group: "cortes", label: null });
+  });
+
+  it("keeps the numbers of the default listing and the titles of the original-language one", () => {
+    const rows = parseShortsTab(tab([22000, 1900]), "cortes");
+    const pt = { entries: [{ id: "v0", title: "O que esperar do segundo turno?", view_count: 23 }] };
+    expect(withTitles(rows, pt).map((r) => [r.title, r.views])).toEqual([["O que esperar do segundo turno?", 22000], ["Título 1", 1900]]);
   });
 
   it("labels against the channel's own median, skipping the newest Shorts", () => {
