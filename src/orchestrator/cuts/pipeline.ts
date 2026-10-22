@@ -12,7 +12,8 @@ import { assertChannelAuthorized, clipRangeFor, type CutChannel, type CutsConfig
 import { buildCutRunContext, FINAL_FILE, newCutRunId, saveCutContext } from "./context.js";
 import { downloadSource, LoginRequiredError, sourceDir, videoUrl } from "./download.js";
 import { markProcessed, PROCESSED_FILE } from "./feed.js";
-import { keptSeconds, planKeep } from "./jumpcut.js";
+import { humorEnabled, planHumor } from "./humor.js";
+import { keptSeconds, livelyMoments, planKeep } from "./jumpcut.js";
 import { runCutMetadata } from "./metadata.js";
 import { renderClips, wordsInWindow } from "./render.js";
 import { selectClips, transcriptSlice, verifyPicks, type ClipPick } from "./select.js";
@@ -84,15 +85,24 @@ export async function processVideo(
   }
 
   const runIds = picks.map((_, i) => newCutRunId(i));
-  const jobs = picks.map((p, i) => {
-    const keep = planKeep(transcript.words, transcript.loudness, p.start, p.end);
-    log.info(`clip "${p.title}": ${keep.length} piece(s), ${keptSeconds(keep)} of ${(p.end - p.start).toFixed(1)} s kept`);
-    return { start: p.start, end: p.end, keep, out: join(runDirFor(runIds[i] as string), FINAL_FILE), words: wordsInWindow(transcript.words, p.start, p.end) };
-  });
+  const withHumor = humorEnabled(channel);
+  const jobs = await timed(timings, "humor", () =>
+    Promise.all(
+      picks.map(async (p, i) => {
+        const keep = planKeep(transcript.words, transcript.loudness, p.start, p.end);
+        const words = wordsInWindow(transcript.words, p.start, p.end);
+        const humor = withHumor
+          ? await planHumor({ title: p.title, channelName: channel.name, start: p.start, end: p.end, words, lively: livelyMoments(transcript.words, transcript.loudness, p.start, p.end) }, keep, { log: (m) => log.info(m) })
+          : null;
+        log.info(`clip "${p.title}": ${keep.length} piece(s), ${keptSeconds(keep)} of ${(p.end - p.start).toFixed(1)} s kept, humor ${humor ? `${humor.jokes.length} joke(s), ${humor.emojis.length} emoji, ${humor.effects.length} effect(s)` : "off"}`);
+        return { start: p.start, end: p.end, keep, humor, out: join(runDirFor(runIds[i] as string), FINAL_FILE), words };
+      }),
+    ),
+  );
   const rendered = await timed(timings, "render", () =>
     renderClips({ source: source.path, framing, credit: channel.credit, captions: config.clip.captions, jobs }, (m) => log.info(m)),
   );
-  rendered.clips.forEach((c, i) => log.info(`clip ${i + 1}: ${c.frames} frames in ${c.seconds} s (faces ${c.facesSeen}, switches ${c.speakerSwitches}, face coverage ${Math.round(c.faceCoverage * 100)}%, speaker by ${c.speakerMethod ?? "mouth"}, group shots ${c.groupShots ?? 0})`));
+  rendered.clips.forEach((c, i) => log.info(`clip ${i + 1}: ${c.frames} frames in ${c.seconds} s (faces ${c.facesSeen}, switches ${c.speakerSwitches}, face coverage ${Math.round(c.faceCoverage * 100)}%, speaker by ${c.speakerMethod ?? "mouth"}, group shots ${c.groupShots ?? 0}${c.humor ? `, humor drawn ${c.humor.jokes}/${c.humor.emojis}/${c.humor.effects}` : ""})`));
 
   const runs = await timed(timings, "context", () => Promise.all(picks.map((p, i) => writeRun(runIds[i] as string, channel, videoId, source.title, p, transcript, framing, jobs[i]?.out as string, keptSeconds(jobs[i]?.keep ?? [])))));
   if (!options.noJournal) {

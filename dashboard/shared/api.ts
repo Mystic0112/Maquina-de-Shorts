@@ -283,6 +283,8 @@ export interface CutChannelDraft {
   enabled: boolean;
   blocked?: string;
   style?: "vlog" | "podcast";
+  /** Jokes/emoji/effects on the cut; absent = on for vlogs only. */
+  humor?: boolean;
   minSeconds?: number;
   maxSeconds?: number;
   authorization?: { url: string; date?: string; note?: string; conditions?: string[] };

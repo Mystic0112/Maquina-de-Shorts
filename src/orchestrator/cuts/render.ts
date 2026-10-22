@@ -11,6 +11,7 @@ import { resolveFfmpegBinaries } from "../lib/ffmpeg.js";
 import { runPythonJson } from "../lib/python.js";
 import { resolveWatermarkFiles, type ResolvedWatermark } from "../lib/watermark.js";
 import type { CutsConfig } from "./config.js";
+import type { HumorJob } from "./humor.js";
 import type { Interval } from "./jumpcut.js";
 import type { TranscriptWord } from "./transcribe.js";
 
@@ -73,6 +74,8 @@ export interface RenderJob {
   end: number;
   /** Absolute source intervals to keep (jump cuts, see jumpcut.ts); absent = the whole window. */
   keep?: Interval[];
+  /** Jokes / emoji / effects for python/cuts/humor.py (cuts/humor.ts); null = none. */
+  humor?: HumorJob | null;
   out: string;
   words: TranscriptWord[];
 }
@@ -102,6 +105,7 @@ export const RenderResultSchema = z.object({
       speakerMethod: z.string().optional(),
       /** Times the camera opened up because two or more people talked at once. */
       groupShots: z.number().optional(),
+      humor: z.object({ jokes: z.number(), emojis: z.number(), effects: z.number() }).optional(),
     }),
   ),
 });

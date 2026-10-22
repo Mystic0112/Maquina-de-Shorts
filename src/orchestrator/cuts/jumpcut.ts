@@ -85,3 +85,18 @@ export function keptSeconds(keep: readonly Interval[]): number {
 }
 
 const round = (value: number): number => Math.round(value * 1000) / 1000;
+
+/** Laughter/reaction moments: lively word-free gaps of at least `minSeconds` (where the humor layer lands). */
+export function livelyMoments(words: readonly TranscriptWord[], loudness: Loudness | undefined, start: number, end: number, minSeconds = 0.6): Interval[] {
+  if (!loudness) return [];
+  const inside = words.filter((w) => w.start >= start - 0.05 && w.end <= end + 0.05);
+  if (inside.length === 0) return [];
+  const speechDb = median(inside.map((w) => meanDb(loudness, w.start, w.end)));
+  const gaps: Interval[] = [];
+  for (let i = 1; i < inside.length; i++) {
+    const from = (inside[i - 1] as TranscriptWord).end;
+    const to = (inside[i] as TranscriptWord).start;
+    if (to - from >= minSeconds && meanDb(loudness, from, to) >= speechDb - LIVELY_DROP_DB) gaps.push([round(from), round(to)]);
+  }
+  return gaps;
+}

@@ -23,6 +23,8 @@ export const ChannelSchema = z.object({
   blocked: z.string().optional(),
   /** "vlog": handheld shop/street footage, long story-like clips; "podcast": seated conversation, short clips. */
   style: z.enum(["vlog", "podcast"]).default("podcast"),
+  /** Jokes, emoji and quick effects on top of the cut (cuts/humor.ts); absent = on for vlogs, off otherwise. */
+  humor: z.boolean().optional(),
   /** Overrides the clip length of the channel's style. */
   minSeconds: z.number().positive().optional(),
   maxSeconds: z.number().positive().max(MAX_SHORT_SECONDS).optional(),
