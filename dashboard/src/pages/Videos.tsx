@@ -1,5 +1,22 @@
 import { ExternalLink, Film, ListVideo, Play } from "lucide-react";
 import { useState } from "react";
+
+type Kind = "short" | "cut" | "all";
+const KIND_OPTIONS: { value: Kind; label: string }[] = [
+  { value: "short", label: "Nossos vídeos" },
+  { value: "cut", label: "Cortes" },
+  { value: "all", label: "Tudo" },
+];
+const KIND_KEY = "videos.kind";
+
+function savedKind(): Kind {
+  try {
+    const v = localStorage.getItem(KIND_KEY);
+    return v === "cut" || v === "all" ? v : "short";
+  } catch {
+    return "short";
+  }
+}
 import type { CategoryInfo, VideoRow } from "../../shared/api";
 import { Card, CategoryChip, Empty, PathCopy, PlayerModal, StatusBadge, toPlayable, VideoCard, type PlayableVideo } from "../components";
 import { fmtDateTime, fmtDuration, fmtInt } from "../format";
@@ -7,13 +24,33 @@ import { UploadBadge } from "../runDetails";
 
 const PRIVACY_LABEL: Record<string, string> = { public: "público", unlisted: "não listado", private: "privado" };
 
-export function Videos({ rows, historyExists, categories }: { rows: VideoRow[]; historyExists: boolean; categories: CategoryInfo[] }) {
+export function Videos({ rows: allRows, historyExists, categories }: { rows: VideoRow[]; historyExists: boolean; categories: CategoryInfo[] }) {
   const [playing, setPlaying] = useState<PlayableVideo | null>(null);
+  const [kind, setKind] = useState<Kind>(savedKind);
+  const choose = (k: Kind) => {
+    setKind(k);
+    try {
+      localStorage.setItem(KIND_KEY, k);
+    } catch {
+      // private window: the choice just is not remembered
+    }
+  };
+  const rows = kind === "all" ? allRows : allRows.filter((r) => r.kind === kind);
   const playable = rows.filter((r) => r.localUrl).map(toPlayable);
+  const noun = kind === "cut" ? "corte(s)" : "vídeo(s)";
+  const picker = (
+    <select className="input kind-select" value={kind} aria-label="Mostrar" onChange={(e) => choose(e.target.value as Kind)}>
+      {KIND_OPTIONS.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label} ({o.value === "all" ? allRows.length : allRows.filter((r) => r.kind === o.value).length})
+        </option>
+      ))}
+    </select>
+  );
 
   return (
     <>
-      <Card title="Galeria" icon={Film} sub={`${playable.length} vídeo(s) renderizado(s) disponíveis no disco`}>
+      <Card title="Galeria" icon={Film} sub={`${playable.length} ${noun} renderizado(s) disponíveis no disco`} actions={picker}>
         {playable.length ? (
           <div className="gallery wrap">
             {playable.map((v) => (
@@ -21,8 +58,8 @@ export function Videos({ rows, historyExists, categories }: { rows: VideoRow[]; 
             ))}
           </div>
         ) : (
-          <Empty icon={Film} title="Nenhum vídeo no disco">
-            Os vídeos aparecem aqui assim que o render terminar.
+          <Empty icon={Film} title={kind === "cut" ? "Nenhum corte no disco" : "Nenhum vídeo no disco"}>
+            {kind === "cut" ? "Os cortes aparecem aqui quando o comando npm run cuts terminar de renderizar." : "Os vídeos aparecem aqui assim que o render terminar."}
           </Empty>
         )}
       </Card>
@@ -70,7 +107,7 @@ export function Videos({ rows, historyExists, categories }: { rows: VideoRow[]; 
                     <td style={{ minWidth: 240 }}>
                       <div style={{ fontWeight: 600 }}>{row.title}</div>
                       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
-                        <CategoryChip id={row.categoryId} categories={categories} />
+                        {row.kind === "cut" ? <CategoryChip id="corte" label={`Corte · ${row.cutChannel ?? "canal"}`} categories={categories} /> : <CategoryChip id={row.categoryId} categories={categories} />}
                         {row.runId && <span className="mono muted nowrap">{row.runId}</span>}
                       </div>
                     </td>

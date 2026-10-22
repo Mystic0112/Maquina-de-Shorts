@@ -183,6 +183,8 @@ export async function buildVideoRows(): Promise<VideoRow[]> {
     return {
       key: run.runId,
       runId: run.runId,
+      kind: run.cut ? "cut" : "short",
+      cutChannel: run.cut?.channelName ?? null,
       title: upload?.title ?? run.title ?? (run.hasContext ? "(sem roteiro)" : "(pasta removida, só o log)"),
       date: upload?.publishedAt ?? run.createdAt,
       status: run.status,
@@ -201,6 +203,8 @@ export async function buildVideoRows(): Promise<VideoRow[]> {
     rows.push({
       key: `yt-${record.videoId}`,
       runId: record.runId,
+      kind: "short", // ponytail: only Shorts are published today; cuts never reach 08-upload
+      cutChannel: null,
       title: record.title,
       date: record.publishedAt,
       status: "published_only",

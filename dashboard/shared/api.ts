@@ -102,6 +102,8 @@ export interface RunSummary {
   metadata: VideoMetadata | null;
   upload: UploadResult | null;
   rejection: RunRejection | null;
+  /** Set when the run is a cut of another channel's video (npm run cuts), not one of our Shorts. */
+  cut: { channelName: string; sourceUrl: string; videoTitle: string } | null;
 }
 
 export interface CategoryInfo {
@@ -196,6 +198,10 @@ export interface Overview {
 export interface VideoRow {
   key: string;
   runId: string | null;
+  /** "short" = our curiosity Shorts; "cut" = a cut of another channel's video. */
+  kind: "short" | "cut";
+  /** Source channel of a cut (shown instead of the category). */
+  cutChannel: string | null;
   title: string;
   date: string;
   status: RunStatus | "published_only";

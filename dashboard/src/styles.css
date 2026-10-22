@@ -1230,3 +1230,10 @@ details summary {
     font-size: 1.3rem;
   }
 }
+
+/* Vídeos: nossos Shorts x cortes */
+.card-head .kind-select {
+  width: auto;
+  flex: none;
+  padding: 6px 10px;
+}

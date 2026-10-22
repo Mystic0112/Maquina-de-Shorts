@@ -220,7 +220,16 @@ async function buildRun(runId: string): Promise<RunSummary> {
     metadata: readMetadata(ctx),
     upload: readUpload(ctx),
     rejection: ctx?.rejection && typeof ctx.rejection.reason === "string" ? ctx.rejection : null,
+    cut: readCut(ctx),
   };
+}
+
+/** The cuts pipeline adds `cut` (channel, source video) to the same context.json shape. */
+function readCut(ctx: RunContext | null): RunSummary["cut"] {
+  const c = (ctx as { cut?: { channelName?: unknown; sourceUrl?: unknown; videoTitle?: unknown } } | null)?.cut;
+  if (!c || typeof c.channelName !== "string") return null;
+  const sourceUrl = typeof c.sourceUrl === "string" && /^https:\/\//.test(c.sourceUrl) ? c.sourceUrl : "";
+  return { channelName: c.channelName, sourceUrl, videoTitle: textOrNull(c.videoTitle) ?? "" };
 }
 
 function readFactCheck(ctx: RunContext | null): RunSummary["factCheck"] {

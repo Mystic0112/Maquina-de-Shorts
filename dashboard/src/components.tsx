@@ -375,6 +375,8 @@ export interface PlayableVideo {
   date: string;
   durationSeconds: number | null;
   categoryId: string | null;
+  /** Chip text when it is not a topic category (cuts show their source channel). */
+  chipLabel: string | null;
   thumbUrl: string | null;
   localUrl: string | null;
   localPath: string | null;
@@ -389,7 +391,8 @@ export function toPlayable(row: VideoRow): PlayableVideo {
     title: row.title,
     date: row.date,
     durationSeconds: row.videoDurationSeconds,
-    categoryId: row.categoryId,
+    categoryId: row.kind === "cut" ? "corte" : row.categoryId,
+    chipLabel: row.kind === "cut" ? `Corte · ${row.cutChannel ?? "canal"}` : null,
     thumbUrl: row.thumbUrl,
     localUrl: row.localUrl,
     localPath: row.localPath,
@@ -405,7 +408,7 @@ export function VideoCard({ video, categories, onOpen }: { video: PlayableVideo;
       <div className="vthumb">
         {video.thumbUrl ? <img src={video.thumbUrl} alt="" loading="lazy" /> : <Film size={30} />}
         <div className="top">
-          <CategoryChip id={video.categoryId} categories={categories} />
+          <CategoryChip id={video.categoryId} label={video.chipLabel} categories={categories} />
         </div>
         {video.durationSeconds != null && <span className="dur">{fmtDuration(video.durationSeconds * 1000)}</span>}
         {video.localUrl && (
@@ -432,7 +435,7 @@ export function PlayerModal({ video, categories, onClose }: { video: PlayableVid
         {video.localUrl && <video src={video.localUrl} controls autoPlay playsInline poster={video.thumbUrl ?? undefined} />}
         <div className="modal-side">
           <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-            <CategoryChip id={video.categoryId} categories={categories} />
+            <CategoryChip id={video.categoryId} label={video.chipLabel} categories={categories} />
             <button type="button" className="ghost" onClick={onClose} aria-label="Fechar">
               <X size={16} />
             </button>
