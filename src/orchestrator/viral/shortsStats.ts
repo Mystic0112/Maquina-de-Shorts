@@ -139,7 +139,8 @@ export const VIRAL_QUESTION = {
 export interface LayaRow {
   state: string;
   questions: typeof VIRAL_QUESTION;
-  gold: { viral: boolean };
+  /** `expected` = hard target in laya train ({state, questions, expected}); `gold` there means probabilities. */
+  expected: { viral: boolean };
 }
 
 /** What the model sees: the theme and the title (never the channel, so it cannot just memorise channels). */
@@ -161,7 +162,7 @@ export function isEvalChannel(channelId: string, evalShare = 0.15): boolean {
  * `negativesPerPositive` negatives per positive in train (eval keeps the real proportion).
  */
 export function buildLayaSets(rows: readonly ShortStat[], negativesPerPositive = 3): { train: LayaRow[]; eval: LayaRow[] } {
-  const toRow = (r: ShortStat): LayaRow => ({ state: layaState(r.group, r.title), questions: VIRAL_QUESTION, gold: { viral: r.label === "viral" } });
+  const toRow = (r: ShortStat): LayaRow => ({ state: layaState(r.group, r.title), questions: VIRAL_QUESTION, expected: { viral: r.label === "viral" } });
   const labelled = rows.filter((r) => r.label !== null);
   const evalRows = labelled.filter((r) => isEvalChannel(r.channelId)).map(toRow);
   const trainAll = labelled.filter((r) => !isEvalChannel(r.channelId));

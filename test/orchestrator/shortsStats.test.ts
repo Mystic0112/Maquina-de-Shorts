@@ -60,10 +60,10 @@ describe("Laya training sets", () => {
     const evalIds = new Set(channels.filter((id) => isEvalChannel(id)));
     expect(evalIds.size).toBeGreaterThan(0);
     expect(evalRows).toHaveLength(evalIds.size * 10); // unlabelled rows never used
-    expect(evalRows.filter((r) => r.gold.viral)).toHaveLength(evalIds.size);
-    const pos = train.filter((r) => r.gold.viral).length;
+    expect(evalRows.filter((r) => r.expected.viral)).toHaveLength(evalIds.size);
+    const pos = train.filter((r) => r.expected.viral).length;
     expect(pos).toBe(40 - evalIds.size);
     expect(train.length - pos).toBeLessThanOrEqual(pos * 3 + 3);
-    expect(train[0]).toMatchObject({ state: "Tema: cortes. Título do Short: T0", questions: VIRAL_QUESTION, gold: { viral: true } });
+    expect(train[0]).toMatchObject({ state: "Tema: cortes. Título do Short: T0", questions: VIRAL_QUESTION, expected: { viral: true } });
   });
 });

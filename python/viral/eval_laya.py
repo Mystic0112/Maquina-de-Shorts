@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", default="multilingual")
     args = parser.parse_args(argv)
     rows = [json.loads(line) for line in args.eval.read_text(encoding="utf-8").splitlines() if line.strip()]
-    labels = [bool(r["gold"]["viral"]) for r in rows]
+    labels = [bool((r.get("expected") or r.get("gold"))["viral"]) for r in rows]  # older sets used "gold"
     base_rate = sum(labels) / len(labels)
     report = {"items": len(rows), "viral": sum(labels), "baseRate": round(base_rate, 3)}
     for name, model in (("base", args.base), ("finetuned", args.model)):

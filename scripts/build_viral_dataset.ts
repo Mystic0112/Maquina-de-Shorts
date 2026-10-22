@@ -16,5 +16,5 @@ const { train, eval: evalRows } = buildLayaSets(rows);
 const jsonl = (items: unknown[]) => items.map((i) => JSON.stringify(i)).join("\n") + "\n";
 await writeFile(join(DIR, "train.jsonl"), jsonl(train));
 await writeFile(join(DIR, "eval.jsonl"), jsonl(evalRows));
-const pos = (items: { gold: { viral: boolean } }[]) => items.filter((i) => i.gold.viral).length;
+const pos = (items: { expected: { viral: boolean } }[]) => items.filter((i) => i.expected.viral).length;
 console.log(`train ${train.length} (${pos(train)} viral) | eval ${evalRows.length} (${pos(evalRows)} viral, real proportion) -> ${DIR}`);
