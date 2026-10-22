@@ -71,7 +71,8 @@ export function App() {
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">
-            <img src="/logo.png" alt="" />
+            <img className="logo-on-dark" src="/logo-white.png" alt="" />
+            <img className="logo-on-light" src="/logo-black.png" alt="" />
           </div>
           <div>
             <b>Máquina de Shorts</b>
