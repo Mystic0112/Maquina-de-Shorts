@@ -1,4 +1,4 @@
-import { Clapperboard, Film, LayoutDashboard, Moon, RefreshCw, Settings as SettingsIcon, Sparkles, Sun, TriangleAlert, Workflow, type LucideIcon } from "lucide-react";
+import { Film, LayoutDashboard, Moon, RefreshCw, Settings as SettingsIcon, Sparkles, Sun, TriangleAlert, Workflow, type LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { requestYoutubeRefresh, useDashboardData } from "./api";
 import { useTheme } from "./colors";
@@ -71,7 +71,7 @@ export function App() {
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">
-            <Clapperboard size={18} />
+            <img src="/logo.png" alt="" />
           </div>
           <div>
             <b>Máquina de Shorts</b>

@@ -1,11 +1,16 @@
 <div align="center">
 
+<img src="assets/readme/logo.jpg" alt="Máquina de Shorts" width="560"/>
+
+<br/>
+<br/>
+
 <img src="assets/readme/painel-visao-geral.jpg" alt="Painel da Máquina de Shorts: visão geral com vídeos gerados, taxa de sucesso, falhas e a galeria dos últimos vídeos" width="820"/>
 
 <br/>
 <br/>
 
-# 🎬 Máquina de Shorts
+# Máquina de Shorts
 
 **Um pipeline que escolhe o tema, escreve, confere os fatos, ilustra, narra, monta e publica Shorts de curiosidades. Sem revisão humana.**
 
