@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildLayaSets, isEvalChannel, labelChannel, MIN_LABELLED, parseShortsTab, SKIP_NEWEST, tallyCandidates, VIRAL_QUESTION } from "../../src/orchestrator/viral/shortsStats.js";
+import { buildLayaSets, isEvalChannel, labelChannel, MIN_LABELLED, MIN_MEDIAN_VIEWS, parseShortsTab, SKIP_NEWEST, tallyCandidates, VIRAL_QUESTION } from "../../src/orchestrator/viral/shortsStats.js";
 
 const tab = (views: (number | null)[]) => ({
   channel: "Cortes X",
@@ -25,9 +25,12 @@ describe("viral training data from other channels' Shorts", () => {
     expect(rows.find((r) => r.views === 1000)?.label).toBe("normal");
   });
 
-  it("leaves a channel unlabelled when it has too few settled Shorts", () => {
-    const rows = labelChannel(parseShortsTab(tab(Array(SKIP_NEWEST + MIN_LABELLED - 1).fill(100)), "cortes"));
-    expect(rows.every((r) => r.label === null)).toBe(true);
+  it("leaves a channel unlabelled when it has too few settled Shorts or too few views to compare", () => {
+    const few = labelChannel(parseShortsTab(tab(Array(SKIP_NEWEST + MIN_LABELLED - 1).fill(5000)), "cortes"));
+    expect(few.every((r) => r.label === null)).toBe(true);
+    const tiny = labelChannel(parseShortsTab(tab([...Array(SKIP_NEWEST + 20).fill(10), 282]), "curiosidades"));
+    expect(tiny.every((r) => r.label === null)).toBe(true);
+    expect(MIN_MEDIAN_VIEWS).toBe(1000);
   });
 
   it("ranks channels by how often the theme searches return them", () => {

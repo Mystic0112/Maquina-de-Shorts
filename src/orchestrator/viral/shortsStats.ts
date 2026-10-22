@@ -12,6 +12,8 @@ export const VIRAL_RATIO = 3;
 export const WEAK_RATIO = 0.5;
 /** A channel needs at least this many labelled Shorts for its median to mean anything. */
 export const MIN_LABELLED = 15;
+/** Below this median the ratios are noise (282 views on a 25-subscriber channel came out "viral"). */
+export const MIN_MEDIAN_VIEWS = 1000;
 
 export type ViralLabel = "viral" | "normal" | "fraco";
 
@@ -77,7 +79,8 @@ export function parseShortsTab(json: unknown, group: string): ShortStat[] {
 export function labelChannel(rows: readonly ShortStat[]): ShortStat[] {
   const settled = rows.filter((r) => r.position >= SKIP_NEWEST);
   if (settled.length < MIN_LABELLED) return rows.map((r) => ({ ...r, ratio: null, label: null }));
-  const base = Math.max(1, median(settled.map((r) => r.views)));
+  const base = median(settled.map((r) => r.views));
+  if (base < MIN_MEDIAN_VIEWS) return rows.map((r) => ({ ...r, ratio: null, label: null }));
   return rows.map((r) => {
     if (r.position < SKIP_NEWEST) return { ...r, ratio: null, label: null };
     const ratio = Math.round((r.views / base) * 100) / 100;

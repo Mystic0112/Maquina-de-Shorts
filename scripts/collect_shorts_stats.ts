@@ -39,7 +39,8 @@ function ytDlp(): string {
 }
 
 async function flatJson(target: string, extra: string[] = []): Promise<unknown> {
-  const { stdout } = await runBinary(ytDlp(), ["--flat-playlist", "-J", "--no-warnings", ...extra, target], TIMEOUT_MS);
+  // lang=pt: original Brazilian titles; without it YouTube serves machine-translated English titles.
+  const { stdout } = await runBinary(ytDlp(), ["--flat-playlist", "-J", "--no-warnings", "--extractor-args", "youtube:lang=pt", ...extra, target], TIMEOUT_MS);
   return JSON.parse(stdout) as unknown;
 }
 
