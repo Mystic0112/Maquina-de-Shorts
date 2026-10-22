@@ -178,6 +178,10 @@ def render(
         zoom = analysis.get("speakerMethod") == "light-asd"
         scored = analysis.get("scored")
         groups = cam.group_frames(scored, fps) if zoom and scored else None
+        # How many times the camera opened up for people talking at once (the log line and the result report it).
+        analysis["groupShots"] = sum(
+            1 for i, g in enumerate(groups or []) if g and (i == 0 or not groups[i - 1])
+        )
         shots = cam.camera_path(
             speakers, analysis["faces"], src_w, src_h, fps, zoom, groups
         )
@@ -291,10 +295,11 @@ def process(job: JobSpec) -> dict[str, Any]:
     frames = render(job, analysis, frame_ranges)
     total = time.perf_counter() - started
     log.info(
-        "%s: rendered %d frames in %.1f s",
+        "%s: rendered %d frames in %.1f s, %d group shot(s)",
         Path(job.out).parent.name,
         frames,
         total - analysis_s,
+        analysis.get("groupShots", 0),
     )
     return {
         "out": job.out,
@@ -308,6 +313,7 @@ def process(job: JobSpec) -> dict[str, Any]:
         "facesSeen": analysis["faces_seen"],
         "speakerSwitches": switches,
         "speakerMethod": method,
+        "groupShots": analysis.get("groupShots", 0),
         "faceCoverage": round(
             sum(1 for s in speakers if s) / max(analysis["frames"], 1), 3
         ),

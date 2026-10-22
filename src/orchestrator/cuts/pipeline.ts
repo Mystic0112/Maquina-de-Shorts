@@ -91,7 +91,7 @@ export async function processVideo(
   const rendered = await timed(timings, "render", () =>
     renderClips({ source: source.path, framing, credit: channel.credit, captions: config.clip.captions, jobs }, (m) => log.info(m)),
   );
-  rendered.clips.forEach((c, i) => log.info(`clip ${i + 1}: ${c.frames} frames in ${c.seconds} s (faces ${c.facesSeen}, switches ${c.speakerSwitches}, face coverage ${Math.round(c.faceCoverage * 100)}%, speaker by ${c.speakerMethod ?? "mouth"})`));
+  rendered.clips.forEach((c, i) => log.info(`clip ${i + 1}: ${c.frames} frames in ${c.seconds} s (faces ${c.facesSeen}, switches ${c.speakerSwitches}, face coverage ${Math.round(c.faceCoverage * 100)}%, speaker by ${c.speakerMethod ?? "mouth"}, group shots ${c.groupShots ?? 0})`));
 
   const runs = await timed(timings, "context", () => Promise.all(picks.map((p, i) => writeRun(runIds[i] as string, channel, videoId, source.title, p, transcript, framing, jobs[i]?.out as string, keptSeconds(jobs[i]?.keep ?? [])))));
   if (!options.noJournal) {

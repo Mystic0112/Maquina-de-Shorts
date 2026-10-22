@@ -100,6 +100,8 @@ export const RenderResultSchema = z.object({
       keptSeconds: z.number().optional(),
       /** "light-asd" (audio-visual model) or "mouth" (fallback heuristic). */
       speakerMethod: z.string().optional(),
+      /** Times the camera opened up because two or more people talked at once. */
+      groupShots: z.number().optional(),
     }),
   ),
 });
