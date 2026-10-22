@@ -38,8 +38,11 @@ function Write-Event([hashtable]$Data) {
 }
 
 function Test-UploadDisabled {
+    # Both publishers must be off: YouTube explicitly false, Instagram absent or not true.
     $config = Get-Content -Raw -Path $ConfigFile | ConvertFrom-Json
-    return ($null -ne $config.upload) -and ($config.upload.enabled -eq $false)
+    $youtubeOff = ($null -ne $config.upload) -and ($config.upload.enabled -eq $false)
+    $instagramOff = ($null -eq $config.instagram) -or ($config.instagram.enabled -ne $true)
+    return $youtubeOff -and $instagramOff
 }
 
 function Get-FreeGB {
@@ -93,7 +96,7 @@ $done = 0
 Write-Event @{ event = 'start'; maxVideos = $MaxVideos; pullBetween = [bool]$PullBetween }
 while ($MaxVideos -eq 0 -or $done -lt $MaxVideos) {
     while (Test-Path $PauseFile) { Start-Sleep -Seconds 20 }
-    if (-not (Test-UploadDisabled)) { Write-Event @{ event = 'abort'; reason = 'upload.enabled is not false' }; exit 1 }
+    if (-not (Test-UploadDisabled)) { Write-Event @{ event = 'abort'; reason = 'publishing is enabled (upload or instagram)' }; exit 1 }
     $free = Get-FreeGB
     if ($free -lt $MinFreeGB) { Write-Event @{ event = 'stop'; reason = "free disk ${free} GB < $MinFreeGB GB" }; exit 0 }
     if ($PullBetween -and $done -gt 0) {
