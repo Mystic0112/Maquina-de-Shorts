@@ -4,6 +4,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import type { RefreshResponse, SaveResponse } from "../shared/api.js";
 import { buildOverview, buildVideoRows } from "./aggregate.js";
 import { config, dashboardDir, paths } from "./config.js";
+import { getCuts, putCuts, resolveChannel } from "./cuts.js";
 import { manualRefresh, startMetrics, youtubeStatus } from "./metrics.js";
 import { getRevenue } from "./revenue.js";
 import { isInsideRenderOutput, listRuns, RUN_ID_PATTERN } from "./runs.js";
@@ -128,6 +129,27 @@ app.put("/api/topics", jsonOnly, jsonBody, async (req, res) => {
   } catch (error) {
     sendSettingsError(res, error);
   }
+});
+
+app.get("/api/cuts", async (_req, res) => {
+  try {
+    res.json(await getCuts());
+  } catch (error) {
+    sendSettingsError(res, error);
+  }
+});
+
+app.put("/api/cuts", jsonOnly, jsonBody, async (req, res) => {
+  try {
+    const saved = await putCuts(req.body, req.get("If-Match") ?? undefined);
+    res.json({ ok: true, message: "Canais de corte salvos.", ...saved } satisfies SaveResponse);
+  } catch (error) {
+    sendSettingsError(res, error);
+  }
+});
+
+app.post("/api/cuts/resolve", jsonOnly, jsonBody, async (req, res) => {
+  res.json(await resolveChannel((req.body as { url?: unknown } | undefined)?.url));
 });
 
 app.get("/api/voices", async (_req, res) => {

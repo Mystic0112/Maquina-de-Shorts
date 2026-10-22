@@ -34,7 +34,7 @@ export class SettingsError extends Error {
   }
 }
 
-const versionOf = (text: string): string => createHash("sha1").update(text).digest("hex").slice(0, 16);
+export const versionOf = (text: string): string => createHash("sha1").update(text).digest("hex").slice(0, 16);
 
 async function readText(file: string): Promise<string> {
   try {
@@ -59,7 +59,7 @@ function stamp(): string {
 }
 
 /** Backup + write-to-temp + rename, so the pipeline never reads a half-written file. */
-async function atomicWrite(file: string, data: unknown): Promise<string> {
+export async function atomicWrite(file: string, data: unknown): Promise<string> {
   await mkdir(BACKUP_DIR, { recursive: true });
   const backup = join(BACKUP_DIR, `${stamp()}-${basename(file)}`);
   if (existsSync(file)) await copyFile(file, backup);
@@ -121,6 +121,10 @@ function translate(issue: ZodIssueLike): string {
 }
 
 const pathOf = (path: PropertyKey[]): string => path.map(String).join(".");
+
+/** zod issues -> the pt-BR field errors the Configurações page shows. */
+export const fieldErrors = (issues: readonly { path: PropertyKey[] }[]): FieldError[] =>
+  issues.map((i) => ({ path: pathOf(i.path), message: translate(i as ZodIssueLike) }));
 
 /* ---------- pipeline settings ---------- */
 function crossFieldErrors(config: z.infer<typeof PipelineConfigSchema>): FieldError[] {

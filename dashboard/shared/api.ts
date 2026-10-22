@@ -269,6 +269,37 @@ export interface TopicsPayload {
   errors: FieldError[];
 }
 
+/** One entry of config/cuts.json (mirrors ChannelSchema in src/orchestrator/cuts/config.ts). */
+export interface CutChannelDraft {
+  id: string;
+  name: string;
+  enabled: boolean;
+  blocked?: string;
+  style?: "vlog" | "podcast";
+  minSeconds?: number;
+  maxSeconds?: number;
+  authorization?: { url: string; date?: string; note?: string; conditions?: string[] };
+  credit: string;
+  maxVideosPerDay?: number;
+  [extra: string]: unknown;
+}
+
+export interface CutsPayload {
+  version: string;
+  /** false = config/cuts.json does not exist yet; `data` comes from cuts.example.json and saving creates it. */
+  exists: boolean;
+  data: { channels: CutChannelDraft[]; [extra: string]: unknown };
+  errors: FieldError[];
+}
+
+export interface ResolveChannelResponse {
+  ok: boolean;
+  message: string;
+  id?: string;
+  name?: string;
+  url?: string;
+}
+
 export interface SaveResponse {
   ok: boolean;
   message: string;

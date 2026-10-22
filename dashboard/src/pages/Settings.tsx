@@ -16,6 +16,7 @@ import {
   Plus,
   Ruler,
   Save,
+  Scissors,
   Search,
   Sparkles,
   Trash2,
@@ -27,6 +28,8 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type {
   CaptionSettings,
+  CutChannelDraft,
+  CutsPayload,
   FieldError,
   RunSummary,
   SaveResponse,
@@ -39,6 +42,7 @@ import type {
 } from "../../shared/api";
 import { categoryColor } from "../colors";
 import { Card, Empty, formatIcon } from "../components";
+import { CutsChannelsSection } from "../CutsChannels";
 import { SCRIPT_FORMATS, type ScriptFormat } from "../format";
 import { PreviewPanel } from "../PreviewPanel";
 import {
@@ -63,6 +67,7 @@ const SECTIONS = [
   { id: "cfg-roteiro", label: "Roteiro", icon: FileText },
   { id: "cfg-formato", label: "Formato", icon: Ruler },
   { id: "cfg-temas", label: "Temas", icon: Layers },
+  { id: "cfg-cortes", label: "Cortes", icon: Scissors },
   { id: "cfg-upload", label: "Upload", icon: Upload },
   { id: "cfg-chaves", label: "Chaves", icon: KeyRound },
 ] as const;
@@ -116,6 +121,8 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
   const [topics, setTopics] = useState<TopicsPayload | null>(null);
   const [draft, setDraft] = useState<Json | null>(null);
   const [topicsDraft, setTopicsDraft] = useState<TopicCategory[] | null>(null);
+  const [cuts, setCuts] = useState<CutsPayload | null>(null);
+  const [cutsDraft, setCutsDraft] = useState<CutChannelDraft[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [serverErrors, setServerErrors] = useState<FieldError[]>([]);
   const [saving, setSaving] = useState(false);
@@ -123,11 +130,13 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
 
   const load = useCallback(async () => {
     try {
-      const [s, t] = await Promise.all([getJson<SettingsPayload>("/api/settings"), getJson<TopicsPayload>("/api/topics")]);
+      const [s, t, c] = await Promise.all([getJson<SettingsPayload>("/api/settings"), getJson<TopicsPayload>("/api/topics"), getJson<CutsPayload>("/api/cuts")]);
       setSettings(s);
       setTopics(t);
+      setCuts(c);
       setDraft(clone(s.config));
       setTopicsDraft(clone(t.data.categories ?? []));
+      setCutsDraft(clone(c.data.channels ?? []));
       setServerErrors([]);
       setLoadError(null);
     } catch (e) {
@@ -144,7 +153,8 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
 
   const settingsDirty =!!settings && !!draft && !same(settings.config, draft);
   const topicsDirty = !!topics && !!topicsDraft && !same(topics.data.categories, topicsDraft);
-  const dirty = settingsDirty || topicsDirty;
+  const cutsDirty = !!cuts && !!cutsDraft && !same(cuts.data.channels, cutsDraft);
+  const dirty = settingsDirty || topicsDirty || cutsDirty;
 
   // Files can change outside the page (pipeline agent, git): refresh on focus while there are no edits.
   useEffect(() => {
@@ -177,7 +187,7 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
       </Card>
     );
   }
-  if (!settings || !draft || !topics || !topicsDraft) {
+  if (!settings || !draft || !topics || !topicsDraft || !cuts || !cutsDraft) {
     return (
       <Card>
         <Empty icon={LoaderCircle} title="Carregando configurações…" />
@@ -208,6 +218,10 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
       const results: SaveResponse[] = [];
       if (settingsDirty) results.push(await putJson("/api/settings", draft, settings.version));
       if (topicsDirty) results.push(await putJson("/api/topics", { ...topics.data, categories: topicsDraft }, topics.version));
+      if (cutsDirty) {
+        const r = await putJson("/api/cuts", { ...cuts.data, channels: cutsDraft }, cuts.version);
+        results.push({ ...r, errors: r.errors?.map((e) => ({ ...e, path: `cuts.${e.path}` })) });
+      }
       const failed = results.find((r) => !r.ok);
       if (failed) {
         setServerErrors(results.flatMap((r) => r.errors ?? []));
@@ -227,6 +241,7 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
   const discard = () => {
     setDraft(clone(settings.config));
     setTopicsDraft(clone(topics.data.categories));
+    setCutsDraft(clone(cuts.data.channels));
     setServerErrors([]);
     setNotice(null);
   };
@@ -565,6 +580,8 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
           </Section>
 
           <TopicsSection categories={topicsDraft} originalIds={new Set(topics.data.categories.map((c) => c.id))} onChange={setTopicsDraft} errorAt={errorAt} />
+
+          <CutsChannelsSection channels={cutsDraft} fileExists={cuts.exists} onChange={setCutsDraft} errorAt={errorAt} />
 
           <Section
             id="cfg-upload"
