@@ -179,7 +179,7 @@ Uma vertente separada, rodada por `npm run cuts`: pega vídeos longos dos canais
 4. Transcreve no PC com faster-whisper.
 5. O `agy` escolhe os melhores trechos: uma história completa de 45 a 90 s em canal de vlog, de 30 a 60 s em podcast.
 6. Uma segunda chamada confere cada trecho com 2 min de conversa antes e depois: se o corte muda o sentido, ou o título mente ou desmoraliza alguém, o trecho é descartado.
-7. Tira as pausas mortas (as risadas ficam) e recorta em vertical. Um detector de quem fala (Light-ASD, voz + boca) guia a câmera: fecha no rosto de quem fala, abre quando ninguém fala ou quando duas pessoas falam juntas. Legenda pequena em Montserrat, palavrão censurado ("merd4") e a sua marca d'água.
+7. Tira as pausas mortas (as risadas ficam) e recorta em vertical. Um detector de quem fala (Light-ASD, voz + boca) guia a câmera: fecha no rosto de quem fala, abre quando ninguém fala ou quando duas pessoas falam juntas. Legenda pequena em Montserrat, palavrão censurado ("merd4") e a sua marca d'água. Nos canais com a **camada de humor** ligada (padrão: vlog sim, podcast não), o agy planeja piadas entre asteriscos ("\*risos stage 3\*"), emojis de reação (Noto Emoji 3D, Apache-2.0) e até 3 efeitos (zoom rápido, preto e branco com mira, flash com palavra) nos momentos de risada; ria da situação, nunca da pessoa.
 8. Salva cada corte em `render_output/<runId>/` (`final.mp4` + `context.json`). **Não publica.**
 
 ## 🛡️ Travas

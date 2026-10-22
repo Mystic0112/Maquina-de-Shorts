@@ -14,8 +14,10 @@ def text_overlay(
     size: int,
     color_bgr: tuple[int, int, int],
     max_width: int,
+    stroke_bgr: tuple[int, int, int] = (0, 0, 0),
+    stroke_width: int | None = None,
 ):
-    """BGRA numpy image of `text` (outlined, wrapped to max_width)."""
+    """BGRA numpy image of `text` (outlined, black and size/12 thick by default, wrapped to max_width)."""
     import numpy as np
     from PIL import Image, ImageDraw, ImageFont
 
@@ -37,13 +39,14 @@ def text_overlay(
             current = candidate
     if current:
         lines.append(current)
-    stroke = max(2, size // 12)
+    stroke = stroke_width or max(2, size // 12)
     line_h = int(size * 1.25)
     image = Image.new(
         "RGBA", (max_width + 2 * stroke, line_h * len(lines) + 2 * stroke), (0, 0, 0, 0)
     )
     draw = ImageDraw.Draw(image)
     b, g, r = color_bgr
+    sb, sg, sr = stroke_bgr
     for index, line in enumerate(lines):
         width = probe.textlength(line, font=font)
         x = (image.width - width) / 2
@@ -53,16 +56,18 @@ def text_overlay(
             font=font,
             fill=(r, g, b, 255),
             stroke_width=stroke,
-            stroke_fill=(0, 0, 0, 255),
+            stroke_fill=(sr, sg, sb, 255),
         )
     rgba = np.array(image)
     return rgba[:, :, [2, 1, 0, 3]]
 
 
-def blend(frame, overlay, center_x: int, center_y: int) -> None:
+def blend(frame, overlay, center_x: int, center_y: int, opacity: float = 1.0) -> None:
     """Alpha-blends a BGRA overlay onto the BGR frame in place, centred at (center_x, center_y)."""
     import numpy as np
 
+    if opacity <= 0:
+        return
     h, w = overlay.shape[:2]
     x0, y0 = center_x - w // 2, center_y - h // 2
     x1, y1 = min(x0 + w, frame.shape[1]), min(y0 + h, frame.shape[0])
@@ -71,7 +76,7 @@ def blend(frame, overlay, center_x: int, center_y: int) -> None:
     if x1 <= x0 or y1 <= y0:
         return
     patch = overlay[oy : oy + (y1 - y0), ox : ox + (x1 - x0)]
-    alpha = patch[:, :, 3:4].astype(np.float32) / 255.0
+    alpha = patch[:, :, 3:4].astype(np.float32) * (opacity / 255.0)
     region = frame[y0:y1, x0:x1].astype(np.float32)
     frame[y0:y1, x0:x1] = (
         region * (1 - alpha) + patch[:, :, :3].astype(np.float32) * alpha

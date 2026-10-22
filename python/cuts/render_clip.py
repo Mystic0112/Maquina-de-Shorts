@@ -13,6 +13,9 @@ They are snapped to the frame grid; pass 2 still reads every source frame but on
 and ffmpeg cuts the same frame ranges out of the audio (atrim + concat), so picture and sound stay in sync.
 Captions keep the source-relative clock (frame index / fps), so they need no retiming.
 
+Humor (humor.py): a job may carry "humor" (jokes, reaction emoji, punch/spotlight/flash effects, absolute
+source seconds like "keep"); it is drawn on the same clock and the result counts what showed.
+
 Framing "face": a 9:16 crop that pushes in on the speaker and pulls back to full height when nobody speaks.
 Framing "open": a full-height 4:5 window on a blurred, darkened background made from the same frame.
 Exit codes: 0 ok, 1 a clip failed, 2 bad input.
@@ -38,6 +41,7 @@ import camera as cam
 import captions as caps
 import compose as cmp
 import detect
+import humor as hum
 import speaker as spk
 import watermark as wm
 
@@ -73,6 +77,7 @@ class JobSpec:
     keep: list[tuple[float, float]]
     asd_model: str | None = None
     watermark: wm.Watermark | None = None
+    humor: hum.Humor | None = None
 
 
 def resolve_font(explicit: str | None) -> str | None:
@@ -197,6 +202,7 @@ def render(
         )
         for cue in cues
     }
+    layer = hum.HumorLayer(job.humor, font, job.framing) if job.humor else None
     mark = wm.build_overlay(job.watermark, font) if job.watermark else None
     if mark is not None:
         mark_x, mark_y = wm.origin(job.watermark.position, mark.shape[1], mark.shape[0])
@@ -222,15 +228,28 @@ def render(
             ok, frame = cap.read()
             if not ok:
                 break
+            # absolute source seconds: the humor plan's clock
+            t = job.start + index / fps
+            rect = None
             if job.framing == "face":
-                left, top, width, height = cam.crop_rect(shots[index], src_w, src_h)
+                rect = cam.crop_rect(shots[index], src_w, src_h)
+                if layer:
+                    rect = layer.crop(rect, t)
+                left, top, width, height = rect
                 out = cmp.compose_face(frame, left, width, top, height)
             else:
                 left = spk.clamp_window(path[index], crop_w, src_w)
                 out = cmp.compose_open(frame, left, crop_w, cache)
+            if layer:
+                layer.draw_effects(out, t, rect, speakers[index])
             cue = caps.cue_at(cues, index / fps)
-            if cue:
-                cmp.blend(out, overlays[cue.text], OUT_W // 2, caption_y)
+            caption = overlays[cue.text] if cue else None
+            if caption is not None:
+                cmp.blend(out, caption, OUT_W // 2, caption_y)
+            if layer:
+                layer.draw_text(
+                    out, t, caption.shape[0] if caption is not None else None, caption_y
+                )
             if mark is not None:
                 cmp.blend(out, mark, *mark_center)
             try:
@@ -250,6 +269,7 @@ def render(
             pass
         stderr = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
         code = proc.wait()
+        analysis["humor"] = layer.counts() if layer else dict.fromkeys(hum.KINDS, 0)
     if code != 0:
         raise RuntimeError(f"ffmpeg failed ({code}) for {job.out}: {stderr[-2000:]}")
     return written
@@ -314,6 +334,7 @@ def process(job: JobSpec) -> dict[str, Any]:
         "speakerSwitches": switches,
         "speakerMethod": method,
         "groupShots": analysis.get("groupShots", 0),
+        "humor": analysis.get("humor", dict.fromkeys(hum.KINDS, 0)),
         "faceCoverage": round(
             sum(1 for s in speakers if s) / max(analysis["frames"], 1), 3
         ),
@@ -341,6 +362,7 @@ def read_jobs(raw: dict[str, Any]) -> tuple[list[JobSpec], int]:
             hold_seconds=float(raw.get("holdSeconds", spk.DEFAULT_HOLD_SECONDS)),
             asd_model=raw.get("asdModel") or None,
             watermark=watermark,
+            humor=hum.parse_humor(j.get("humor")),
             start=float(j["start"]),
             end=float(j["end"]),
             out=j["out"],

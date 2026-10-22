@@ -76,7 +76,7 @@ def trim(overlay):
     return overlay[ys.min() : ys.max() + 1, xs.min() : xs.max() + 1]
 
 
-def load_image(path: str, width: int):
+def load_image(path: str, width: int, label: str = "watermark image"):
     """BGRA numpy image of the PNG scaled to `width`, or None (with a warning) when it cannot be read."""
     import numpy as np
     from PIL import Image
@@ -85,7 +85,7 @@ def load_image(path: str, width: int):
         with Image.open(path) as image:
             rgba = image.convert("RGBA")
     except (OSError, ValueError) as exc:
-        log.warning("watermark image %s unreadable, skipping it: %s", path, exc)
+        log.warning("%s %s unreadable, skipping it: %s", label, path, exc)
         return None
     height = max(1, round(rgba.height * width / rgba.width))
     scaled = rgba.resize((width, height), Image.Resampling.LANCZOS)
