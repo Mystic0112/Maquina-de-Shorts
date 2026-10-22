@@ -1,4 +1,8 @@
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { buildRenderPayload, ensureModelFile, LIGHT_ASD } from "../../src/orchestrator/cuts/render.js";
 import { KEEP_GAP_SECONDS, keptSeconds, MAX_LIVELY_SECONDS, PAD_SECONDS, planKeep, type Loudness } from "../../src/orchestrator/cuts/jumpcut.js";
 import { buildVerifyPrompt, verifyPicks } from "../../src/orchestrator/cuts/select.js";
 import type { LlmProvider } from "../../src/orchestrator/lib/llmClient.js";
@@ -79,5 +83,27 @@ describe("meaning and title review", () => {
     const { approved, rejected } = await verifyPicks([pick("ok"), pick("fora de contexto"), pick("sem veredito")], transcript, { provider });
     expect(approved.map((p) => p.title)).toEqual(["ok"]);
     expect(rejected.map((r) => [r.pick.title, r.verdict?.problem])).toEqual([["fora de contexto", "tirou a ironia"], ["sem veredito", undefined]]);
+  });
+});
+
+describe("speaker detector model file", () => {
+  it("is pinned to a commit and downloaded once, size-checked", async () => {
+    expect(LIGHT_ASD.url).toMatch(/Light-ASD\/raw\/[0-9a-f]{40}\/weight\/finetuning_TalkSet\.model$/);
+    const file = join(mkdtempSync(join(tmpdir(), "asd-")), "m", "w.model");
+    const model = { ...LIGHT_ASD, file, minBytes: 4, maxBytes: 8 };
+    const fetchFn = vi.fn(async () => new Response(new Uint8Array([1, 2, 3, 4, 5]))) as unknown as typeof fetch;
+    await expect(ensureModelFile(model, fetchFn)).resolves.toBe(file);
+    await ensureModelFile(model, fetchFn);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(readFileSync(file)).toHaveLength(5);
+    const bad = vi.fn(async () => new Response("<html>nope</html>")) as unknown as typeof fetch;
+    await expect(ensureModelFile({ ...model, file: `${file}2` }, bad)).rejects.toThrow(/unexpected size/);
+    expect(existsSync(`${file}2`)).toBe(false);
+  });
+
+  it("goes to the renderer as asdModel (null = fallback heuristic)", () => {
+    const input = { source: "/s.mp4", framing: "face" as const, credit: "c", captions: { wordsPerCue: 3, color: "#FFE11A" }, jobs: [] };
+    expect(buildRenderPayload(input, "/y.onnx", "ffmpeg", "/m/asd.model")).toMatchObject({ asdModel: "/m/asd.model" });
+    expect(buildRenderPayload(input, "/y.onnx", "ffmpeg")).toMatchObject({ asdModel: null });
   });
 });

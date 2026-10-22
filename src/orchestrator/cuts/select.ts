@@ -32,7 +32,7 @@ const STYLE_GUIDE: Record<CutChannel["style"], string[]> = {
   vlog: [
     "- é um vlog (câmera na mão, oficina, rua): escolha uma HISTÓRIA COMPLETA, uma \"saga\" com situação, problema ou tensão e desfecho (a risada, a revelação, o resultado);",
     "- prefira trechos com humor, zoeira entre as pessoas, susto, carro quebrando ou dando certo;",
-    "- pode ser longo: o que segura o público é a história ter começo, meio e fim, não ser curto.",
+    "- só a parte essencial da história: corte a enrolação do começo e termine logo depois do desfecho.",
   ],
   podcast: [
     "- é um podcast (conversa sentada): escolha uma ideia completa, uma história ou uma opinião forte com conclusão;",

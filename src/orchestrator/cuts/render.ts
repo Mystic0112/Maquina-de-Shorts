@@ -13,11 +13,33 @@ import type { CutsConfig } from "./config.js";
 import type { Interval } from "./jumpcut.js";
 import type { TranscriptWord } from "./transcribe.js";
 
-export const YUNET_URL = "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx";
-export const YUNET_FILE = join(paths.root, "models", "yunet", "face_detection_yunet_2023mar.onnx");
-/** The 2023mar release is 232 589 bytes; anything far from that is a bad download (HTML error page, truncation). */
-const YUNET_MIN_BYTES = 200_000;
-const YUNET_MAX_BYTES = 300_000;
+export interface ModelFile {
+  label: string;
+  url: string;
+  file: string;
+  /** Size window of a good download (anything else is an HTML error page or a truncation). */
+  minBytes: number;
+  maxBytes: number;
+}
+
+/** YuNet face detector (opencv_zoo, 2023mar release: 232 589 bytes). */
+export const YUNET: ModelFile = {
+  label: "YuNet face detector (~230 KB)",
+  url: "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",
+  file: join(paths.root, "models", "yunet", "face_detection_yunet_2023mar.onnx"),
+  minBytes: 200_000,
+  maxBytes: 300_000,
+};
+export const YUNET_FILE = YUNET.file;
+
+/** Light-ASD active speaker detector (MIT), TalkSet fine-tune, pinned to a commit: 4 175 289 bytes. */
+export const LIGHT_ASD: ModelFile = {
+  label: "Light-ASD speaker detector (~4 MB)",
+  url: "https://github.com/Junhua-Liao/Light-ASD/raw/ed38c232de5efe0261dbd68627c0ade7cdfe14eb/weight/finetuning_TalkSet.model",
+  file: join(paths.root, "models", "lightasd", "finetuning_TalkSet.model"),
+  minBytes: 4_100_000,
+  maxBytes: 4_300_000,
+};
 export const SPEAKER_HOLD_SECONDS = 1.2;
 
 export interface RenderJob {
@@ -49,6 +71,9 @@ export const RenderResultSchema = z.object({
       facesSeen: z.number(),
       speakerSwitches: z.number(),
       faceCoverage: z.number(),
+      keptSeconds: z.number().optional(),
+      /** "light-asd" (audio-visual model) or "mouth" (fallback heuristic). */
+      speakerMethod: z.string().optional(),
     }),
   ),
 });
@@ -60,10 +85,11 @@ export function wordsInWindow(words: readonly TranscriptWord[], start: number, e
 }
 
 /** The JSON handed to render_clip.py on stdin. */
-export function buildRenderPayload(input: RenderInput, yunet: string, ffmpeg: string): Record<string, unknown> {
+export function buildRenderPayload(input: RenderInput, yunet: string, ffmpeg: string, asdModel: string | null = null): Record<string, unknown> {
   return {
     source: input.source,
     yunet,
+    asdModel,
     ffmpeg,
     framing: input.framing,
     credit: input.credit,
@@ -75,21 +101,25 @@ export function buildRenderPayload(input: RenderInput, yunet: string, ffmpeg: st
   };
 }
 
-export async function ensureYunetModel(fetchFn: typeof fetch = fetch, file = YUNET_FILE, log?: (m: string) => void): Promise<string> {
-  if (existsSync(file) && (await stat(file)).size >= YUNET_MIN_BYTES) return file;
-  log?.(`downloading YuNet face detector (one-time, ~230 KB) to ${file}`);
-  const response = await fetchFn(YUNET_URL);
-  if (!response.ok) throw new Error(`YuNet download failed: HTTP ${response.status}`);
+/** Downloads a model file once into models/ (size-checked, atomic rename). */
+export async function ensureModelFile(model: ModelFile, fetchFn: typeof fetch = fetch, log?: (m: string) => void): Promise<string> {
+  if (existsSync(model.file) && (await stat(model.file)).size >= model.minBytes) return model.file;
+  log?.(`downloading ${model.label} (one-time) to ${model.file}`);
+  const response = await fetchFn(model.url);
+  if (!response.ok) throw new Error(`${model.label} download failed: HTTP ${response.status}`);
   const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.length < YUNET_MIN_BYTES || bytes.length > YUNET_MAX_BYTES) {
-    throw new Error(`YuNet download has unexpected size ${bytes.length} bytes (expected about 232 589)`);
+  if (bytes.length < model.minBytes || bytes.length > model.maxBytes) {
+    throw new Error(`${model.label} download has unexpected size ${bytes.length} bytes`);
   }
-  await mkdir(join(file, ".."), { recursive: true });
-  const tmp = `${file}.tmp`;
+  await mkdir(join(model.file, ".."), { recursive: true });
+  const tmp = `${model.file}.tmp`;
   await writeFile(tmp, bytes);
-  await rename(tmp, file);
-  return file;
+  await rename(tmp, model.file);
+  return model.file;
 }
+
+export const ensureYunetModel = (fetchFn: typeof fetch = fetch, file = YUNET.file, log?: (m: string) => void): Promise<string> =>
+  ensureModelFile({ ...YUNET, file }, fetchFn, log);
 
 export function resolveCutsPython(): string {
   const configured = env("CUTS_PYTHON");
@@ -101,11 +131,16 @@ export function resolveCutsPython(): string {
 
 export async function renderClips(input: RenderInput, log: (m: string) => void): Promise<RenderResult> {
   const yunet = await ensureYunetModel(fetch, YUNET_FILE, log);
+  // Without the speaker detector the render falls back to the mouth-movement heuristic (worse on vlogs).
+  const asdModel = await ensureModelFile(LIGHT_ASD, fetch, log).catch((error: unknown) => {
+    log(`WARN Light-ASD unavailable, speaker detection falls back to mouth movement: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  });
   const { ffmpeg } = resolveFfmpegBinaries();
   return runPythonJson({
     script: "python/cuts/render_clip.py",
     python: resolveCutsPython(),
-    stdin: buildRenderPayload(input, yunet, ffmpeg),
+    stdin: buildRenderPayload(input, yunet, ffmpeg, asdModel),
     schema: RenderResultSchema,
     timeoutMs: 90 * 60 * 1000,
     onStderrLine: log,

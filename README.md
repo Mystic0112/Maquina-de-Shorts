@@ -177,7 +177,7 @@ Uma vertente separada, rodada por `npm run cuts`: pega vídeos longos dos canais
 2. Descobre vídeos novos pelo RSS do canal (ou recebe um vídeo específico).
 3. Baixa o vídeo com `yt-dlp`, sem login.
 4. Transcreve no PC com faster-whisper.
-5. O `agy` escolhe os melhores trechos: uma história completa de 1 a 3 min em canal de vlog, de 30 a 60 s em podcast.
+5. O `agy` escolhe os melhores trechos: uma história completa de 45 a 90 s em canal de vlog, de 30 a 60 s em podcast.
 6. Uma segunda chamada confere cada trecho com 2 min de conversa antes e depois: se o corte muda o sentido, ou o título mente ou desmoraliza alguém, o trecho é descartado.
 7. Tira as pausas mortas (as risadas ficam) e recorta em vertical seguindo o rosto de quem fala, com legenda pequena, palavrão censurado ("merd4") e crédito do canal.
 8. Salva cada corte em `render_output/<runId>/` (`final.mp4` + `context.json`). **Não publica.**
@@ -478,12 +478,12 @@ Para enviar o vídeo, a máquina abre por poucos minutos um **túnel temporário
 
 ## ✂️ Cortes
 
-Vertente separada do vídeo de curiosidades (Onda 4). Pega vídeos dos canais ligados, transcreve, escolhe trechos com o `agy` (vlog: história de 1 a 3 min; podcast: 30 a 60 s), descarta o que mudar o sentido ou tiver título que mente ou desmoraliza, tira as pausas mortas, recorta em vertical seguindo o rosto de quem fala e deixa cada corte em `render_output/<runId>/` (`final.mp4` + `context.json`), no formato que os estágios 07 e 08 leem. **O comando não publica nada.**
+Vertente separada do vídeo de curiosidades (Onda 4). Pega vídeos dos canais ligados, transcreve, escolhe trechos com o `agy` (vlog: história de 45 a 90 s; podcast: 30 a 60 s), descarta o que mudar o sentido ou tiver título que mente ou desmoraliza, tira as pausas mortas, recorta em vertical seguindo o rosto de quem fala e deixa cada corte em `render_output/<runId>/` (`final.mp4` + `context.json`), no formato que os estágios 07 e 08 leem. **O comando não publica nada.**
 
 > [!IMPORTANT]
 > **Trava dos canais.** Um canal só é cortado quando o dono o liga em `config/cuts.json` (`enabled: true`) e ele não está bloqueado (`blocked`, com o motivo). Decisão do dono (22/10/2026): cortar vídeo público pode; mudar o sentido da fala ou desmoralizar alguém, nunca. Canal que pedir para parar ou reclamar de direitos entra em `blocked` para sempre. O link `authorization.url` é opcional, só como prova. Canal recusado sai com código `3`. O jeito mais fácil de cuidar dos canais é o painel, em **Configurações > Canais de corte**: cole o link do canal (ex.: `youtube.com/@acfperformance`), escolha vlog ou podcast, ligue, desligue ou bloqueie. Ele grava o `config/cuts.json` (fora do git), criado a partir do `config/cuts.example.json` no primeiro salvamento.
 
-O que o `config/cuts.json` define: os canais (`id`, `name`, `enabled`, `blocked`, `style` = `vlog` ou `podcast`, `minSeconds`/`maxSeconds` opcionais, `authorization` opcional, `credit` gravado no vídeo, `maxVideosPerDay`), o tamanho dos cortes de podcast (`clip.minSeconds`/`maxSeconds`, padrão do exemplo 30–60 s; vlog usa 60–180 s; máximo 180 s, o limite do Shorts; `clip.perVideo`; `clip.framing`; cor e palavras por legenda) e o download (`download.maxHeight`, `download.ytDlp`).
+O que o `config/cuts.json` define: os canais (`id`, `name`, `enabled`, `blocked`, `style` = `vlog` ou `podcast`, `minSeconds`/`maxSeconds` opcionais, `authorization` opcional, `credit` gravado no vídeo, `maxVideosPerDay`), o tamanho dos cortes de podcast (`clip.minSeconds`/`maxSeconds`, padrão do exemplo 30–60 s; vlog usa 45–90 s; máximo 180 s, o limite do Shorts; `clip.perVideo`; `clip.framing`; cor e palavras por legenda) e o download (`download.maxHeight`, `download.ytDlp`).
 
 ```bash
 npm run cuts -- --scan                                       # RSS dos canais autorizados, processa o que for novo

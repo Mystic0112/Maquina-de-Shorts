@@ -7,7 +7,7 @@ import type { CutChannelDraft, ResolveChannelResponse } from "../shared/api";
 import { NumberInput, Section, Segmented, Switch, TextInput } from "./settingsUi";
 
 const STYLE_OPTIONS = [
-  { value: "vlog" as const, label: "Vlog (história de 1 a 3 min)" },
+  { value: "vlog" as const, label: "Vlog (história de 45 a 90 s)" },
   { value: "podcast" as const, label: "Podcast (30 a 60 s)" },
 ];
 
@@ -83,6 +83,8 @@ export function CutsChannelsSection(props: {
               <Segmented label="Tipo" value={c.style ?? "podcast"} options={STYLE_OPTIONS} onChange={(v) => update(i, { style: v })} error={err(i, "style")} />
               <TextInput label="Crédito no vídeo" value={c.credit} onChange={(v) => update(i, { credit: v })} help="Aparece no topo do corte e vai para a descrição." error={err(i, "credit")} />
               <NumberInput label="Vídeos por dia" value={c.maxVideosPerDay} min={1} max={10} onChange={(v) => update(i, { maxVideosPerDay: v })} error={err(i, "maxVideosPerDay")} />
+              <NumberInput label="Duração mínima" suffix="s" value={c.minSeconds} min={10} max={180} onChange={(v) => update(i, { minSeconds: v })} help="Vazio = padrão do tipo (vlog 45 s, podcast 30 s)." error={err(i, "minSeconds")} />
+              <NumberInput label="Duração máxima" suffix="s" value={c.maxSeconds} min={15} max={180} onChange={(v) => update(i, { maxSeconds: v })} help="Vazio = padrão do tipo (vlog 90 s, podcast 60 s). Máximo 180 s, o limite do Shorts." error={err(i, "maxSeconds")} />
               <TextInput
                 label="Link da liberação (opcional)"
                 value={c.authorization?.url ?? ""}

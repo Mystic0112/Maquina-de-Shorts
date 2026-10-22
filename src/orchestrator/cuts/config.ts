@@ -11,8 +11,8 @@ import { paths } from "../lib/config.js";
 
 /** YouTube Shorts accept up to 3 minutes. */
 export const MAX_SHORT_SECONDS = 180;
-/** Default clip length of a vlog channel (the reference channel's hits run 95-179 s). */
-export const VLOG_SECONDS = { min: 60, max: MAX_SHORT_SECONDS } as const;
+/** Default clip length of a vlog channel (owner, 2026-10-22: the first 2-3 min cuts were too long). */
+export const VLOG_SECONDS = { min: 45, max: 90 } as const;
 
 export const ChannelSchema = z.object({
   /** YouTube channel id (UC...). */

@@ -40,9 +40,9 @@ describe("channel gate", () => {
     expect(acf.id).toBe("UCvgSmIdI92W4KnP15fJwfwA");
     expect(acf.style).toBe("vlog");
     expect(() => assertChannelAuthorized(acf)).toThrow(ChannelNotAuthorizedError);
-    expect(clipRangeFor(acf, config)).toEqual({ minSeconds: 60, maxSeconds: 180 });
+    expect(clipRangeFor(acf, config)).toEqual({ minSeconds: 45, maxSeconds: 90 });
     expect(clipRangeFor({ ...acf, style: "podcast" }, config)).toEqual({ minSeconds: config.clip.minSeconds, maxSeconds: config.clip.maxSeconds });
-    expect(clipRangeFor({ ...acf, maxSeconds: 120 }, config)).toEqual({ minSeconds: 60, maxSeconds: 120 });
+    expect(clipRangeFor({ ...acf, maxSeconds: 120 }, config)).toEqual({ minSeconds: 45, maxSeconds: 120 });
     expect(() => parseCutsConfig({ ...(exampleConfig as object), clip: { minSeconds: 60, maxSeconds: 30, perVideo: 1, framing: "face", captions: { wordsPerCue: 3, color: "#FFE11A" } } })).toThrow(/minSeconds/);
     expect(() => parseCutsConfig({ ...(exampleConfig as object), channels: [{ ...acf, maxSeconds: 240 }] })).toThrow(/maxSeconds/);
   });
