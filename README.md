@@ -171,15 +171,16 @@ O painel mede cada estágio de cada execução:
 
 ### Fluxo dos cortes (Onda 4)
 
-Uma vertente separada, rodada por `npm run cuts`: pega vídeos longos de canais **que autorizaram cortes por escrito** e devolve trechos verticais prontos. Veja [Cortes](#%EF%B8%8F-cortes).
+Uma vertente separada, rodada por `npm run cuts`: pega vídeos longos dos canais que o dono ligou e devolve trechos verticais prontos. Veja [Cortes](#%EF%B8%8F-cortes).
 
-1. Confere a autorização do canal em `config/cuts.json` (sem link de autorização, recusa).
+1. Confere se o canal está ligado e fora da lista de bloqueio em `config/cuts.json`.
 2. Descobre vídeos novos pelo RSS do canal (ou recebe um vídeo específico).
 3. Baixa o vídeo com `yt-dlp`, sem login.
 4. Transcreve no PC com faster-whisper.
-5. O `agy` escolhe os melhores trechos de 30 a 60 s.
-6. Recorta em vertical seguindo o rosto de quem fala, com legenda e crédito do canal.
-7. Salva cada corte em `render_output/<runId>/` (`final.mp4` + `context.json`). **Não publica.**
+5. O `agy` escolhe os melhores trechos: uma história completa de 1 a 3 min em canal de vlog, de 30 a 60 s em podcast.
+6. Uma segunda chamada confere cada trecho com 2 min de conversa antes e depois: se o corte muda o sentido, ou o título mente ou desmoraliza alguém, o trecho é descartado.
+7. Tira as pausas mortas (as risadas ficam) e recorta em vertical seguindo o rosto de quem fala, com legenda pequena, palavrão censurado ("merd4") e crédito do canal.
+8. Salva cada corte em `render_output/<runId>/` (`final.mp4` + `context.json`). **Não publica.**
 
 ## 🛡️ Travas
 
@@ -477,12 +478,12 @@ Para enviar o vídeo, a máquina abre por poucos minutos um **túnel temporário
 
 ## ✂️ Cortes
 
-Vertente separada do vídeo de curiosidades (Onda 4). Pega vídeos de canais **que autorizaram cortes por escrito**, transcreve, escolhe trechos de 30 a 60 s com o `agy`, recorta em vertical seguindo o rosto de quem fala e deixa cada corte em `render_output/<runId>/` (`final.mp4` + `context.json`), no formato que os estágios 07 e 08 leem. **O comando não publica nada.**
+Vertente separada do vídeo de curiosidades (Onda 4). Pega vídeos dos canais ligados, transcreve, escolhe trechos com o `agy` (vlog: história de 1 a 3 min; podcast: 30 a 60 s), descarta o que mudar o sentido ou tiver título que mente ou desmoraliza, tira as pausas mortas, recorta em vertical seguindo o rosto de quem fala e deixa cada corte em `render_output/<runId>/` (`final.mp4` + `context.json`), no formato que os estágios 07 e 08 leem. **O comando não publica nada.**
 
 > [!IMPORTANT]
-> **Trava de autorização (sem opção para desligar).** Um canal só é cortado quando, em `config/cuts.json`, tem `enabled: true` **e** `authorization.url` com o link da autorização pública do dono do canal. Sem link, o comando recusa e sai com código `3`. Para começar, copie `config/cuts.example.json` para `config/cuts.json` (este fica fora do git).
+> **Trava dos canais.** Um canal só é cortado quando o dono o liga em `config/cuts.json` (`enabled: true`) e ele não está bloqueado (`blocked`, com o motivo). Decisão do dono (22/10/2026): cortar vídeo público pode; mudar o sentido da fala ou desmoralizar alguém, nunca. Canal que pedir para parar ou reclamar de direitos entra em `blocked` para sempre. O link `authorization.url` é opcional, só como prova. Canal recusado sai com código `3`. Para começar, copie `config/cuts.example.json` para `config/cuts.json` (este fica fora do git).
 
-O que o `config/cuts.json` define: os canais (`id`, `name`, `enabled`, `authorization`, `credit` gravado no vídeo, `maxVideosPerDay`), o tamanho dos cortes (`clip.minSeconds`/`maxSeconds`, padrão do exemplo 30–60 s; `clip.perVideo`; `clip.framing`; cor e palavras por legenda) e o download (`download.maxHeight`, `download.ytDlp`).
+O que o `config/cuts.json` define: os canais (`id`, `name`, `enabled`, `blocked`, `style` = `vlog` ou `podcast`, `minSeconds`/`maxSeconds` opcionais, `authorization` opcional, `credit` gravado no vídeo, `maxVideosPerDay`), o tamanho dos cortes de podcast (`clip.minSeconds`/`maxSeconds`, padrão do exemplo 30–60 s; vlog usa 60–180 s; máximo 180 s, o limite do Shorts; `clip.perVideo`; `clip.framing`; cor e palavras por legenda) e o download (`download.maxHeight`, `download.ytDlp`).
 
 ```bash
 npm run cuts -- --scan                                       # RSS dos canais autorizados, processa o que for novo
@@ -491,7 +492,7 @@ npm run cuts -- --video ID --framing open --clips 2          # "open" = janela 4
 npm run cuts -- --video ID --source video.mp4 --transcript t.json   # desenvolvimento: sem download nem Whisper
 ```
 
-Códigos de saída: `0` ok, `1` erro, `3` nada a fazer (nenhum canal autorizado ou nenhum vídeo novo).
+Códigos de saída: `0` ok, `1` erro, `3` nada a fazer (nenhum canal ligado, nenhum vídeo novo ou nenhum trecho aprovado na conferência).
 
 **Teste real:** um vídeo de 40 min virou 2 cortes em 2 min 41 s, no processador, sem contar o download.
 

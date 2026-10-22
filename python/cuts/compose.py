@@ -15,7 +15,7 @@ def text_overlay(
     color_bgr: tuple[int, int, int],
     max_width: int,
 ):
-    """RGBA-like BGRA numpy image of `text` (upper-case, outlined, wrapped to max_width)."""
+    """BGRA numpy image of `text` (outlined, wrapped to max_width)."""
     import numpy as np
     from PIL import Image, ImageDraw, ImageFont
 

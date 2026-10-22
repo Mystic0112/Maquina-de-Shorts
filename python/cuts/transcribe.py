@@ -5,8 +5,8 @@ Usage:
         [--model base] [--device cpu] [--models-dir <repo>/models/whisper]
 
 PyAV decodes the audio to 16 kHz mono PCM (the Remotion ffmpeg build has no s16le muxer) -> faster-whisper (word_timestamps) -> JSON with
-"segments" [{start, end, text}] and "words" [{word, start, end}] in seconds. The same object is printed on
-stdout. Model cache and offline behaviour follow python/tts/align.py.
+"segments" [{start, end, text}], "words" [{word, start, end}] in seconds and "loudness" {hop, db} (RMS dBFS
+per 100 ms window, read by the jump cuts to tell laughter from dead air). stdout gets a short summary. Model cache and offline behaviour follow python/tts/align.py.
 Exit codes: 0 ok, 1 failed, 2 bad arguments.
 """
 
@@ -27,6 +27,8 @@ import align  # shared faster-whisper cache helpers
 
 DEFAULT_MODELS_DIR = ROOT / "models" / "whisper"
 WHISPER_RATE = 16_000
+LOUDNESS_HOP_SECONDS = 0.1
+LOUDNESS_FLOOR_DB = -90.0
 log = logging.getLogger("cuts.transcribe")
 
 
@@ -57,13 +59,36 @@ def decode_audio(video: Path):  # -> np.ndarray float32 mono 16 kHz
     try:
         with av.open(str(video)) as container:
             for frame in container.decode(audio=0):
-                chunks.extend(f.to_ndarray().reshape(-1) for f in resampler.resample(frame))
+                chunks.extend(
+                    f.to_ndarray().reshape(-1) for f in resampler.resample(frame)
+                )
             chunks.extend(f.to_ndarray().reshape(-1) for f in resampler.resample(None))
     except av.error.FFmpegError as exc:
         raise RuntimeError(f"could not decode the audio of {video}: {exc}") from exc
     if not chunks:
         raise RuntimeError(f"{video} has no audio track")
     return np.concatenate(chunks).astype(np.float32) / 32768.0
+
+
+def loudness_db(
+    audio, rate: int, hop_seconds: float = LOUDNESS_HOP_SECONDS
+) -> list[float]:
+    """RMS level in dBFS (20*log10 rms, so a full-scale sine is -3.0) of each consecutive `hop_seconds` window.
+
+    The last window may be shorter and is measured over its own samples; silence is floored at -90 dB.
+    """
+    import numpy as np
+
+    samples = np.asarray(audio, dtype=np.float32).reshape(-1)
+    if samples.size == 0:
+        return []
+    hop = max(1, round(rate * hop_seconds))
+    starts = np.arange(0, samples.size, hop)
+    sums = np.add.reduceat(np.square(samples, dtype=np.float64), starts)
+    counts = np.minimum(hop, samples.size - starts)
+    floor = 10 ** (LOUDNESS_FLOOR_DB / 20)
+    db = 20 * np.log10(np.maximum(np.sqrt(sums / counts), floor))
+    return [round(max(float(v), LOUDNESS_FLOOR_DB), 1) for v in db]
 
 
 def add_cuda_dlls() -> None:
@@ -160,6 +185,10 @@ def main(argv: list[str] | None = None) -> int:
             args.model,
             args.device,
         )
+        result["loudness"] = {
+            "hop": LOUDNESS_HOP_SECONDS,
+            "db": loudness_db(audio, WHISPER_RATE),
+        }
     except ImportError as exc:
         log.error("faster-whisper/numpy missing in this interpreter: %s", exc)
         return 1

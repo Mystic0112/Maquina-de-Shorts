@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { assertChannelAuthorized, ChannelNotAuthorizedError, parseCutsConfig, type CutChannel } from "../../src/orchestrator/cuts/config.js";
+import { assertChannelAuthorized, ChannelNotAuthorizedError, channelRefusal, clipRangeFor, parseCutsConfig, type CutChannel } from "../../src/orchestrator/cuts/config.js";
 import { buildCutRunContext } from "../../src/orchestrator/cuts/context.js";
 import { buildReencodeArgs, buildYtDlpArgs, isLoginRequiredOutput, LoginRequiredError, parseVideoId } from "../../src/orchestrator/cuts/download.js";
 import { isLikelyLive, isProcessed, listProcessed, markProcessed, parseFeed, pickNewVideos, remainingDailyQuota, type ProcessedEntry } from "../../src/orchestrator/cuts/feed.js";
@@ -15,29 +15,36 @@ const channel: CutChannel = {
   id: "UCvgSmIdI92W4KnP15fJwfwA",
   name: "ACF",
   enabled: true,
+  style: "podcast",
   authorization: { url: "https://example.com/post", conditions: ["crédito: ACF (@media.acf)"] },
   credit: "Cortes do canal ACF (@media.acf)",
 };
 
 const exampleConfig = JSON.parse(readFileSync(join(import.meta.dirname, "../../config/cuts.example.json"), "utf8")) as unknown;
 
-describe("authorization gate", () => {
-  it("accepts an enabled channel with an authorization url", () => {
+describe("channel gate", () => {
+  it("accepts an enabled channel, with or without an authorization link (owner decision 2026-10-22)", () => {
     expect(() => assertChannelAuthorized(channel)).not.toThrow();
+    const { authorization: _, ...noProof } = channel;
+    expect(() => assertChannelAuthorized(noProof)).not.toThrow();
+    expect(channelRefusal(noProof)).toBeUndefined();
   });
-  it("refuses a channel without authorization url, with a clear message", () => {
-    const noUrl = { ...channel, authorization: { ...channel.authorization, url: "  " } };
-    expect(() => assertChannelAuthorized(noUrl)).toThrow(ChannelNotAuthorizedError);
-    expect(() => assertChannelAuthorized(noUrl)).toThrow(/authorization\.url/);
-  });
-  it("refuses a disabled channel even with a url", () => {
+  it("refuses a disabled channel and, for good, a blocked one", () => {
     expect(() => assertChannelAuthorized({ ...channel, enabled: false })).toThrow(/enabled: false/);
+    expect(() => assertChannelAuthorized({ ...channel, blocked: "dono pediu para parar" })).toThrow(ChannelNotAuthorizedError);
+    expect(channelRefusal({ ...channel, enabled: true, blocked: "reclamação de direitos" })).toMatch(/blocked.*reclamação/);
   });
-  it("the shipped example is valid and NOT authorized (ACF link pending)", () => {
+  it("the shipped example is valid, a vlog channel, and switched off until the owner enables it", () => {
     const config = parseCutsConfig(exampleConfig, "cuts.example.json");
-    expect(config.channels[0]?.id).toBe("UCvgSmIdI92W4KnP15fJwfwA");
-    expect(() => assertChannelAuthorized(config.channels[0] as CutChannel)).toThrow(ChannelNotAuthorizedError);
+    const acf = config.channels[0] as CutChannel;
+    expect(acf.id).toBe("UCvgSmIdI92W4KnP15fJwfwA");
+    expect(acf.style).toBe("vlog");
+    expect(() => assertChannelAuthorized(acf)).toThrow(ChannelNotAuthorizedError);
+    expect(clipRangeFor(acf, config)).toEqual({ minSeconds: 60, maxSeconds: 180 });
+    expect(clipRangeFor({ ...acf, style: "podcast" }, config)).toEqual({ minSeconds: config.clip.minSeconds, maxSeconds: config.clip.maxSeconds });
+    expect(clipRangeFor({ ...acf, maxSeconds: 120 }, config)).toEqual({ minSeconds: 60, maxSeconds: 120 });
     expect(() => parseCutsConfig({ ...(exampleConfig as object), clip: { minSeconds: 60, maxSeconds: 30, perVideo: 1, framing: "face", captions: { wordsPerCue: 3, color: "#FFE11A" } } })).toThrow(/minSeconds/);
+    expect(() => parseCutsConfig({ ...(exampleConfig as object), channels: [{ ...acf, maxSeconds: 240 }] })).toThrow(/maxSeconds/);
   });
 });
 
@@ -136,7 +143,11 @@ describe("clip selection", () => {
     expect(snapToSegments(pick(10.4, 44.7), segments)).toMatchObject({ start: 10, end: 45 });
     expect(snapToSegments(pick(17, 45), segments).start).toBe(17);
     expect(transcriptSlice({ segments, words: [] }, 10, 45)).toBe("b c");
-    expect(buildSelectPrompt({ channelName: "ACF", videoTitle: "T", transcript: { segments, words: [] }, clip })).toContain("[10.00 - 25.00] b");
+    expect(buildSelectPrompt({ channelName: "ACF", videoTitle: "T", transcript: { segments, words: [] }, clip, style: "podcast" })).toContain("[10.00 - 25.00] b");
+    const vlog = buildSelectPrompt({ channelName: "ACF", videoTitle: "T", transcript: { segments, words: [] }, clip, style: "vlog" });
+    expect(vlog).toMatch(/HISTÓRIA COMPLETA/);
+    expect(vlog).toMatch(/nunca desmoralize/);
+    expect(vlog).toMatch(/não pode mudar o sentido/);
   });
   it("re-asks with a correction when the model answers out of bounds", async () => {
     const answers = [
@@ -148,7 +159,7 @@ describe("clip selection", () => {
       return answers.shift() as string;
     });
     const provider = { name: "fake", model: "m", completeJson, completeGroundedText: vi.fn() } as unknown as LlmProvider;
-    const picks = await selectClips({ channelName: "ACF", videoTitle: "T", transcript: { segments, words: [] }, clip }, { provider, attempts: 3 });
+    const picks = await selectClips({ channelName: "ACF", videoTitle: "T", transcript: { segments, words: [] }, clip, style: "podcast" }, { provider, attempts: 3 });
     expect(picks.map((p) => [p.start, p.end])).toEqual([[10, 45], [45, 100]]);
     expect(completeJson).toHaveBeenCalledTimes(2);
   });

@@ -6,7 +6,12 @@ multiprocessing) and prints one JSON object on stdout: {"clips": [{"out", "frame
 Per clip: pass 1 decodes the window once at reduced size, detects faces with YuNet (OpenCV, ONNX from the
 opencv_zoo), tracks them, scores mouth movement and picks the speaker with hysteresis (speaker.py);
 pass 2 decodes again, crops around the smoothed camera path, draws the captions (captions.py + Pillow)
-and the channel credit, and pipes raw frames into ffmpeg, which muxes the original audio (libx264 + aac).
+and the channel credit, and pipes JPEG frames into ffmpeg, which muxes the original audio (libx264 + aac).
+
+Jump cuts: a job may carry "keep" (absolute source seconds, sorted, non-overlapping, inside [start, end]).
+They are snapped to the frame grid; pass 2 still reads every source frame but only encodes the kept ones,
+and ffmpeg cuts the same frame ranges out of the audio (atrim + concat), so picture and sound stay in sync.
+Captions keep the source-relative clock (frame index / fps), so they need no retiming.
 
 Framing "face": full 9:16 crop (the speaker fills the frame). Framing "open": a 4:5 window on a blurred,
 darkened background made from the same frame (less zoomed in).
@@ -36,7 +41,7 @@ import speaker as spk
 OUT_W, OUT_H = cmp.OUT_W, cmp.OUT_H
 DETECT_WIDTH = 640
 ACTIVITY_EMA = 0.3
-CAPTION_FONT_SIZE = 72
+CAPTION_FONT_SIZE = 60
 CREDIT_FONT_SIZE = 40
 JPEG_QUALITY = (
     95  # pipe frames are re-encoded by libx264; 95 keeps the double encode invisible
@@ -66,6 +71,7 @@ class JobSpec:
     end: float
     out: str
     words: list[dict[str, Any]]
+    keep: list[tuple[float, float]]
 
 
 def resolve_font(explicit: str | None) -> str | None:
@@ -189,7 +195,35 @@ def analyze(job: JobSpec) -> dict[str, Any]:
 # ---------------------------------------------------------------------------------------------
 
 
-def ffmpeg_command(job: JobSpec, fps: float) -> list[str]:
+def keep_frames(
+    keep: list[tuple[float, float]], start: float, fps: float
+) -> list[tuple[int, int]]:
+    """Kept source intervals as frame ranges [f0, f1) counted from `start`; empty ones dropped, touching merged."""
+    ranges: list[tuple[int, int]] = []
+    for k0, k1 in keep:
+        f0, f1 = round((k0 - start) * fps), round((k1 - start) * fps)
+        if f1 <= f0:
+            continue
+        if ranges and f0 <= ranges[-1][1]:
+            ranges[-1] = (ranges[-1][0], max(ranges[-1][1], f1))
+        else:
+            ranges.append((f0, f1))
+    return ranges
+
+
+def audio_filter(frame_ranges: list[tuple[int, int]], fps: float) -> str:
+    """filter_complex cutting the same frame ranges out of input 1's audio (input starts at the clip start)."""
+    trims = [
+        f"[1:a]atrim=start={f0 / fps:.6f}:end={f1 / fps:.6f},asetpts=PTS-STARTPTS[a{n}]"
+        for n, (f0, f1) in enumerate(frame_ranges)
+    ]
+    labels = "".join(f"[a{n}]" for n in range(len(frame_ranges)))
+    return ";".join(trims + [f"{labels}concat=n={len(frame_ranges)}:v=0:a=1[aout]"])
+
+
+def ffmpeg_command(
+    job: JobSpec, fps: float, frame_ranges: list[tuple[int, int]]
+) -> list[str]:
     duration = job.end - job.start
     return [
         job.ffmpeg,
@@ -211,10 +245,12 @@ def ffmpeg_command(job: JobSpec, fps: float) -> list[str]:
         f"{duration:.3f}",
         "-i",
         job.source,
+        "-filter_complex",
+        audio_filter(frame_ranges, fps),
         "-map",
         "0:v:0",
         "-map",
-        "1:a:0?",
+        "[aout]",
         "-c:v",
         "libx264",
         "-preset",
@@ -234,7 +270,9 @@ def ffmpeg_command(job: JobSpec, fps: float) -> list[str]:
     ]
 
 
-def render(job: JobSpec, analysis: dict[str, Any]) -> int:
+def render(
+    job: JobSpec, analysis: dict[str, Any], frame_ranges: list[tuple[int, int]]
+) -> int:
     import cv2
 
     src_w, src_h, fps = analysis["width"], analysis["height"], analysis["fps"]
@@ -256,18 +294,25 @@ def render(job: JobSpec, analysis: dict[str, Any]) -> int:
         if job.credit
         else None
     )
-    caption_y = int(OUT_H * 0.70) if job.framing == "face" else int(OUT_H * 0.915)
+    caption_y = int(OUT_H * 0.66) if job.framing == "face" else int(OUT_H * 0.915)
     credit_y = int(OUT_H * 0.075)
     cache: dict[str, Any] = {}
     Path(job.out).parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.Popen(
-        ffmpeg_command(job, fps), stdin=subprocess.PIPE, stderr=subprocess.PIPE
+        ffmpeg_command(job, fps, frame_ranges),
+        stdin=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
     assert proc.stdin is not None
     cap = open_capture(job.source, job.start)
+    kept = {i for f0, f1 in frame_ranges for i in range(f0, f1)}
     written = 0
     try:
-        for index in range(len(path)):
+        for index in range(frame_ranges[-1][1]):
+            if index not in kept:
+                if not cap.grab():  # skips the colour conversion of a cut frame
+                    break
+                continue
             ok, frame = cap.read()
             if not ok:
                 break
@@ -325,7 +370,15 @@ def process(job: JobSpec) -> dict[str, Any]:
         raise RuntimeError(
             f"no frames decoded between {job.start} and {job.end} s of {job.source}"
         )
-    frames = render(job, analysis)
+    total_frames = analysis["frames"]
+    frame_ranges = [
+        (f0, min(f1, total_frames))
+        for f0, f1 in keep_frames(job.keep, job.start, analysis["fps"])
+        if f0 < total_frames
+    ]
+    if not frame_ranges:
+        raise RuntimeError(f"nothing to keep in {job.out}: {job.keep}")
+    frames = render(job, analysis, frame_ranges)
     total = time.perf_counter() - started
     log.info(
         "%s: rendered %d frames in %.1f s",
@@ -337,6 +390,9 @@ def process(job: JobSpec) -> dict[str, Any]:
         "out": job.out,
         "frames": frames,
         "fps": analysis["fps"],
+        "keptSeconds": round(
+            sum(f1 - f0 for f0, f1 in frame_ranges) / analysis["fps"], 2
+        ),
         "seconds": round(total, 1),
         "analysisSeconds": round(analysis_s, 1),
         "facesSeen": analysis["faces_seen"],
@@ -368,15 +424,30 @@ def read_jobs(raw: dict[str, Any]) -> tuple[list[JobSpec], int]:
             end=float(j["end"]),
             out=j["out"],
             words=list(j["words"]),
+            keep=[
+                (float(a), float(b))
+                for a, b in j.get("keep") or [[j["start"], j["end"]]]
+            ],
         )
         for j in raw["jobs"]
     ]
     for job in jobs:
         if job.end <= job.start:
             raise ValueError(f"clip end must be after start: {job.start}-{job.end}")
+        check_keep(job)
     return jobs, int(
         raw.get("workers", min(len(jobs), max(1, (os.cpu_count() or 2) // 2)))
     )
+
+
+def check_keep(job: JobSpec) -> None:
+    previous_end = job.start
+    for k0, k1 in job.keep:
+        if k0 < previous_end - 1e-6 or k1 < k0 or k1 > job.end + 1e-6:
+            raise ValueError(
+                f"keep must be sorted, non-overlapping and inside {job.start}-{job.end}: {job.keep}"
+            )
+        previous_end = k1
 
 
 def main() -> int:

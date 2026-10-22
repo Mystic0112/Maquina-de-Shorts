@@ -19,7 +19,7 @@ Lido automaticamente pelo Antigravity CLI, Gemini CLI, Codex e Claude. Leia inte
 | `src/orchestrator/lib/antigravityCli.ts` + `antigravitySession.ts` | chamada isolada ao `agy` e sessão contínua (`ANTIGRAVITY_CLI_SESSION_TURNS`) |
 | `src/orchestrator/lib/beats.ts` | trechos da fala (*beats*): uma busca de imagem por trecho |
 | `src/orchestrator/lib/verdictLog.ts` + `scripts/export_verdicts_dataset.ts` | grava `footage_verdicts.jsonl` e exporta o dataset do juiz de imagem local (LlamaFactory) |
-| `src/orchestrator/cuts/`, `python/cuts/`, `scripts/cuts.ts` | cortes de canais autorizados (Onda 4): download, transcrição, seleção, recorte vertical; **não publica** |
+| `src/orchestrator/cuts/`, `python/cuts/`, `scripts/cuts.ts` | cortes (Onda 4): download, transcrição, seleção, conferência de sentido, cortes secos (`jumpcut.ts`), recorte vertical; **não publica** |
 | `scripts/memes.ts`, `assets/memes/` | biblioteca de memes e sons (Onda 2); só `inventory.json` é versionado |
 | `src/remotion/` | composição do vídeo (tomadas, capa, legendas, movimento, camada de memes) |
 | `src/shared/settings.ts` | esquemas e padrões das configurações |
@@ -40,7 +40,7 @@ Lido automaticamente pelo Antigravity CLI, Gemini CLI, Codex e Claude. Leia inte
    Os testes têm valores falsos de propósito (`AIzaFAKE…`, `GOCSPX-FAKE…`, `IGAAfake…`); confirme que é falso antes de seguir. Nunca commitar `render_output/`, `logs/`, `data/history.json`, `models/`, vídeos ou áudios.
 2. **`agy` isolado:** sempre com `--sandbox`, pasta temporária só com as imagens da chamada e ambiente sem chaves. **Nunca** `--dangerously-skip-permissions` nem regra que libere comandos: ele lê imagens baixadas da internet.
 3. **Publicação:** só o dono liga `upload.enabled`, `instagram.enabled` ou registra o agendador. Nunca publique, nem como teste, sem confirmação explícita dele naquela conversa.
-4. **Não enfraqueça as travas:** checagem de fatos, trava de qualidade (≥60% das cenas com imagem aprovada), filtro de licença (domínio público, CC0, CC BY, Pexels/Pixabay; NASA só com crédito da NASA), créditos CC BY com autor + link + "(recortado e editado)", hashes que prendem aprovações ao conteúdo, diário anti-duplicata, limite diário, trava de arquivo. **Cortes** só de canais com `enabled: true` e link de autorização (`authorization.url`) em `config/cuts.json`. **Memes** só com licença da lista permitida (ver README). Se uma trava atrapalhar, explique ao dono em vez de contorná-la.
+4. **Não enfraqueça as travas:** checagem de fatos, trava de qualidade (≥60% das cenas com imagem aprovada), filtro de licença (domínio público, CC0, CC BY, Pexels/Pixabay; NASA só com crédito da NASA), créditos CC BY com autor + link + "(recortado e editado)", hashes que prendem aprovações ao conteúdo, diário anti-duplicata, limite diário, trava de arquivo. **Cortes** só de canais ligados pelo dono (`enabled: true`) e fora de `blocked` em `config/cuts.json`; nunca mudar o sentido da fala nem desmoralizar ninguém (a conferência `verifyPicks` descarta o trecho); canal que reclamar vai para `blocked`. **Memes** só com licença da lista permitida (ver README). Se uma trava atrapalhar, explique ao dono em vez de contorná-la.
 5. **Testes antes de commit** (tudo verde): `npx tsc -p tsconfig.json --noEmit`, `npx vitest run`, `cd dashboard && npm run typecheck`, e com o Python do projeto `-m unittest discover -s python/tts -p "test_*.py"` e `-m unittest discover -s python/cuts -p "test_*.py"`.
 6. **Faça o que foi pedido, nada além.** Prefira editar arquivos existentes. Leia antes de editar. Commits em português, descrevendo o porquê.
 
@@ -73,6 +73,7 @@ Saída do pipeline e dos cortes: `0` ok, `1` erro, `3` nada publicável/nada a f
 ## Ambiente
 
 - Produção: Windows de casa (RTX 3050). Desenvolvimento: Linux. O agendador é só do Windows.
+- **Nada é baixado no Linux** (vídeos, modelos, pesos, mídia de teste): downloads, transcrições e renders de teste rodam no PC de casa. Se algo for baixado aqui por engano, apague depois.
 - Python do projeto: `.venv\Scripts\python.exe` no Windows, `.venv/bin/python` no Linux. Kokoro em venv separado (`KOKORO_PYTHON`); cortes em `.venv-cuts` (`CUTS_PYTHON`).
 - `yt-dlp` precisa estar atualizado (versão velha leva 403 do YouTube).
 - O ffmpeg é o do Remotion, versão reduzida: sem `hstack`, `fps`, `setsar`, `silenceremove`.
@@ -84,7 +85,7 @@ Saída do pipeline e dos cortes: `0` ok, `1` erro, `3` nada publicável/nada a f
 - Planejamento vivo: ClickUp, lista **"Máquina de Shorts"**, e `planejamento/`.
 - **Pendências:**
   1. Habilitar Serve/HTTPS do Tailscale na conta do dono (painel remoto).
-  2. Link da autorização de cortes do ACF em `config/cuts.json`.
+  2. Cortes: trava trocada em 22/10 (canal ligado + bloqueio; link opcional). Falta o dono ligar o ACF em casa e a transcrição usar a GPU (`CUTS_WHISPER_DEVICE=cuda` no `.env` de casa).
   3. Instalar `@remotion/lottie` — só com OK do dono.
   4. Estágio 07 tratar o crédito dos cortes (`context.cut.credit`, `context.cut.sourceUrl`); até lá cortes não publicam.
   5. Feito em 22/10: Kokoro medido em 13,8 letras/s (13 execuções, narração 58–71 s), `LETTERS_PER_SECOND = 14`. Remedir se trocar de voz ou velocidade.

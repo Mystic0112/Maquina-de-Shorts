@@ -15,6 +15,8 @@ export interface CutContextInput {
   narration: string;
   framing: Framing;
   videoPath: string;
+  /** Length after jump cuts; defaults to the source window. */
+  durationSeconds?: number;
 }
 
 export function buildCutRunContext(input: CutContextInput): CutRunContext {
@@ -28,7 +30,7 @@ export function buildCutRunContext(input: CutContextInput): CutRunContext {
     start: pick.start,
     end: pick.end,
     credit: channel.credit,
-    authorizationUrl: channel.authorization.url,
+    authorizationUrl: channel.authorization?.url ?? "",
     framing: input.framing,
     reason: pick.reason,
   };
@@ -43,7 +45,7 @@ export function buildCutRunContext(input: CutContextInput): CutRunContext {
       cta: "",
       language: "pt-BR",
     },
-    render: { videoPath: input.videoPath, durationSeconds: Number((pick.end - pick.start).toFixed(3)), width: 1080, height: 1920 },
+    render: { videoPath: input.videoPath, durationSeconds: Number((input.durationSeconds ?? pick.end - pick.start).toFixed(3)), width: 1080, height: 1920 },
     cut,
   };
 }

@@ -10,6 +10,7 @@ import { env, paths } from "../lib/config.js";
 import { resolveFfmpegBinaries } from "../lib/ffmpeg.js";
 import { runPythonJson } from "../lib/python.js";
 import type { CutsConfig } from "./config.js";
+import type { Interval } from "./jumpcut.js";
 import type { TranscriptWord } from "./transcribe.js";
 
 export const YUNET_URL = "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx";
@@ -22,6 +23,8 @@ export const SPEAKER_HOLD_SECONDS = 1.2;
 export interface RenderJob {
   start: number;
   end: number;
+  /** Absolute source intervals to keep (jump cuts, see jumpcut.ts); absent = the whole window. */
+  keep?: Interval[];
   out: string;
   words: TranscriptWord[];
 }

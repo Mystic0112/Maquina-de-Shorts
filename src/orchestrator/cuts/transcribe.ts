@@ -10,6 +10,8 @@ export const TranscriptSchema = z.object({
   words: z.array(z.object({ word: z.string(), start: z.number(), end: z.number() })),
   duration: z.number().optional(),
   model: z.string().optional(),
+  /** RMS level (dBFS) per `hop` seconds; jump cuts use it to tell laughter from dead air. Older transcripts lack it. */
+  loudness: z.object({ hop: z.number().positive(), db: z.array(z.number()) }).optional(),
 });
 export type Transcript = z.infer<typeof TranscriptSchema>;
 export type TranscriptSegment = Transcript["segments"][number];
@@ -23,9 +25,9 @@ export async function loadTranscript(file: string): Promise<Transcript> {
   return parsed.data;
 }
 
-/** Transcribes once (reuses an existing transcript.json next to the source). */
+/** Transcribes once (reuses an existing transcript.json next to the source unless it predates the loudness track). */
 export async function transcribeVideo(videoPath: string, outPath: string, log: (m: string) => void): Promise<Transcript> {
-  if (!existsSync(outPath)) {
+  if (!existsSync(outPath) || !(await loadTranscript(outPath)).loudness) {
     const args = ["--video", videoPath, "--out", outPath];
     const model = env("CUTS_WHISPER_MODEL");
     const device = env("CUTS_WHISPER_DEVICE");

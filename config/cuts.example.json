@@ -4,9 +4,10 @@
       "id": "UCvgSmIdI92W4KnP15fJwfwA",
       "name": "ACF",
       "enabled": false,
+      "style": "vlog",
       "authorization": {
         "url": "",
-        "note": "cortes liberados publicamente; link pendente",
+        "note": "opcional: link de uma liberação pública, se existir",
         "conditions": ["crédito: ACF (@media.acf)"]
       },
       "credit": "Cortes do canal ACF (@media.acf)",

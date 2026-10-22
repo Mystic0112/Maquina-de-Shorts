@@ -10,6 +10,7 @@ export interface CutInfo {
   start: number;
   end: number;
   credit: string;
+  /** Optional proof of the channel's public permission; empty when none was recorded. */
   authorizationUrl: string;
   framing: "face" | "open";
   reason: string;

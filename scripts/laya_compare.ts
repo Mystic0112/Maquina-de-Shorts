@@ -57,7 +57,7 @@ const laya = await runPythonJson({
 const layaSeconds = (Date.now() - started) / 1000;
 
 started = Date.now();
-const picks = await selectClips({ channelName: config.channels[0]?.name ?? "canal", videoTitle, transcript, clip });
+const picks = await selectClips({ channelName: config.channels[0]?.name ?? "canal", videoTitle, transcript, clip, style: config.channels[0]?.style ?? "podcast" });
 const agySeconds = (Date.now() - started) / 1000;
 
 const rows = picks.map((pick) => {

@@ -6,7 +6,7 @@
  * Exit codes: 0 ok, 1 error, 3 nothing to do (no authorized channel / no new video / video needs a login).
  */
 import { parseArgs } from "node:util";
-import { ChannelNotAuthorizedError, findChannel, loadCutsConfig, type CutChannel, type CutsConfig } from "../src/orchestrator/cuts/config.js";
+import { ChannelNotAuthorizedError, channelRefusal, findChannel, loadCutsConfig, type CutChannel, type CutsConfig } from "../src/orchestrator/cuts/config.js";
 import { parseVideoId } from "../src/orchestrator/cuts/download.js";
 import { fetchChannelFeed, listProcessed, pickNewVideos, remainingDailyQuota } from "../src/orchestrator/cuts/feed.js";
 import { processOrSkip, type ProcessOptions, type StepTiming } from "../src/orchestrator/cuts/pipeline.js";
@@ -47,9 +47,9 @@ function parse(): { video?: string; channel?: string; scan: boolean; options: Pr
 
 function authorizedChannels(config: CutsConfig, log: Logger): CutChannel[] {
   return config.channels.filter((c) => {
-    const ok = c.enabled && c.authorization.url.trim() !== "";
-    if (!ok) log.warn(`skipping channel ${c.name} (${c.id}): ${c.enabled ? "no authorization.url" : "enabled: false"}`);
-    return ok;
+    const refusal = channelRefusal(c);
+    if (refusal) log.warn(`skipping channel ${c.name} (${c.id}): ${refusal}`);
+    return !refusal;
   });
 }
 
@@ -69,7 +69,7 @@ async function runSingle(config: CutsConfig, log: Logger, videoInput: string, ch
 async function runScan(config: CutsConfig, log: Logger, options: ProcessOptions): Promise<number> {
   const channels = authorizedChannels(config, log);
   if (channels.length === 0) {
-    log.warn("no channel is enabled with an authorization.url in config/cuts.json; nothing to do");
+    log.warn("no enabled, unblocked channel in config/cuts.json; nothing to do");
     return EXIT_NOTHING;
   }
   let produced = 0;
