@@ -11,6 +11,7 @@ import { findSimilarSubject, loadRecentSubjects, RUN_ID_PATTERN } from "../lib/r
 import { RunRejectedError } from "../lib/rejection.js";
 import { beatProblems, MAX_BEATS, sanitizeBeats } from "../lib/beats.js";
 import type { RunContext, SceneBeat, Script, TopicPick } from "../types.js";
+import { titleExamples, titleExamplesBlock } from "../viral/titleExamples.js";
 
 /** Script settings after defaults (see src/shared/settings.ts). */
 export type ResolvedScriptSettings = ReturnType<typeof resolveScript>;
@@ -480,6 +481,7 @@ export function buildScriptPrompt(
   libraries: string = footageLibraries(),
   recentTitles: readonly string[] = [],
   recentCtas: readonly string[] = [],
+  viralTitles: readonly string[] = [],
 ): string {
   const spoken = modelWritesCta(settings) ? "hook, cenas e cta" : "hook e cenas";
   return `Você é roteirista de um canal brasileiro de vídeos curtos de curiosidades (história, ciência, espaço), publicado no
@@ -507,7 +509,8 @@ ${lengthRule(settings)}
 - Escreva números por extenso quando curtos e evite siglas difíceis de pronunciar.
 ${ctaRule(settings, recentCtas)}
 - "title": título em pt-BR, até 70 caracteres, curioso e honesto (palavras de curiosidade como "bizarro" ou "estranho" são bem-vindas quando o fato sustenta). Toda palavra importante do título precisa ser DITA no gancho e na narração das cenas: se o título promete "chuva de diamantes", o gancho e as cenas dizem "chuva" e "diamantes".
-- "overlayText": ${OVERLAY_WORDS.min} a ${OVERLAY_WORDS.max} palavras que aparecem escritas na tela nos primeiros segundos e na capa; frase de impacto coerente com o título, pode usar algarismos e "?" ou "!" (ex.: "A LUA TEM CHEIRO?", "SÓ 7 PRESOS?", "CHOVE DIAMANTE EM URANO"). Sem emoji nem hashtag.
+${viralTitles.length ? `${titleExamplesBlock(viralTitles, "curiosidades")}
+` : ""}- "overlayText": ${OVERLAY_WORDS.min} a ${OVERLAY_WORDS.max} palavras que aparecem escritas na tela nos primeiros segundos e na capa; frase de impacto coerente com o título, pode usar algarismos e "?" ou "!" (ex.: "A LUA TEM CHEIRO?", "SÓ 7 PRESOS?", "CHOVE DIAMANTE EM URANO"). Sem emoji nem hashtag.
 
 ${footageRules(settings, libraries)}
 
@@ -589,7 +592,7 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   const model = config.llm?.models?.script;
   const recent = await loadRecentSubjects(ctx.runId);
   const recentCtas = modelWritesCta(settings) ? await loadRecentCtas(ctx.runId) : [];
-  const prompt = buildScriptPrompt(ctx.topic, ctx.avoid?.titles ?? [], settings, footageLibraries(), recent.map((r) => r.title), recentCtas);
+  const prompt = buildScriptPrompt(ctx.topic, ctx.avoid?.titles ?? [], settings, footageLibraries(), recent.map((r) => r.title), recentCtas, titleExamples("curiosidades"));
   let raw = await requestScript(prompt, settings, model);
   const repeated = findSimilarSubject(raw.title, recent);
   if (repeated) {

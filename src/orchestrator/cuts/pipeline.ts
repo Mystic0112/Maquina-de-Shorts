@@ -12,6 +12,7 @@ import { assertChannelAuthorized, clipRangeFor, type CutChannel, type CutsConfig
 import { buildCutRunContext, FINAL_FILE, newCutRunId, saveCutContext } from "./context.js";
 import { downloadSource, LoginRequiredError, sourceDir, sourceVideoUrl } from "./download.js";
 import { markProcessed, PROCESSED_FILE } from "./feed.js";
+import { titleExamples } from "../viral/titleExamples.js";
 import { humorEnabled, planHumor, type HumorJob } from "./humor.js";
 import { keptSeconds, livelyMoments, planKeep } from "./jumpcut.js";
 import { runCutMetadata } from "./metadata.js";
@@ -73,7 +74,7 @@ export async function processVideo(
     options.transcript ? loadTranscript(options.transcript) : transcribeVideo(source.path, join(dir, "transcript.json"), (m) => log.info(m)),
   );
   const proposed = await timed(timings, "select", () =>
-    selectClips({ channelName: channel.name, videoTitle: source.title, transcript, clip: clipSettings, style: channel.style }),
+    selectClips({ channelName: channel.name, videoTitle: source.title, transcript, clip: clipSettings, style: channel.style, titleExamples: titleExamples("cortes") }),
   );
   proposed.forEach((p, i) => log.info(`clip ${i + 1}: ${p.start.toFixed(1)}-${p.end.toFixed(1)} s "${p.title}" (${p.reason})`));
   const review = await timed(timings, "verify", () => verifyPicks(proposed, transcript));

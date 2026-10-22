@@ -6,6 +6,7 @@
  */
 import { z } from "zod";
 import { generateJson, type LlmProvider, withCorrection } from "../lib/llmClient.js";
+import { titleExamplesBlock } from "../viral/titleExamples.js";
 import type { CutChannel, CutsConfig } from "./config.js";
 import type { Transcript, TranscriptSegment } from "./transcribe.js";
 
@@ -25,6 +26,8 @@ export interface SelectInput {
   transcript: Transcript;
   clip: Pick<CutsConfig["clip"], "minSeconds" | "maxSeconds" | "perVideo">;
   style: CutChannel["style"];
+  /** Viral titles of other cut channels (viral/titleExamples.ts), as style examples. */
+  titleExamples?: readonly string[];
 }
 
 /** What makes a good clip for each kind of source (from the owner's reference clips, 2026-10-22). */
@@ -71,6 +74,7 @@ export function buildSelectPrompt(input: SelectInput): string {
     ...RULES,
     "",
     "Título no estilo dos cortes que viralizam: o apelido de quem aparece + a situação, com as palavras-chave em CAIXA ALTA e no máximo 2 emojis (ex.: \"ALEMÃO passou HORAS DE TERROR no Skyline 😂\").",
+    ...(input.titleExamples?.length ? [titleExamplesBlock(input.titleExamples, "cortes")] : []),
     "",
     "Responda somente com JSON no formato:",
     '{"clips":[{"start":<segundos>,"end":<segundos>,"title":"<título>","hook":"<a primeira frase do trecho que prende>","reason":"<por que funciona>"}]}',

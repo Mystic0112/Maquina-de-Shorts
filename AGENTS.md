@@ -20,7 +20,7 @@ Lido automaticamente pelo Antigravity CLI, Gemini CLI, Codex e Claude. Leia inte
 | `src/orchestrator/lib/beats.ts` | trechos da fala (*beats*): uma busca de imagem por trecho |
 | `src/orchestrator/lib/verdictLog.ts` + `scripts/export_verdicts_dataset.ts` | grava `footage_verdicts.jsonl` e exporta o dataset do juiz de imagem local (LlamaFactory) |
 | `src/orchestrator/cuts/`, `python/cuts/`, `scripts/cuts.ts` | cortes (Onda 4): YouTube ou TikTok, download, transcrição, seleção, conferência de sentido, cortes secos (`jumpcut.ts`), humor (`humor.ts`), compilações de vídeos curtos (`compilation.ts`), recorte vertical; **não publica** |
-| `src/orchestrator/viral/`, `scripts/collect_shorts_stats.ts`, `scripts/build_viral_dataset.ts`, `python/viral/` | dados públicos de Shorts de outros canais (título + views, sem baixar vídeo) para treinar o Laya a prever o que viraliza; tudo em `data/datasets/viral/` e `models/laya-viral/`, fora do git |
+| `src/orchestrator/viral/`, `scripts/collect_shorts_stats.ts`, `scripts/build_viral_dataset.ts`, `python/viral/` | dados públicos de Shorts de outros canais (título + views, sem baixar vídeo). Laya treinado só com o título não previu viral (AUC 0,48 em 22/10); os títulos virais viram exemplos de ESTILO nos prompts de título (`viral/titleExamples.ts`: roteiro dos Shorts, seleção de cortes e compilações). Dados em `data/datasets/viral/`, fora do git |
 | `scripts/memes.ts`, `assets/memes/` | biblioteca de memes e sons (Onda 2); só `inventory.json` é versionado |
 | `src/remotion/` | composição do vídeo (tomadas, capa, legendas, movimento, camada de memes) |
 | `src/shared/settings.ts` | esquemas e padrões das configurações |

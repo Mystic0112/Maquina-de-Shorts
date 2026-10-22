@@ -20,6 +20,7 @@ import { markProcessed, type FeedVideo } from "./feed.js";
 import { humorEnabled, planHumor } from "./humor.js";
 import { keptSeconds, livelyMoments, planKeep } from "./jumpcut.js";
 import { runCutMetadata } from "./metadata.js";
+import { titleExamples, titleExamplesBlock } from "../viral/titleExamples.js";
 import { renderClips } from "./render.js";
 import { verifyPicks } from "./select.js";
 import { transcribeVideo, type Transcript } from "./transcribe.js";
@@ -50,7 +51,7 @@ export type CompilationPick = z.infer<typeof CompilationPickSchema>;
 
 const text = (t: Transcript): string => t.segments.map((s) => s.text).join(" ").slice(0, 600);
 
-export function buildCompilationPrompt(channelName: string, candidates: readonly Candidate[], range: { minSeconds: number; maxSeconds: number }): string {
+export function buildCompilationPrompt(channelName: string, candidates: readonly Candidate[], range: { minSeconds: number; maxSeconds: number }, examples: readonly string[] = titleExamples("cortes")): string {
   return [
     `Você é editor de um canal de compilações de humor em português do Brasil. Os vídeos abaixo são do canal ${channelName}, todos curtos.`,
     `Monte UMA compilação para YouTube Shorts: escolha de ${MIN_PARTS} a ${MAX_PARTS} vídeos que combinem num mesmo tema ou na mesma vibe, com duração total entre ${range.minSeconds} e ${range.maxSeconds} segundos, e a ordem em que devem passar (o mais forte primeiro).`,
@@ -58,6 +59,7 @@ export function buildCompilationPrompt(channelName: string, candidates: readonly
     "VÍDEOS (id, duração, legenda do autor e o que é falado):",
     ...candidates.map((c) => `- ${c.videoId} | ${c.durationSeconds.toFixed(0)} s | legenda: ${c.caption || "(sem legenda)"} | fala: ${text(c.transcript) || "(sem fala)"}`),
     "",
+    ...(examples.length ? [titleExamplesBlock(examples, "cortes e humor"), ""] : []),
     "REGRAS: o título descreve com fidelidade o que acontece (sem mentir nem exagerar) e nunca humilha, xinga ou ridiculariza ninguém; em CAIXA ALTA só as palavras-chave, no máximo 2 emojis.",
     "",
     'Responda só com JSON: {"videoIds":["<id>","<id>"],"title":"<título>","hook":"<primeira frase que prende>","reason":"<qual é o tema>"}',
