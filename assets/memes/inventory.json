@@ -1,0 +1,75 @@
+{
+  "assets": [
+    {
+      "id": "demo-surpresa",
+      "kind": "sticker",
+      "file": "files/demo-surpresa.svg",
+      "source": "generated",
+      "sourceUrl": "generated://maquina-de-shorts/demo",
+      "author": "Máquina de Shorts",
+      "license": "own",
+      "attributionRequired": false,
+      "tags": [
+        "surpresa",
+        "pergunta",
+        "choque"
+      ],
+      "width": 200,
+      "height": 200,
+      "addedAt": "2026-10-21T00:00:00.000Z"
+    },
+    {
+      "id": "demo-erro",
+      "kind": "sticker",
+      "file": "files/demo-erro.svg",
+      "source": "generated",
+      "sourceUrl": "generated://maquina-de-shorts/demo",
+      "author": "Máquina de Shorts",
+      "license": "own",
+      "attributionRequired": false,
+      "tags": [
+        "erro",
+        "negação",
+        "mito"
+      ],
+      "width": 200,
+      "height": 200,
+      "addedAt": "2026-10-21T00:00:00.000Z"
+    },
+    {
+      "id": "demo-vitoria",
+      "kind": "sticker",
+      "file": "files/demo-vitoria.svg",
+      "source": "generated",
+      "sourceUrl": "generated://maquina-de-shorts/demo",
+      "author": "Máquina de Shorts",
+      "license": "own",
+      "attributionRequired": false,
+      "tags": [
+        "vitória",
+        "aplauso",
+        "recorde"
+      ],
+      "width": 200,
+      "height": 200,
+      "addedAt": "2026-10-21T00:00:00.000Z"
+    },
+    {
+      "id": "demo-pop",
+      "kind": "sfx",
+      "file": "files/demo-pop.wav",
+      "source": "generated",
+      "sourceUrl": "generated://maquina-de-shorts/demo",
+      "author": "Máquina de Shorts",
+      "license": "own",
+      "attributionRequired": false,
+      "tags": [
+        "pop",
+        "surpresa",
+        "explosão"
+      ],
+      "durationMs": 150,
+      "addedAt": "2026-10-21T00:00:00.000Z"
+    }
+  ]
+}

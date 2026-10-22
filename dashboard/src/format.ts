@@ -66,6 +66,7 @@ export const STAGE_LABEL: Record<StageName, string> = {
   "03-fetchFootage": "Footage",
   "04-synthesizeVoice": "Narração",
   "05-buildCaptions": "Legendas",
+  "05b-planEdits": "Edição",
   "06-renderVideo": "Render",
   "07-generateMetadata": "Metadados",
   "08-uploadYouTube": "Upload",

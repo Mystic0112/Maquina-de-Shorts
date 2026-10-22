@@ -2,7 +2,8 @@ import { z } from "zod";
 import { loadConfig } from "../lib/config.js";
 import { generateJson } from "../lib/llmClient.js";
 import { getLogger } from "../lib/logger.js";
-import type { FootageClip, RunContext, Script, TopicPick, VideoMetadata } from "../types.js";
+import { creditsFor } from "../lib/memeLibrary.js";
+import type { EditPlan, FootageClip, RunContext, Script, TopicPick, VideoMetadata } from "../types.js";
 
 // YouTube Data API limits (videos.insert snippet).
 export const TITLE_MAX = 100;
@@ -253,12 +254,14 @@ export class DescriptionTooLongError extends Error {}
  * (merged CC BY lines, stock/public summaries). CC BY credits are never dropped: if even the compact
  * form does not fit, it throws.
  */
-export function fitDescription(parts: Omit<DescriptionParts, "credits">, footage: readonly FootageClip[]): string {
+export function fitDescription(parts: Omit<DescriptionParts, "credits">, footage: readonly FootageClip[], extraCredits = ""): string {
+  // Sticker/SFX credits (05b) share the credits block so the Instagram caption keeps them with the image credits.
+  const credits = (compact: boolean): string => [buildCredits(footage, compact), extraCredits].filter(Boolean).join("\n");
   const attempts: DescriptionParts[] = [
-    { ...parts, credits: buildCredits(footage) },
-    { ...parts, context: "", credits: buildCredits(footage) },
-    { ...parts, context: "", credits: buildCredits(footage, true) },
-    { ...parts, context: "", hashtags: [], credits: buildCredits(footage, true) },
+    { ...parts, credits: credits(false) },
+    { ...parts, context: "", credits: credits(false) },
+    { ...parts, context: "", credits: credits(true) },
+    { ...parts, context: "", hashtags: [], credits: credits(true) },
   ];
   for (const attempt of attempts) {
     const description = buildDescription(attempt);
@@ -386,6 +389,8 @@ export interface MetadataInput {
   language: string;
   /** Pipeline topic (picks the curated hashtag set); absent = generic set. */
   topic?: Pick<TopicPick, "categoryId">;
+  /** Sticker/SFX plan (05b): CC BY assets are credited after the image credits. */
+  edits?: Pick<EditPlan, "assets">;
 }
 
 export function assembleMetadata(input: MetadataInput): VideoMetadata {
@@ -396,6 +401,7 @@ export function assembleMetadata(input: MetadataInput): VideoMetadata {
     description: fitDescription(
       { hook: script.hook, context: verbatimContext(draft.context, script), hashtags: curateHashtags(input.topic?.categoryId, draft.hashtags) },
       footage,
+      creditsFor(input.edits?.assets ?? []),
     ),
     tags: buildTags(draft.tags),
     categoryId: input.categoryId,
@@ -430,6 +436,7 @@ export async function run(ctx: RunContext): Promise<RunContext> {
     categoryId: String(config.upload.categoryId),
     language: config.voice.language,
     topic: ctx.topic,
+    edits: ctx.edits,
   });
   const credited = uniqueClips(ctx.footage ?? []).filter((c) => licenseKind(c) === "attribution").length;
   log.info(

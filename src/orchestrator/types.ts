@@ -96,6 +96,48 @@ export interface Captions {
   scenes: SceneTiming[];
 }
 
+export type EditAssetKind = "sticker" | "lottie" | "sfx" | "image";
+export type EditPlacement = "top" | "side-left" | "side-right" | "corner";
+export type EditIntensity = "sutil" | "normal" | "forte";
+
+/** Library asset (assets/memes/inventory.json entry) resolved to an absolute file path by 05b-planEdits. */
+export interface EditAsset {
+  id: string;
+  kind: EditAssetKind;
+  path: string;
+  source: string;
+  sourceUrl: string;
+  author?: string;
+  license: string;
+  licenseUrl?: string;
+  /** CC BY / CC BY-SA: credited in the description like CC BY footage. */
+  attributionRequired: boolean;
+  durationMs?: number;
+  width?: number;
+  height?: number;
+}
+
+/** One sticker/sound placed at a narration instant (validated by lib/editPlan.ts). */
+export interface EditCue {
+  atMs: number;
+  assetId: string;
+  kind: EditAssetKind;
+  placement: EditPlacement;
+  durationMs: number;
+  intensity: EditIntensity;
+  /** Model's one-line reason (pt-BR), for the log/dashboard. */
+  why: string;
+}
+
+/** Written by 05b-planEdits (only when editing.enabled and the library has assets). */
+export interface EditPlan {
+  cues: EditCue[];
+  /** Assets referenced by `cues` (credits + render need license/path without re-reading the library). */
+  assets: EditAsset[];
+  /** editing.sfxVolume at planning time. */
+  sfxVolume: number;
+}
+
 export interface RenderResult {
   videoPath: string;
   durationSeconds: number;
@@ -250,6 +292,7 @@ export interface RunContext {
   footage?: FootageClip[];
   narration?: Narration;
   captions?: Captions;
+  edits?: EditPlan;
   render?: RenderResult;
   quality?: QualitySummary;
   llmUsage?: LlmUsage;
@@ -263,7 +306,7 @@ export interface RunContext {
   rejection?: RunRejection;
 }
 
-/** Execution order: 01, 02, 02b, 03, 04, 05, 06, 07, 08 (see STAGES in runPipeline.ts). */
+/** Execution order: 01, 02, 02b, 03, 04, 05, 05b, 06, 07, 08 (see STAGES in runPipeline.ts). */
 export type StageName =
   | "01-pickTopic"
   | "02-generateScript"
@@ -271,6 +314,7 @@ export type StageName =
   | "03-fetchFootage"
   | "04-synthesizeVoice"
   | "05-buildCaptions"
+  | "05b-planEdits"
   | "06-renderVideo"
   | "07-generateMetadata"
   | "08-uploadYouTube";

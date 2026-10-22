@@ -23,6 +23,7 @@ export const STAGE_NAMES: readonly StageName[] = [
   "03-fetchFootage",
   "04-synthesizeVoice",
   "05-buildCaptions",
+  "05b-planEdits",
   "06-renderVideo",
   "07-generateMetadata",
   "08-uploadYouTube",

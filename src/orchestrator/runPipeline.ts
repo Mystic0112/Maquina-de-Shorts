@@ -49,6 +49,12 @@ export const STAGES: readonly StageDefinition[] = [
     load: async () => (await import("./stages/05-buildCaptions.js")).run,
   },
   {
+    name: "05b-planEdits",
+    // Disabled / empty library leaves ctx.edits unset: the stage re-runs on resume and skips again (cheap, no LLM).
+    isDone: (c) => !!c.edits,
+    load: async () => (await import("./stages/05b-planEdits.js")).run,
+  },
+  {
     name: "06-renderVideo",
     isDone: (c) => !!c.render,
     load: async () => (await import("./stages/06-renderVideo.js")).run,

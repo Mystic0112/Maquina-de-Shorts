@@ -76,6 +76,22 @@ export type OverlayHookProps = {
   fadeFrames: number;
 };
 
+/**
+ * One sticker/sound from the edit plan (05b). `lottie` cues never reach the bundle: props.ts drops them until
+ * @remotion/lottie is installed. Frames are absolute (composition timeline).
+ */
+export type EditCueProps = {
+  id: string;
+  kind: "sticker" | "image" | "sfx";
+  src: string; // path relative to the bundle public dir
+  fromFrame: number;
+  durationInFrames: number;
+  placement: "top" | "side-left" | "side-right" | "corner";
+  intensity: "sutil" | "normal" | "forte";
+  /** sfx gain (editing.sfxVolume); ignored by visual cues. */
+  volume: number;
+};
+
 export type ShortProps = {
   width: number;
   height: number;
@@ -86,6 +102,8 @@ export type ShortProps = {
   scenes: SceneProps[];
   captions: CaptionChunkProps[]; // empty when captions are disabled
   overlay: OverlayHookProps | null;
+  /** Empty when editing is off or the plan had no usable cue. */
+  edits: EditCueProps[];
 };
 
 export const EMPTY_SHORT_PROPS: ShortProps = {
@@ -98,4 +116,5 @@ export const EMPTY_SHORT_PROPS: ShortProps = {
   scenes: [],
   captions: [{ startFrame: 0, endFrame: 90, words: [{ text: "prévia da legenda", startFrame: 0, endFrame: 90, emphasis: true }] }],
   overlay: null,
+  edits: [],
 };

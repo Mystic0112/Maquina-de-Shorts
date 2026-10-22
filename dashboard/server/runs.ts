@@ -26,6 +26,7 @@ const STAGE_OUTPUT: Record<StageName, (c: RunContext) => boolean> = {
   "03-fetchFootage": (c) => (c.footage?.length ?? 0) > 0,
   "04-synthesizeVoice": (c) => !!c.narration,
   "05-buildCaptions": (c) => !!c.captions,
+  "05b-planEdits": (c) => !!c.edits,
   "02b-factCheck": (c) => !!c.factCheck,
   "06-renderVideo": (c) => !!c.render,
   "07-generateMetadata": (c) => !!c.metadata,

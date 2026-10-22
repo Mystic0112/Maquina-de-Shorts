@@ -3,11 +3,12 @@
 
 import path from "node:path";
 import { beatStartsMs } from "../orchestrator/lib/beats.js";
-import type { CaptionCue, FootageClip, RunContext, SceneTiming, Script, WordTiming } from "../orchestrator/types.js";
+import type { CaptionCue, EditPlan, FootageClip, RunContext, SceneTiming, Script, WordTiming } from "../orchestrator/types.js";
 import type { VisualSettings } from "../shared/settings.js";
 import {
   DEFAULT_RENDER_STYLE,
   type CaptionChunkProps,
+  type EditCueProps,
   type OverlayHookProps,
   type RenderStyle,
   type SceneProps,
@@ -31,7 +32,7 @@ export type VideoConfig = { width: number; height: number; fps: number };
 /** A file that must exist at `publicPath` inside the bundle's public dir before rendering. */
 export type StagedAsset = { sourcePath: string; publicPath: string };
 
-export type RenderPlan = { props: ShortProps; assets: StagedAsset[] };
+export type RenderPlan = { props: ShortProps; assets: StagedAsset[]; skippedLottieCues: number };
 
 export type RenderPlanOptions = {
   /** Namespace folder inside the public dir (lets concurrent renders share one cached bundle). */
@@ -234,6 +235,42 @@ export function buildCaptionChunks(cues: CaptionCue[], fps: number, maxWords = M
   return bridgeCaptionGaps(chunks);
 }
 
+// ---------------------------------------------------------------------------------------------
+// Edit cues (stickers / SFX from 05b-planEdits)
+// ---------------------------------------------------------------------------------------------
+
+/** Set to true once @remotion/lottie is installed and EditLayer renders `lottie` cues; until then they are skipped. */
+export const LOTTIE_SUPPORTED = false;
+
+/** One staged file per asset used by the plan, keyed by asset id (`edits/<id>.<ext>`). */
+export function planEditAssets(edits: EditPlan | undefined, publicPrefix?: string): Map<string, StagedAsset> {
+  const assets = new Map<string, StagedAsset>();
+  for (const asset of edits?.assets ?? []) {
+    assets.set(asset.id, { sourcePath: asset.path, publicPath: withPrefix(publicPrefix, `edits/${asset.id}${path.extname(asset.path).toLowerCase()}`) });
+  }
+  return assets;
+}
+
+/** Cues as absolute frames, clipped to the composition; cues whose asset is missing or unsupported are dropped. */
+export function buildEditCues(edits: EditPlan | undefined, assets: Map<string, StagedAsset>, fps: number, totalFrames: number): { cues: EditCueProps[]; skippedLottie: number } {
+  const cues: EditCueProps[] = [];
+  let skippedLottie = 0;
+  for (const cue of edits?.cues ?? []) {
+    const staged = assets.get(cue.assetId);
+    if (!staged) continue;
+    if (cue.kind === "lottie" && !LOTTIE_SUPPORTED) {
+      skippedLottie += 1;
+      continue;
+    }
+    const fromFrame = msToFrame(cue.atMs, fps);
+    const durationInFrames = Math.min(totalFrames - fromFrame, Math.max(1, msToFrame(cue.atMs + cue.durationMs, fps) - fromFrame));
+    if (fromFrame < 0 || durationInFrames < 1) continue;
+    const kind = cue.kind === "lottie" ? "sticker" : cue.kind;
+    cues.push({ id: cue.assetId, kind, src: staged.publicPath, fromFrame, durationInFrames, placement: cue.placement, intensity: cue.intensity, volume: edits?.sfxVolume ?? 0 });
+  }
+  return { cues, skippedLottie };
+}
+
 /** Seconds over which the hook text fades out, ending exactly at overlayHookSeconds. */
 const OVERLAY_FADE_SECONDS = 0.3;
 
@@ -263,6 +300,9 @@ export function buildRenderPlan(
     ? ctx.captions.scenes
     : [{ sceneIndex: 0, startMs: 0, endMs: ctx.narration.durationMs }];
   const captions = style.captions.enabled ? buildCaptionChunks(ctx.captions?.cues ?? [], fps, style.captions.maxWordsPerCue) : [];
+  const editAssets = planEditAssets(ctx.edits, options.publicPrefix);
+  const edits = buildEditCues(ctx.edits, editAssets, fps, totalFrames);
+  const usedEditAssets = [...editAssets.entries()].filter(([id]) => edits.cues.some((c) => c.id === id)).map(([, a]) => a);
 
   const props: ShortProps = {
     ...video,
@@ -272,8 +312,9 @@ export function buildRenderPlan(
     scenes: buildScenes(sceneTimings, { footage, assets, fps, totalFrames, visual: style.visual, script: ctx.script, words: ctx.narration.words }),
     captions,
     overlay: buildOverlayHook(ctx.script?.overlayText, style.visual, fps, totalFrames),
+    edits: edits.cues,
   };
-  return { props, assets: [audioAsset, ...assets.values()] };
+  return { props, assets: [audioAsset, ...assets.values(), ...usedEditAssets], skippedLottieCues: edits.skippedLottie };
 }
 
 /** Convenience wrapper when only the props are needed (e.g. tests). */

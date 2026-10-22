@@ -107,7 +107,17 @@ export const InstagramSettingsSchema = z.object({
   maxPostsPerDay: z.number().int().min(0).max(50).optional(),
 });
 
+/** Stage 05b-planEdits: stickers/SFX cues that match the narration (library in assets/memes/). Off by default. */
+export const EditingSettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  /** Hard cap on cues per video (the model is asked for fewer when the narration is short). */
+  maxCuesPerVideo: z.number().int().min(1).max(12).optional(),
+  /** Gain of sound effects relative to full scale (narration stays at 1). */
+  sfxVolume: z.number().min(0).max(1).optional(),
+});
+
 export type CaptionSettings = z.infer<typeof CaptionSettingsSchema>;
+export type EditingSettings = z.infer<typeof EditingSettingsSchema>;
 export type InstagramSettings = z.infer<typeof InstagramSettingsSchema>;
 export type VisualSettings = z.infer<typeof VisualSettingsSchema>;
 export type ScriptSettings = z.infer<typeof ScriptSettingsSchema>;
@@ -172,6 +182,7 @@ export const VOICE_EXTRAS_DEFAULTS: Required<VoiceExtras> = {
 };
 
 export const INSTAGRAM_DEFAULTS: Required<InstagramSettings> = { enabled: false, maxPostsPerDay: 3 };
+export const EDITING_DEFAULTS: Required<EditingSettings> = { enabled: false, maxCuesPerVideo: 6, sfxVolume: 0.35 };
 
 export function resolveCaptions(s?: CaptionSettings): Required<CaptionSettings> {
   return { ...CAPTION_DEFAULTS, ...stripUndefined(s) };
@@ -190,6 +201,9 @@ export function resolveVoiceExtras(s?: VoiceExtras): Required<VoiceExtras> {
 }
 export function resolveInstagram(s?: InstagramSettings): Required<InstagramSettings> {
   return { ...INSTAGRAM_DEFAULTS, ...stripUndefined(s) };
+}
+export function resolveEditing(s?: EditingSettings): Required<EditingSettings> {
+  return { ...EDITING_DEFAULTS, ...stripUndefined(s) };
 }
 
 /** Everything the Remotion composition needs to style a render (passed inside inputProps). */

@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import { z } from "zod";
 import {
   CaptionSettingsSchema,
+  EditingSettingsSchema,
   InstagramSettingsSchema,
   ScriptSettingsSchema,
   VisualSettingsSchema,
@@ -88,6 +89,8 @@ export const PipelineConfigSchema = z.object({
     .loose(),
   /** Instagram Reels publisher; absent = disabled (defaults in src/shared/settings.ts). */
   instagram: InstagramSettingsSchema.optional(),
+  /** Stickers/SFX cues (stage 05b-planEdits); absent = disabled. */
+  editing: EditingSettingsSchema.optional(),
   render: z
     .object({
       /** Cancels a render that runs longer than this (default 600 s). */

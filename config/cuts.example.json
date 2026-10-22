@@ -1,0 +1,24 @@
+{
+  "channels": [
+    {
+      "id": "UCvgSmIdI92W4KnP15fJwfwA",
+      "name": "ACF",
+      "enabled": false,
+      "authorization": {
+        "url": "",
+        "note": "cortes liberados publicamente; link pendente",
+        "conditions": ["crédito: ACF (@media.acf)"]
+      },
+      "credit": "Cortes do canal ACF (@media.acf)",
+      "maxVideosPerDay": 1
+    }
+  ],
+  "clip": {
+    "minSeconds": 30,
+    "maxSeconds": 60,
+    "perVideo": 3,
+    "framing": "face",
+    "captions": { "wordsPerCue": 3, "color": "#FFE11A" }
+  },
+  "download": { "maxHeight": 1080, "ytDlp": "yt-dlp" }
+}

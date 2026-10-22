@@ -17,6 +17,7 @@ import {
   Ruler,
   Save,
   Search,
+  Sparkles,
   Trash2,
   TriangleAlert,
   Type,
@@ -623,6 +624,43 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
                 onChange={(v) => set("upload.maxUploadsPerDay", v)}
                 help="A cota padrão da API do YouTube permite cerca de 6 uploads por dia."
                 error={errorAt("upload.maxUploadsPerDay")}
+              />
+            </div>
+          </Section>
+
+          <Section
+            id="cfg-edicao"
+            icon={Sparkles}
+            title="Edição (memes e efeitos)"
+            description="Figurinhas e sons curtos da biblioteca assets/memes/ encaixados na fala (etapa 05b). Só entram arquivos com licença aprovada; créditos CC BY vão para a descrição."
+            onReset={() => set("editing", undefined)}
+          >
+            <div className="cfg-grid">
+              <Switch
+                label="Ligar memes e efeitos"
+                checked={getPath(draft, "editing.enabled") === true}
+                onChange={(v) => set("editing.enabled", v)}
+                help={getPath(draft, "editing.enabled") === true ? "Ligado: o modelo escolhe até o máximo abaixo por vídeo." : "Desligado (padrão): a etapa 05b é pulada."}
+              />
+              <NumberInput
+                label="Máximo de inserções por vídeo"
+                value={getPath(draft, "editing.maxCuesPerVideo") as number | undefined}
+                min={1}
+                max={12}
+                onChange={(v) => set("editing.maxCuesPerVideo", v)}
+                help="Padrão 6. Sempre com pelo menos 4 s entre uma e outra, nunca no gancho nem no final."
+                error={errorAt("editing.maxCuesPerVideo")}
+              />
+              <Slider
+                label="Volume dos efeitos sonoros"
+                value={(getPath(draft, "editing.sfxVolume") as number | undefined) ?? 0.35}
+                min={0}
+                max={1}
+                step={0.05}
+                format={(v) => `${Math.round(v * 100)}%`}
+                onChange={(v) => set("editing.sfxVolume", v)}
+                help="Em relação à narração. Padrão 35%."
+                error={errorAt("editing.sfxVolume")}
               />
             </div>
           </Section>

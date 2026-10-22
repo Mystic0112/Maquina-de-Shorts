@@ -11,6 +11,8 @@
     "build": "tsc -p tsconfig.json",
     "pipeline": "tsx src/orchestrator/runPipeline.ts",
     "stage": "tsx scripts/run_stage.ts",
+    "memes": "tsx scripts/memes.ts",
+    "cuts": "tsx scripts/cuts.ts",
     "dashboard": "npm --prefix dashboard run dev",
     "test": "vitest run",
     "lint": "tsc -p tsconfig.json --noEmit",
