@@ -3,7 +3,6 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { env } from "../lib/config.js";
-import { resolveFfmpegBinaries } from "../lib/ffmpeg.js";
 import { runPythonJson } from "../lib/python.js";
 
 export const TranscriptSchema = z.object({
@@ -27,8 +26,7 @@ export async function loadTranscript(file: string): Promise<Transcript> {
 /** Transcribes once (reuses an existing transcript.json next to the source). */
 export async function transcribeVideo(videoPath: string, outPath: string, log: (m: string) => void): Promise<Transcript> {
   if (!existsSync(outPath)) {
-    const { ffmpeg } = resolveFfmpegBinaries();
-    const args = ["--video", videoPath, "--out", outPath, "--ffmpeg", ffmpeg];
+    const args = ["--video", videoPath, "--out", outPath];
     const model = env("CUTS_WHISPER_MODEL");
     const device = env("CUTS_WHISPER_DEVICE");
     if (model) args.push("--model", model);

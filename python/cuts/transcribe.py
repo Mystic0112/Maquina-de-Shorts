@@ -2,9 +2,9 @@
 
 Usage:
     python python/cuts/transcribe.py --video <source.mp4> --out <transcript.json>
-        [--ffmpeg ffmpeg] [--model base] [--device cpu] [--models-dir <repo>/models/whisper]
+        [--model base] [--device cpu] [--models-dir <repo>/models/whisper]
 
-ffmpeg decodes the audio to 16 kHz mono PCM on a pipe -> faster-whisper (word_timestamps) -> JSON with
+PyAV decodes the audio to 16 kHz mono PCM (the Remotion ffmpeg build has no s16le muxer) -> faster-whisper (word_timestamps) -> JSON with
 "segments" [{start, end, text}] and "words" [{word, start, end}] in seconds. The same object is printed on
 stdout. Model cache and offline behaviour follow python/tts/align.py.
 Exit codes: 0 ok, 1 failed, 2 bad arguments.
@@ -16,7 +16,6 @@ import argparse
 import json
 import logging
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -37,7 +36,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--video", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--ffmpeg", default="ffmpeg")
     parser.add_argument(
         "--model",
         default=os.environ.get("CUTS_WHISPER_MODEL") or align.DEFAULT_WHISPER_MODEL,
@@ -49,33 +47,42 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def decode_audio(ffmpeg: str, video: Path):  # -> np.ndarray float32 mono 16 kHz
+def decode_audio(video: Path):  # -> np.ndarray float32 mono 16 kHz
+    """PyAV (a faster-whisper dependency) decode + resample; no external ffmpeg needed."""
+    import av
     import numpy as np
 
-    cmd = [
-        ffmpeg,
-        "-v",
-        "error",
-        "-i",
-        str(video),
-        "-vn",
-        "-ac",
-        "1",
-        "-ar",
-        str(WHISPER_RATE),
-        "-f",
-        "s16le",
-        "-",
-    ]
-    proc = subprocess.run(cmd, capture_output=True, check=False)
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"ffmpeg failed decoding audio: {proc.stderr.decode('utf-8', 'replace')[-2000:]}"
-        )
-    return np.frombuffer(proc.stdout, dtype=np.int16).astype(np.float32) / 32768.0
+    resampler = av.AudioResampler(format="s16", layout="mono", rate=WHISPER_RATE)
+    chunks = []
+    try:
+        with av.open(str(video)) as container:
+            for frame in container.decode(audio=0):
+                chunks.extend(f.to_ndarray().reshape(-1) for f in resampler.resample(frame))
+            chunks.extend(f.to_ndarray().reshape(-1) for f in resampler.resample(None))
+    except av.error.FFmpegError as exc:
+        raise RuntimeError(f"could not decode the audio of {video}: {exc}") from exc
+    if not chunks:
+        raise RuntimeError(f"{video} has no audio track")
+    return np.concatenate(chunks).astype(np.float32) / 32768.0
+
+
+def add_cuda_dlls() -> None:
+    """Windows: ctranslate2 needs the CUDA 12 cuBLAS/cuDNN DLLs; the pip wheels (nvidia-cublas-cu12,
+    nvidia-cudnn-cu12) put them in site-packages/nvidia/*/bin, which is not on the DLL search path."""
+    if os.name != "nt":
+        return
+    import importlib.util
+
+    spec = importlib.util.find_spec("nvidia")
+    for base in (spec.submodule_search_locations or []) if spec else []:
+        for bin_dir in Path(base).glob("*/bin"):
+            os.add_dll_directory(str(bin_dir))
+            os.environ["PATH"] = f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"
 
 
 def transcribe(audio, model: str, device: str, models_dir: Path) -> dict[str, object]:
+    if device != "cpu":
+        add_cuda_dlls()
     from faster_whisper import WhisperModel
 
     if not align.model_is_cached(model, models_dir):
@@ -137,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
         os.environ.setdefault("HF_HUB_OFFLINE", "1")
     try:
         started = time.perf_counter()
-        audio = decode_audio(args.ffmpeg, args.video)
+        audio = decode_audio(args.video)
         log.info(
             "decoded %.1f s of audio in %.1f s",
             audio.size / WHISPER_RATE,

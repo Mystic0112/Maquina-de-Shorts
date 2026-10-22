@@ -33,8 +33,14 @@ $QuotaPattern = 'credits balance|too low to continue|resource_exhausted|quota|ra
 $ContextPattern = 'xx |ERROR|WARN|agy|antigravity|LlmOutputError|status'
 
 function Write-Event([hashtable]$Data) {
+    # A reader holding summary.jsonl (a `tail -F`, the dashboard) must never kill the loop: retry, then give up.
     $Data['at'] = (Get-Date).ToString('s')
-    Add-Content -Path $Summary -Value ($Data | ConvertTo-Json -Compress) -Encoding utf8
+    $line = $Data | ConvertTo-Json -Compress
+    for ($try = 1; $try -le 3; $try++) {
+        try { Add-Content -Path $Summary -Value $line -Encoding utf8 -ErrorAction Stop; return }
+        catch { Start-Sleep -Seconds 2 }
+    }
+    Write-Warning "summary.jsonl is locked; event not written: $line"
 }
 
 function Test-UploadDisabled {
