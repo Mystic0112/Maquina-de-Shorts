@@ -1,14 +1,24 @@
-"""Unit tests for the pure cuts logic (captions, speaker hysteresis, pan smoothing, jump cuts, loudness). No OpenCV."""
+"""Unit tests for the pure cuts logic (captions, speaker choice, camera, jump cuts, loudness, ASD helpers).
+
+No OpenCV; the Light-ASD model test runs only where torch is installed.
+"""
 
 from __future__ import annotations
 
+import importlib.util
 import math
 import sys
+import tempfile
 import unittest
+from itertools import pairwise
 from pathlib import Path
+
+import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import asd_math
+import camera
 import captions
 import laya_rank
 import render_clip
@@ -160,6 +170,176 @@ class SpeakerTests(unittest.TestCase):
         )
         self.assertEqual(pairs, [(0, 1), (1, 2)])
         self.assertEqual(next_id, 3)
+
+
+class SpeakerByScoreTests(unittest.TestCase):
+    def test_threshold_hold_and_silence(self) -> None:
+        a_talks = frame((0, 300.0, 1.0), (1, 1500.0, -1.0))
+        b_talks = frame((0, 300.0, -1.0), (1, 1500.0, 2.0))
+        nobody = frame((0, 300.0, -1.0), (1, 1500.0, -0.5))
+        frames = [a_talks] * 2 + [b_talks] * 4 + [nobody] * 4
+        chosen = speaker.choose_speaker_by_score(
+            frames, hold_frames=3, silence_frames=2
+        )
+        ids = [f.track_id if f else None for f in chosen]
+        self.assertEqual(ids, [0, 0, 0, 0, 1, 1, 1, 1, None, None])
+
+    def test_nobody_above_threshold_means_no_speaker(self) -> None:
+        frames = [frame((0, 300.0, -0.1), (1, 1500.0, 0.0))] * 3
+        chosen = speaker.choose_speaker_by_score(frames, 3, 2)
+        self.assertEqual(chosen, [None, None, None])
+
+    def test_speaker_leaving_hands_over_to_whoever_speaks(self) -> None:
+        frames = [frame((0, 300.0, 1.0), (1, 1500.0, -1.0)), frame((1, 1500.0, 0.5))]
+        chosen = speaker.choose_speaker_by_score(frames, 12, 45)
+        self.assertEqual([f.track_id for f in chosen if f], [0, 1])
+
+
+class AsdMathTests(unittest.TestCase):
+    def test_crop_box_matches_upstream_formula(self) -> None:
+        # half size 50, scale 0.4: 70 px to each side, 50 px up, 90 px down
+        self.assertEqual(asd_math.crop_box(100.0, 200.0, 50.0), (30, 150, 170, 290))
+        self.assertEqual(asd_math.crop_box(100.5, 200.5, 10.0), (86, 190, 114, 218))
+        boxes = np.array([[100.0, 200.0, 80.0, 100.0]] * 3)  # half size = max(w, h) / 2
+        self.assertEqual(asd_math.crop_boxes(boxes), [(30, 150, 170, 290)] * 3)
+
+    def test_padded_region_fills_outside_with_grey(self) -> None:
+        image = np.arange(100, dtype=np.uint8).reshape(10, 10)
+        out = asd_math.padded_region(image, (-2, -1, 3, 2))
+        self.assertEqual(out.shape, (3, 5))
+        self.assertTrue((out[0] == 110).all() and (out[:, :2] == 110).all())
+        self.assertEqual(out[1:, 2:].tolist(), image[0:2, 0:3].tolist())
+
+    def test_median_smooth_removes_a_spike(self) -> None:
+        smooth = asd_math.median_smooth([5, 5, 100, 5, 5], kernel=3)
+        self.assertEqual(smooth.tolist(), [5, 5, 5, 5, 5])
+
+    def test_lengths_chunks_and_averaging(self) -> None:
+        self.assertEqual(asd_math.aligned_lengths(239, 60), (236, 59))
+        self.assertEqual(asd_math.aligned_lengths(400, 60), (240, 60))
+        self.assertEqual(asd_math.chunk_bounds(60, 1), [(0, 25), (25, 50), (50, 60)])
+        self.assertEqual(asd_math.chunk_bounds(60, 6), [(0, 60)])
+        self.assertEqual(asd_math.average_durations([[1, 2], [3, 4]]), [2.0, 3.0])
+        smooth = asd_math.moving_average([0.0, 0.0, 10.0, 0.0, 0.0])
+        self.assertAlmostEqual(smooth[0], 10 / 3)
+        self.assertAlmostEqual(smooth[2], 2.0)
+
+    def test_sampling_25_fps_and_back(self) -> None:
+        self.assertEqual(asd_math.source_index(25, 29.97), 30)
+        self.assertEqual(asd_math.sample_index(30, 29.97), 25)
+        # 50 fps source: sample j is frame 2j; the gap between frames 0 and 10 is interpolated
+        track = asd_math.track_samples(
+            [(0, 0.0, 0.0, 10.0, 12.0), (10, 100.0, 50.0, 10.0, 12.0)], 50.0
+        )
+        self.assertEqual(track.j0, 0)
+        self.assertEqual(
+            track.boxes[:, 0].tolist(), [0.0, 20.0, 40.0, 60.0, 80.0, 100.0]
+        )
+        self.assertIsNone(asd_math.track_samples([], 25.0))
+
+    def test_dense_faces_maps_scores_to_source_frames(self) -> None:
+        scored = asd_math.TrackSamples(
+            2, np.array([[10.0, 20.0, 30.0, 40.0]] * 3), [0.5, 1.0]
+        )
+        unscored = asd_math.TrackSamples(0, np.array([[1.0, 1.0, 1.0, 1.0]] * 6))
+        frames = asd_math.dense_faces({7: scored, 8: unscored}, fps=25.0, n_frames=6)
+        self.assertEqual(
+            [[f.activity for f in fs] for fs in frames],
+            [[], [], [0.5], [1.0], [1.0], []],
+        )
+        self.assertEqual(frames[2][0], speaker.Face(7, 10.0, 20.0, 30.0, 0.5, 40.0))
+
+
+def face_at(cx: float, track_id: int = 0, width: float = 152.0) -> speaker.Face:
+    return speaker.Face(track_id, cx, 500.0, width, 1.0, width * 1.2)
+
+
+class CameraTests(unittest.TestCase):
+    def test_target_shot_zooms_on_the_speaker_and_out_without_one(self) -> None:
+        shot = camera.target_shot(face_at(960.0), [], None, 1920, 1080)
+        self.assertAlmostEqual(
+            shot.height, 152 / 0.38 * 16 / 9
+        )  # face = 38% of the crop width
+        self.assertAlmostEqual(
+            shot.cy, 500 + 0.1 * shot.height
+        )  # face at 40% of the crop height
+        tiny = camera.target_shot(face_at(960.0, width=20.0), [], None, 1920, 1080)
+        self.assertAlmostEqual(tiny.height, 1080 / 2.2)
+        wide = camera.target_shot(
+            None, [face_at(400.0), face_at(800.0)], None, 1920, 1080
+        )
+        self.assertEqual(wide, camera.Shot(600.0, 540.0, 1080.0))
+        self.assertEqual(camera.target_shot(None, [], 1500.0, 1920, 1080).cx, 1500.0)
+        # the mouth fallback never earns a push-in: full-height window on the guessed speaker
+        loose = camera.target_shot(face_at(960.0), [], None, 1920, 1080, zoom=False)
+        self.assertEqual(loose, camera.Shot(960.0, 540.0, 1080.0))
+
+    def test_path_pushes_in_then_pulls_back_smoothly(self) -> None:
+        speakers = [None] * 30 + [face_at(960.0)] * 150 + [None] * 150
+        path = camera.camera_path(speakers, [[]] * len(speakers), 1920, 1080, 30.0)
+        self.assertEqual(path[0].height, 1080.0)
+        self.assertLess(path[179].height, 760.0)  # zoomed in on the speaker
+        self.assertGreater(path[-1].height, 1050.0)  # back to the wide shot
+        steps = [abs(b.height - a.height) for a, b in pairwise(path)]
+        self.assertLessEqual(max(steps), camera.ZOOM_ALPHA * 1080 + 1e-9)
+
+    def test_speaker_change_eases_and_jitter_is_ignored(self) -> None:
+        speakers = [face_at(300.0, 0)] * 30 + [face_at(1500.0, 1)] * 30
+        path = camera.camera_path(speakers, [[]] * 60, 1920, 1080, 30.0)
+        steps = [abs(b.cx - a.cx) for a, b in pairwise(path)]
+        self.assertLess(max(steps), 0.3 * 1200)  # no cut
+        self.assertGreater(path[30 + 9].cx, 300 + 0.9 * 1200)  # there within ~0.3 s
+        jitter = [face_at(960.0 + (10 if k % 2 else -10)) for k in range(30)]
+        still = camera.camera_path(jitter, [[]] * 30, 1920, 1080, 30.0)
+        self.assertTrue(all(abs(s.cx - still[0].cx) < 1e-9 for s in still))
+
+    def test_crop_rect_stays_inside_the_frame(self) -> None:
+        self.assertEqual(
+            camera.crop_rect(camera.Shot(10, 10, 600), 1920, 1080), (0, 0, 338, 600)
+        )
+        self.assertEqual(
+            camera.crop_rect(camera.Shot(1910, 1075, 600), 1920, 1080),
+            (1582, 480, 338, 600),
+        )
+        self.assertEqual(
+            camera.crop_rect(camera.Shot(960, 540, 5000), 1920, 1080),
+            (656, 0, 608, 1080),
+        )
+
+
+@unittest.skipUnless(importlib.util.find_spec("torch"), "torch not installed")
+class LightAsdModelTests(unittest.TestCase):
+    def test_random_weights_give_one_score_per_frame(self) -> None:
+        import torch
+
+        from lightasd.net import LightASD
+
+        net = LightASD().eval()
+        with torch.inference_mode():
+            embed_a = net.model.forward_audio_frontend(torch.randn(1, 200, 13))
+            embed_v = net.model.forward_visual_frontend(
+                torch.rand(1, 50, 112, 112) * 255
+            )
+            out = net.model.forward_audio_visual_backend(embed_a, embed_v)
+            self.assertEqual(tuple(out.shape), (50, 128))
+            self.assertEqual(tuple(net.lossAV.FC(out).shape), (50, 2))
+
+    def test_weights_load_with_prefix_and_fail_loudly_when_incomplete(self) -> None:
+        import torch
+
+        import asd
+        from lightasd.net import LightASD
+
+        state = {f"module.{k}": v for k, v in LightASD().state_dict().items()}
+        state["lossV.FC.weight"] = torch.zeros(2, 128)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / "w.model")
+            torch.save(state, path)
+            self.assertEqual(type(asd.load_model(path, "cpu")).__name__, "LightASD")
+            del state["module.lossAV.FC.weight"]
+            torch.save(state, path)
+            with self.assertRaises(RuntimeError):
+                asd.load_model(path, "cpu")
 
 
 class LayaWindowTests(unittest.TestCase):

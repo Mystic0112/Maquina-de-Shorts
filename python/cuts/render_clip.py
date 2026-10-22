@@ -3,9 +3,9 @@
 Reads one JSON job list on stdin (see JobSpec below), renders every clip (one process per clip via
 multiprocessing) and prints one JSON object on stdout: {"clips": [{"out", "frames", "seconds", ...}]}.
 
-Per clip: pass 1 decodes the window once at reduced size, detects faces with YuNet (OpenCV, ONNX from the
-opencv_zoo), tracks them, scores mouth movement and picks the speaker with hysteresis (speaker.py);
-pass 2 decodes again, crops around the smoothed camera path, draws the captions (captions.py + Pillow)
+Per clip: pass 1 (detect.py) tracks the faces with YuNet and picks the speaker per frame with Light-ASD
+(asd.py, when "asdModel" is given and loads) or the mouth-movement heuristic (speaker.py);
+pass 2 decodes again, crops along the camera path (camera.py), draws the captions (captions.py + Pillow)
 and the channel credit, and pipes JPEG frames into ffmpeg, which muxes the original audio (libx264 + aac).
 
 Jump cuts: a job may carry "keep" (absolute source seconds, sorted, non-overlapping, inside [start, end]).
@@ -13,8 +13,8 @@ They are snapped to the frame grid; pass 2 still reads every source frame but on
 and ffmpeg cuts the same frame ranges out of the audio (atrim + concat), so picture and sound stay in sync.
 Captions keep the source-relative clock (frame index / fps), so they need no retiming.
 
-Framing "face": full 9:16 crop (the speaker fills the frame). Framing "open": a 4:5 window on a blurred,
-darkened background made from the same frame (less zoomed in).
+Framing "face": a 9:16 crop that pushes in on the speaker and pulls back to full height when nobody speaks.
+Framing "open": a full-height 4:5 window on a blurred, darkened background made from the same frame.
 Exit codes: 0 ok, 1 a clip failed, 2 bad input.
 """
 
@@ -34,13 +34,13 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import camera as cam
 import captions as caps
 import compose as cmp
+import detect
 import speaker as spk
 
 OUT_W, OUT_H = cmp.OUT_W, cmp.OUT_H
-DETECT_WIDTH = 640
-ACTIVITY_EMA = 0.3
 CAPTION_FONT_SIZE = 60
 CREDIT_FONT_SIZE = 40
 JPEG_QUALITY = (
@@ -72,6 +72,7 @@ class JobSpec:
     out: str
     words: list[dict[str, Any]]
     keep: list[tuple[float, float]]
+    asd_model: str | None = None
 
 
 def resolve_font(explicit: str | None) -> str | None:
@@ -79,115 +80,6 @@ def resolve_font(explicit: str | None) -> str | None:
         if candidate and Path(candidate).is_file():
             return candidate
     return None
-
-
-# ---------------------------------------------------------------------------------------------
-# Pass 1: faces, mouths, speaker
-# ---------------------------------------------------------------------------------------------
-
-
-def open_capture(source: str, start: float):
-    import cv2
-
-    cap = cv2.VideoCapture(source)
-    if not cap.isOpened():
-        raise RuntimeError(
-            f"OpenCV cannot open {source} (AV1 source? re-encode to H.264)"
-        )
-    cap.set(cv2.CAP_PROP_POS_MSEC, start * 1000.0)
-    return cap
-
-
-def mouth_patch(gray, landmarks, box_w: float):
-    import cv2
-
-    (rx, ry), (lx, ly) = landmarks[3], landmarks[4]
-    cx, cy = (rx + lx) / 2, (ry + ly) / 2
-    half = max(abs(lx - rx), 0.3 * box_w) * 0.6
-    x0, x1 = int(max(cx - half, 0)), int(min(cx + half, gray.shape[1]))
-    y0, y1 = int(max(cy - half * 0.6, 0)), int(min(cy + half * 0.6, gray.shape[0]))
-    if x1 - x0 < 4 or y1 - y0 < 4:
-        return None
-    return cv2.resize(gray[y0:y1, x0:x1], (32, 16), interpolation=cv2.INTER_AREA)
-
-
-def analyze(job: JobSpec) -> dict[str, Any]:
-    """Per-frame speaker centres (source pixels) for the clip window."""
-    import cv2
-    import numpy as np
-
-    cap = open_capture(job.source, job.start)
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    src_w, src_h = (
-        int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
-        int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
-    )
-    scale = DETECT_WIDTH / src_w
-    det_size = (DETECT_WIDTH, round(src_h * scale))
-    detector = cv2.FaceDetectorYN.create(
-        job.yunet, "", det_size, score_threshold=0.7, nms_threshold=0.3, top_k=50
-    )
-    frames: list[list[spk.Face]] = []
-    previous: list[spk.Face] = []
-    patches: dict[int, Any] = {}
-    activity: dict[int, float] = {}
-    next_id = 0
-    while True:
-        pos = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
-        ok, frame = cap.read()
-        if not ok or pos >= job.end - 1e-3:
-            break
-        small = cv2.resize(frame, det_size, interpolation=cv2.INTER_AREA)
-        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-        _, found = detector.detect(small)
-        rows = [] if found is None else [row for row in found if row[14] >= 0.7]
-        detections = [
-            ((r[0] + r[2] / 2) / scale, (r[1] + r[3] / 2) / scale, r[2] / scale)
-            for r in rows
-        ]
-        pairs, next_id = spk.assign_tracks(previous, detections, next_id)
-        faces: list[spk.Face] = []
-        for index, track_id in pairs:
-            row = rows[index]
-            landmarks = [(row[4 + 2 * k], row[5 + 2 * k]) for k in range(5)]
-            patch = mouth_patch(gray, landmarks, row[2])
-            delta = 0.0
-            if (
-                patch is not None
-                and track_id in patches
-                and patches[track_id].shape == patch.shape
-            ):
-                delta = float(
-                    np.mean(
-                        np.abs(
-                            patch.astype(np.int16) - patches[track_id].astype(np.int16)
-                        )
-                    )
-                )
-            if patch is not None:
-                patches[track_id] = patch
-            activity[track_id] = (
-                activity.get(track_id, 0.0) * (1 - ACTIVITY_EMA) + delta * ACTIVITY_EMA
-            )
-            cx, cy, width = detections[index]
-            faces.append(spk.Face(track_id, cx, cy, width, activity[track_id]))
-        frames.append(faces)
-        previous = faces
-    cap.release()
-    chosen = spk.choose_speaker(frames, round(job.hold_seconds * fps))
-    switches = sum(
-        1 for a, b in pairwise(chosen) if a and b and a.track_id != b.track_id
-    )
-    return {
-        "fps": fps,
-        "width": src_w,
-        "height": src_h,
-        "frames": len(frames),
-        "targets": [f.cx if f else None for f in chosen],
-        "faces_seen": next_id,
-        "speaker_switches": switches,
-        "frames_with_face": sum(1 for f in chosen if f),
-    }
 
 
 # ---------------------------------------------------------------------------------------------
@@ -276,8 +168,14 @@ def render(
     import cv2
 
     src_w, src_h, fps = analysis["width"], analysis["height"], analysis["fps"]
-    crop_w = min(src_w, round(src_h * (9 / 16 if job.framing == "face" else 4 / 5)))
-    path = spk.smooth_path(analysis["targets"], src_w)
+    speakers = analysis["speakers"]
+    if job.framing == "face":
+        # The mouth heuristic guesses wrong on handheld footage: only the audio-visual model earns a push-in.
+        zoom = analysis.get("speakerMethod") == "light-asd"
+        shots = cam.camera_path(speakers, analysis["faces"], src_w, src_h, fps, zoom)
+    else:
+        crop_w = min(src_w, round(src_h * 4 / 5))
+        path = spk.smooth_path([s.cx if s else None for s in speakers], src_w)
     cues = caps.build_cues(job.words, job.start, job.end, job.words_per_cue)
     font = resolve_font(job.font)
     color = caps.hex_to_bgr(job.color)
@@ -304,7 +202,7 @@ def render(
         stderr=subprocess.PIPE,
     )
     assert proc.stdin is not None
-    cap = open_capture(job.source, job.start)
+    cap = detect.open_capture(job.source, job.start)
     kept = {i for f0, f1 in frame_ranges for i in range(f0, f1)}
     written = 0
     try:
@@ -316,12 +214,12 @@ def render(
             ok, frame = cap.read()
             if not ok:
                 break
-            left = spk.clamp_window(path[index], crop_w, src_w)
-            out = (
-                cmp.compose_face(frame, left, crop_w)
-                if job.framing == "face"
-                else cmp.compose_open(frame, left, crop_w, cache)
-            )
+            if job.framing == "face":
+                left, top, width, height = cam.crop_rect(shots[index], src_w, src_h)
+                out = cmp.compose_face(frame, left, width, top, height)
+            else:
+                left = spk.clamp_window(path[index], crop_w, src_w)
+                out = cmp.compose_open(frame, left, crop_w, cache)
             cue = caps.cue_at(cues, index / fps)
             if cue:
                 cmp.blend(out, overlays[cue.text], OUT_W // 2, caption_y)
@@ -356,20 +254,27 @@ def process(job: JobSpec) -> dict[str, Any]:
         format="[render] %(levelname)s %(message)s",
     )
     started = time.perf_counter()
-    analysis = analyze(job)
-    analysis_s = time.perf_counter() - started
-    log.info(
-        "%s: %d frames, %d face track(s), %d speaker switch(es), analysis %.1f s",
-        Path(job.out).parent.name,
-        analysis["frames"],
-        analysis["faces_seen"],
-        analysis["speaker_switches"],
-        analysis_s,
-    )
+    analysis = detect.analyze(job)
     if analysis["frames"] == 0:
         raise RuntimeError(
             f"no frames decoded between {job.start} and {job.end} s of {job.source}"
         )
+    speakers, method = detect.pick_speakers(job, analysis)
+    analysis["speakers"] = speakers
+    analysis["speakerMethod"] = method
+    switches = sum(
+        1 for a, b in pairwise(speakers) if a and b and a.track_id != b.track_id
+    )
+    analysis_s = time.perf_counter() - started
+    log.info(
+        "%s: %d frames, %d face track(s), %d speaker switch(es) by %s, analysis %.1f s",
+        Path(job.out).parent.name,
+        analysis["frames"],
+        analysis["faces_seen"],
+        switches,
+        method,
+        analysis_s,
+    )
     total_frames = analysis["frames"]
     frame_ranges = [
         (f0, min(f1, total_frames))
@@ -396,9 +301,10 @@ def process(job: JobSpec) -> dict[str, Any]:
         "seconds": round(total, 1),
         "analysisSeconds": round(analysis_s, 1),
         "facesSeen": analysis["faces_seen"],
-        "speakerSwitches": analysis["speaker_switches"],
+        "speakerSwitches": switches,
+        "speakerMethod": method,
         "faceCoverage": round(
-            analysis["frames_with_face"] / max(analysis["frames"], 1), 3
+            sum(1 for s in speakers if s) / max(analysis["frames"], 1), 3
         ),
     }
 
@@ -420,6 +326,7 @@ def read_jobs(raw: dict[str, Any]) -> tuple[list[JobSpec], int]:
             color=captions_cfg.get("color", "#FFE11A"),
             font=raw.get("font"),
             hold_seconds=float(raw.get("holdSeconds", spk.DEFAULT_HOLD_SECONDS)),
+            asd_model=raw.get("asdModel") or None,
             start=float(j["start"]),
             end=float(j["end"]),
             out=j["out"],

@@ -78,11 +78,17 @@ def blend(frame, overlay, center_x: int, center_y: int) -> None:
     ).astype(np.uint8)
 
 
-def compose_face(frame, left: int, crop_w: int):
+def compose_face(
+    frame, left: int, crop_w: int, top: int = 0, crop_h: int | None = None
+):
+    """The crop window (full height unless `crop_h`) scaled to the 1080x1920 output."""
     import cv2
 
+    bottom = frame.shape[0] if crop_h is None else top + crop_h
     return cv2.resize(
-        frame[:, left : left + crop_w], (OUT_W, OUT_H), interpolation=cv2.INTER_CUBIC
+        frame[top:bottom, left : left + crop_w],
+        (OUT_W, OUT_H),
+        interpolation=cv2.INTER_CUBIC,
     )
 
 

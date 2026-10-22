@@ -3,8 +3,9 @@
 A frame observation is a list of faces; each face has a center x (in source pixels), a mouth-activity score
 (mean absolute pixel difference of the mouth patch versus the previous frame of the same tracked face) and a
 box width. `choose_speaker` applies hysteresis: the active speaker only changes when another face has been
-the most active one for `hold_frames` consecutive frames (1.2 s by default at the source fps). `smooth_path`
-turns the chosen centers into a calm pan: a dead zone absorbs jitter, an EMA eases real moves.
+the most active one for `hold_frames` consecutive frames (1.2 s by default at the source fps).
+`choose_speaker_by_score` does the same with Light-ASD scores (asd_math.py), where activity > 0 means speaking.
+`smooth_path` turns the chosen centers into a calm pan (open framing; camera.py drives the face framing).
 """
 
 from __future__ import annotations
@@ -13,6 +14,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 DEFAULT_HOLD_SECONDS = 1.2
+SILENCE_HOLD_SECONDS = (
+    1.5  # ASD: nobody speaking keeps the last speaker this long, then "no speaker"
+)
+ASD_THRESHOLD = 0.0  # ASD logit above which a face counts as speaking
 DEAD_ZONE_FRACTION = 0.06  # of the source width: smaller moves are ignored
 EASE_ALPHA = 0.08
 
@@ -23,7 +28,8 @@ class Face:
     cx: float
     cy: float
     width: float
-    activity: float
+    activity: float  # mouth-pixel difference, or the ASD score
+    height: float = 0.0
 
 
 def _most_active(faces: Sequence[Face]) -> Face | None:
@@ -65,6 +71,52 @@ def choose_speaker(
                 current_id, challenger_id, challenger_frames = best.track_id, None, 0
         else:
             challenger_id, challenger_frames = None, 0
+        chosen.append(by_id.get(current_id) if current_id is not None else None)
+    return chosen
+
+
+def choose_speaker_by_score(
+    frames: Sequence[Sequence[Face]],
+    hold_frames: int,
+    silence_frames: int,
+    threshold: float = ASD_THRESHOLD,
+) -> list[Face | None]:
+    """Per-frame speaker from ASD scores: the visible face scoring highest above `threshold`.
+
+    A challenger must out-score the current speaker for `hold_frames` frames in a row; when the current speaker
+    stops speaking it is kept for `silence_frames` frames, then the frame has no speaker until someone speaks.
+    When the current speaker leaves the frame, whoever is speaking takes over immediately.
+    """
+    hold_frames = max(1, hold_frames)
+    current_id: int | None = None
+    challenger_id: int | None = None
+    challenger_frames = silent = 0
+    chosen: list[Face | None] = []
+    for faces in frames:
+        by_id = {f.track_id: f for f in faces}
+        speaking = [f for f in faces if f.activity > threshold]
+        best = max(speaking, key=lambda f: (f.activity, f.width)) if speaking else None
+        if current_id not in by_id:
+            current_id = best.track_id if best else None
+            challenger_id, challenger_frames, silent = None, 0, 0
+        else:
+            silent = 0 if by_id[current_id].activity > threshold else silent + 1
+            if best is not None and best.track_id != current_id:
+                if best.track_id == challenger_id:
+                    challenger_frames += 1
+                else:
+                    challenger_id, challenger_frames = best.track_id, 1
+                if challenger_frames >= hold_frames:
+                    current_id, challenger_id, challenger_frames = (
+                        best.track_id,
+                        None,
+                        0,
+                    )
+                    silent = 0
+            else:
+                challenger_id, challenger_frames = None, 0
+            if silent > silence_frames:
+                current_id, silent = None, 0
         chosen.append(by_id.get(current_id) if current_id is not None else None)
     return chosen
 
