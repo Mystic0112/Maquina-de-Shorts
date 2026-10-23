@@ -128,23 +128,38 @@ export function tallyCandidates(searches: readonly { query: string; json: unknow
 // Laya fine-tuning rows (`laya train --data train.jsonl --eval eval.jsonl`)
 // ---------------------------------------------------------------------------------------------
 
-/** The one decision the model learns; same wording at inference. */
-export const VIRAL_QUESTION = {
-  viral: {
-    type: "noul",
-    instructions: "Este Short tende a viralizar, com muito mais visualizações que a média do próprio canal?",
-  },
+/**
+ * The decision the model learns (same wording at inference). "viral" failed on titles alone (AUC 0.48,
+ * 2026-10-22); "fraco" (will it flop?) is the second try: knowing what to avoid is usually easier to learn.
+ */
+export const LAYA_QUESTIONS = {
+  viral: { viral: { type: "noul", instructions: "Este Short tende a viralizar, com muito mais visualizações que a média do próprio canal?" } },
+  fraco: { fraco: { type: "noul", instructions: "Este Short tende a flopar, com bem menos visualizações que a média do próprio canal?" } },
 } as const;
+export type LayaTarget = keyof typeof LAYA_QUESTIONS;
+export const VIRAL_QUESTION = LAYA_QUESTIONS.viral;
 
 export interface LayaRow {
   state: string;
-  questions: typeof VIRAL_QUESTION;
+  questions: (typeof LAYA_QUESTIONS)[LayaTarget];
   /** `expected` = hard target in laya train ({state, questions, expected}); `gold` there means probabilities. */
-  expected: { viral: boolean };
+  expected: Partial<Record<LayaTarget, boolean>>;
 }
 
-/** What the model sees: the theme and the title (never the channel, so it cannot just memorise channels). */
-export const layaState = (group: string, title: string): string => `Tema: ${group}. Título do Short: ${title}`;
+/** Duration and opening speech of a Short (from its auto captions, no video download). */
+export interface ShortHook {
+  videoId: string;
+  durationSeconds: number | null;
+  hook: string;
+}
+
+/** What the model sees: theme, title and, when collected, duration + opening speech (never the channel). */
+export function layaState(group: string, title: string, hook?: ShortHook): string {
+  const base = `Tema: ${group}. Título do Short: ${title}`;
+  if (!hook) return base;
+  const duration = hook.durationSeconds === null ? "" : ` Duração: ${Math.round(hook.durationSeconds)} s.`;
+  return `${base}.${duration} Começo da fala: ${hook.hook || "(sem fala)"}`;
+}
 
 /** Deterministic channel -> split (≈ evalShare of the channels go to eval, whole channels only: no leakage). */
 export function isEvalChannel(channelId: string, evalShare = 0.15): boolean {
@@ -158,18 +173,60 @@ export function isEvalChannel(channelId: string, evalShare = 0.15): boolean {
 }
 
 /**
- * Labelled rows -> train/eval sets. Viral = true; "fraco" and "normal" = false, downsampled so there are at most
- * `negativesPerPositive` negatives per positive in train (eval keeps the real proportion).
+ * Labelled rows -> train/eval sets. Positive = the target label ("viral" or "fraco"); the rest are negatives,
+ * downsampled so there are at most `negativesPerPositive` per positive in train (eval keeps the real proportion).
+ * With `hooks`, rows without a collected hook are dropped (same rows for every state, comparable runs).
  */
-export function buildLayaSets(rows: readonly ShortStat[], negativesPerPositive = 3): { train: LayaRow[]; eval: LayaRow[] } {
-  const toRow = (r: ShortStat): LayaRow => ({ state: layaState(r.group, r.title), questions: VIRAL_QUESTION, expected: { viral: r.label === "viral" } });
-  const labelled = rows.filter((r) => r.label !== null);
+export function buildLayaSets(
+  rows: readonly ShortStat[],
+  options: { target?: LayaTarget; hooks?: ReadonlyMap<string, ShortHook>; negativesPerPositive?: number } = {},
+): { train: LayaRow[]; eval: LayaRow[] } {
+  const { target = "viral", hooks, negativesPerPositive = 3 } = options;
+  const toRow = (r: ShortStat): LayaRow => ({
+    state: layaState(r.group, r.title, hooks?.get(r.videoId)),
+    questions: LAYA_QUESTIONS[target],
+    expected: { [target]: r.label === target },
+  });
+  const labelled = rows.filter((r) => r.label !== null && (!hooks || hooks.has(r.videoId)));
   const evalRows = labelled.filter((r) => isEvalChannel(r.channelId)).map(toRow);
   const trainAll = labelled.filter((r) => !isEvalChannel(r.channelId));
-  const positives = trainAll.filter((r) => r.label === "viral");
-  const negatives = trainAll.filter((r) => r.label !== "viral");
+  const positives = trainAll.filter((r) => r.label === target);
+  const negatives = trainAll.filter((r) => r.label !== target);
   // Every k-th negative: deterministic, keeps channels mixed, no RNG to seed.
   const step = Math.max(1, Math.floor(negatives.length / Math.max(1, positives.length * negativesPerPositive)));
   const kept = negatives.filter((_, i) => i % step === 0);
   return { train: [...positives, ...kept].map(toRow), eval: evalRows };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Opening speech ("hook") from the Short's captions, written by yt-dlp as json3 (no video download)
+// ---------------------------------------------------------------------------------------------
+
+/** Seconds of speech kept as the hook (a Short decides in its first seconds if the viewer stays). */
+export const HOOK_SECONDS = 8;
+const HOOK_MAX_CHARS = 240;
+/** Caption files in preference order: manual first, then the original-language auto captions. */
+export const CAPTION_LANGS = ["pt", "pt-BR", "pt-orig", "pt-BR-orig"] as const;
+
+interface Json3 {
+  events?: { tStartMs?: number; segs?: { utf8?: string }[] }[];
+}
+
+/** json3 captions -> what is said in the first HOOK_SECONDS, one line. */
+export function hookFromJson3(json: unknown, seconds = HOOK_SECONDS): string {
+  const parts: string[] = [];
+  for (const e of (json as Json3 | null)?.events ?? []) {
+    if ((e.tStartMs ?? 0) >= seconds * 1000) break;
+    for (const s of e.segs ?? []) if (s.utf8) parts.push(s.utf8);
+  }
+  return parts.join(" ").replace(/\s+/g, " ").trim().slice(0, HOOK_MAX_CHARS);
+}
+
+/** Which of the written caption files to use: `<id>.<lang>.json3`, first CAPTION_LANGS match. */
+export function pickCaptionFile(files: readonly string[], videoId: string): string | undefined {
+  for (const lang of CAPTION_LANGS) {
+    const name = `${videoId}.${lang}.json3`;
+    if (files.includes(name)) return name;
+  }
+  return undefined;
 }

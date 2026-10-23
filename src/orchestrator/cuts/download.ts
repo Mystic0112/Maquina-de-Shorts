@@ -45,7 +45,14 @@ export function parseVideoId(input: string): string {
   return match[1];
 }
 
-export function buildYtDlpArgs(url: string, outputPath: string, titlePath: string, maxHeight: number, platform: "youtube" | "tiktok" = "youtube"): string[] {
+export function buildYtDlpArgs(
+  url: string,
+  outputPath: string,
+  titlePath: string,
+  maxHeight: number,
+  platform: "youtube" | "tiktok" = "youtube",
+  ffmpegDir = resolveFfmpegBinaries().dir,
+): string[] {
   // TikTok serves muxed files (h264 or h265 "bytevc1"); YouTube splits video and audio.
   const format =
     platform === "tiktok"
@@ -61,6 +68,8 @@ export function buildYtDlpArgs(url: string, outputPath: string, titlePath: strin
     format,
     "--merge-output-format",
     "mp4",
+    // The home PC has no ffmpeg on PATH: without this yt-dlp leaves .f137.mp4 + .f140.m4a unmerged.
+    ...(ffmpegDir ? ["--ffmpeg-location", ffmpegDir] : []),
     "--print-to-file",
     "%(title)s",
     titlePath,

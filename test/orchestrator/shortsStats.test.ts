@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildLayaSets, isEvalChannel, labelChannel, withTitles, MIN_LABELLED, MIN_MEDIAN_VIEWS, parseShortsTab, SKIP_NEWEST, tallyCandidates, VIRAL_QUESTION } from "../../src/orchestrator/viral/shortsStats.js";
+import { buildLayaSets, hookFromJson3, isEvalChannel, LAYA_QUESTIONS, layaState, pickCaptionFile, labelChannel, withTitles, MIN_LABELLED, MIN_MEDIAN_VIEWS, parseShortsTab, SKIP_NEWEST, tallyCandidates, VIRAL_QUESTION } from "../../src/orchestrator/viral/shortsStats.js";
 
 const tab = (views: (number | null)[]) => ({
   channel: "Cortes X",
@@ -56,7 +56,7 @@ describe("Laya training sets", () => {
   it("splits by whole channels, balances train negatives and keeps eval's real proportion", () => {
     const channels = Array.from({ length: 40 }, (_, c) => `UC${String(c).padStart(22, "0")}`);
     const rows = channels.flatMap((id) => [row(id, 0, "viral"), ...Array.from({ length: 9 }, (_, i) => row(id, i + 1, i % 2 ? "normal" : "fraco")), row(id, 99, null)]);
-    const { train, eval: evalRows } = buildLayaSets(rows, 3);
+    const { train, eval: evalRows } = buildLayaSets(rows, { negativesPerPositive: 3 });
     const evalIds = new Set(channels.filter((id) => isEvalChannel(id)));
     expect(evalIds.size).toBeGreaterThan(0);
     expect(evalRows).toHaveLength(evalIds.size * 10); // unlabelled rows never used
@@ -65,5 +65,29 @@ describe("Laya training sets", () => {
     expect(pos).toBe(40 - evalIds.size);
     expect(train.length - pos).toBeLessThanOrEqual(pos * 3 + 3);
     expect(train[0]).toMatchObject({ state: "Tema: cortes. Título do Short: T0", questions: VIRAL_QUESTION, expected: { viral: true } });
+  });
+
+  it("asks the flop question and, with hooks, shows duration + opening speech and drops Shorts without one", () => {
+    const rows = [row("UCa", 1, "fraco"), row("UCa", 2, "viral"), row("UCa", 3, "normal")];
+    const hooks = new Map([["UCa-1", { videoId: "UCa-1", durationSeconds: 41.6, hook: "olha isso" }], ["UCa-2", { videoId: "UCa-2", durationSeconds: null, hook: "" }]]);
+    const { train, eval: evalRows } = buildLayaSets(rows, { target: "fraco", hooks });
+    const all = [...train, ...evalRows];
+    expect(all).toHaveLength(2);
+    expect(all.find((r) => r.expected.fraco)).toMatchObject({ questions: LAYA_QUESTIONS.fraco, state: "Tema: cortes. Título do Short: T1. Duração: 42 s. Começo da fala: olha isso" });
+    expect(all.find((r) => !r.expected.fraco)?.state).toBe("Tema: cortes. Título do Short: T2. Começo da fala: (sem fala)");
+    expect(layaState("cortes", "T")).toBe("Tema: cortes. Título do Short: T");
+  });
+});
+
+describe("hook from captions", () => {
+  it("keeps what is said in the first seconds, one line", () => {
+    const json3 = { events: [{ tStartMs: 0, segs: [{ utf8: "olha" }, { utf8: "\n" }] }, { tStartMs: 2000 }, { tStartMs: 7900, segs: [{ utf8: "isso  aqui" }] }, { tStartMs: 8000, segs: [{ utf8: "depois" }] }] };
+    expect(hookFromJson3(json3)).toBe("olha isso aqui");
+    expect(hookFromJson3(null)).toBe("");
+  });
+  it("prefers manual Portuguese captions, then the original auto captions", () => {
+    expect(pickCaptionFile(["v.en.json3", "v.pt-orig.json3"], "v")).toBe("v.pt-orig.json3");
+    expect(pickCaptionFile(["v.pt-orig.json3", "v.pt.json3"], "v")).toBe("v.pt.json3");
+    expect(pickCaptionFile(["v.en.json3"], "v")).toBeUndefined();
   });
 });

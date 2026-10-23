@@ -190,6 +190,8 @@ describe("yt-dlp and render arguments", () => {
     expect(args[args.indexOf("-f") + 1]).toMatch(/^bv\*\[vcodec\^=avc1\]\[height<=1080\]/);
     expect(args.at(-1)).toBe("https://www.youtube.com/watch?v=H4pkbm4ypUw");
     expect(args).not.toContain("--cookies-from-browser");
+    const withFfmpeg = buildYtDlpArgs("u", "/d/s.mp4", "/d/t.txt", 1080, "youtube", "/remotion/bin");
+    expect(withFfmpeg[withFfmpeg.indexOf("--ffmpeg-location") + 1]).toBe("/remotion/bin");
     expect(isLoginRequiredOutput("ERROR: Sign in to confirm your age")).toBe(true);
     expect(isLoginRequiredOutput("ERROR: HTTP Error 403")).toBe(false);
     expect(buildReencodeArgs("/a.mp4", "/b.mp4")).toEqual(expect.arrayContaining(["-c:v", "libx264", "-c:a", "copy"]));

@@ -4,23 +4,30 @@
  *
  *   npx tsx scripts/collect_shorts_stats.ts --discover            # search the themes -> candidates.json
  *   npx tsx scripts/collect_shorts_stats.ts --collect [--max 200] # Shorts of each channel -> shorts.jsonl
+ *   npx tsx scripts/collect_shorts_stats.ts --hooks               # duration + first seconds of speech -> hooks.jsonl
  *
  * --collect reads data/datasets/viral/channels.json ([{ "id": "UC…", "group": "cortes" }]) when it exists, else
- * the discovered candidates seen in ≥ 2 searches. Everything lands in data/datasets/viral/ (git-ignored).
+ * the discovered candidates seen in ≥ 2 searches. --hooks reads each labelled Short's captions (one yt-dlp call
+ * per Short, no video download), is resumable (skips ids already in hooks.jsonl) and stops when YouTube starts
+ * refusing. Everything lands in data/datasets/viral/ (git-ignored).
  */
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { loadCutsConfig } from "../src/orchestrator/cuts/config.js";
 import { paths } from "../src/orchestrator/lib/config.js";
 import { runBinary } from "../src/orchestrator/lib/ffmpeg.js";
-import { labelChannel, parseShortsTab, tallyCandidates, withTitles, type ChannelCandidate, type ShortStat } from "../src/orchestrator/viral/shortsStats.js";
+import { CAPTION_LANGS, hookFromJson3, labelChannel, parseShortsTab, pickCaptionFile, tallyCandidates, withTitles, type ChannelCandidate, type ShortHook, type ShortStat } from "../src/orchestrator/viral/shortsStats.js";
 
 const OUT_DIR = join(paths.root, "data", "datasets", "viral");
 const CANDIDATES = join(OUT_DIR, "candidates.json");
 const CHANNELS = join(OUT_DIR, "channels.json");
 const SHORTS = join(OUT_DIR, "shorts.jsonl");
+const HOOKS = join(OUT_DIR, "hooks.jsonl");
+const SUBS_DIR = join(OUT_DIR, "subs-tmp");
+/** This many failures in a row = YouTube is refusing (bot check, 429): stop and resume later. */
+const MAX_FAILS_IN_A_ROW = 8;
 const PAUSE_MS = 2000; // be gentle with YouTube between listings
 const TIMEOUT_MS = 3 * 60 * 1000;
 
@@ -104,7 +111,53 @@ async function collect(max: number): Promise<void> {
   console.log(`${rows.length} Shorts from ${new Set(rows.map((r) => r.channelId)).size} channel(s): viral ${count("viral")}, normal ${count("normal")}, fraco ${count("fraco")}, unlabelled ${rows.filter((r) => !r.label).length} -> ${SHORTS}`);
 }
 
-const { values } = parseArgs({ options: { discover: { type: "boolean" }, collect: { type: "boolean" }, max: { type: "string" } }, strict: true });
+const readJsonl = async <T>(file: string): Promise<T[]> =>
+  existsSync(file) ? (await readFile(file, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as T) : [];
+
+async function hookOf(videoId: string): Promise<ShortHook> {
+  await rm(SUBS_DIR, { recursive: true, force: true });
+  await mkdir(SUBS_DIR, { recursive: true });
+  const { stdout } = await runBinary(
+    ytDlp(),
+    ["--skip-download", "--no-simulate", "--no-warnings", "--no-playlist", "--write-subs", "--write-auto-subs", "--sub-langs", CAPTION_LANGS.join(","), "--sub-format", "json3", "--print", "%(duration)s", "-o", join(SUBS_DIR, "%(id)s.%(ext)s"), `https://www.youtube.com/shorts/${videoId}`],
+    TIMEOUT_MS,
+  );
+  const duration = Number(stdout.trim().split("\n").at(-1));
+  const file = pickCaptionFile(await readdir(SUBS_DIR), videoId);
+  const hook = file ? hookFromJson3(JSON.parse(await readFile(join(SUBS_DIR, file), "utf8"))) : "";
+  return { videoId, durationSeconds: Number.isFinite(duration) && duration > 0 ? duration : null, hook };
+}
+
+async function hooks(): Promise<void> {
+  const rows = (await readJsonl<ShortStat>(SHORTS)).filter((r) => r.label !== null);
+  if (rows.length === 0) throw new Error("run --collect first");
+  const done = new Set((await readJsonl<ShortHook>(HOOKS)).map((h) => h.videoId));
+  const todo = rows.filter((r) => !done.has(r.videoId));
+  console.log(`${done.size} hook(s) already collected, ${todo.length} to go`);
+  let fails = 0;
+  for (const [i, r] of todo.entries()) {
+    try {
+      const h = await hookOf(r.videoId);
+      await appendFile(HOOKS, `${JSON.stringify(h)}\n`);
+      fails = 0;
+      if (i % 50 === 0) console.log(`${i + 1}/${todo.length} ${r.videoId}: ${h.durationSeconds ?? "?"} s, "${h.hook.slice(0, 60)}"`);
+    } catch (error) {
+      console.warn(`${r.videoId} failed: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`);
+      if (++fails >= MAX_FAILS_IN_A_ROW) {
+        console.error(`${fails} failures in a row: YouTube is probably refusing. Run --hooks again later (it resumes).`);
+        process.exitCode = 1;
+        break;
+      }
+    }
+    await sleep(PAUSE_MS);
+  }
+  await rm(SUBS_DIR, { recursive: true, force: true });
+  const all = await readJsonl<ShortHook>(HOOKS);
+  console.log(`${all.length} hook(s), ${all.filter((h) => h.hook).length} with speech -> ${HOOKS}`);
+}
+
+const { values } = parseArgs({ options: { discover: { type: "boolean" }, collect: { type: "boolean" }, hooks: { type: "boolean" }, max: { type: "string" } }, strict: true });
 if (values.discover) await discover();
 else if (values.collect) await collect(Number(values.max ?? 200));
-else console.error("Usage: npx tsx scripts/collect_shorts_stats.ts --discover | --collect [--max 200]");
+else if (values.hooks) await hooks();
+else console.error("Usage: npx tsx scripts/collect_shorts_stats.ts --discover | --collect [--max 200] | --hooks");

@@ -22,6 +22,15 @@ class MetricsTests(unittest.TestCase):
         labels = [i >= 95 for i in range(100)]  # the 5 best are viral
         self.assertEqual(eval_laya.precision_at(scores, labels, 0.10), 0.5)
 
+    def test_target_and_durations_from_rows(self) -> None:
+        rows = [
+            {"state": "Tema: cortes. Título do Short: A. Duração: 40 s. Começo da fala: oi", "questions": {"fraco": {}}},
+            {"state": "Tema: cortes. Título do Short: B", "questions": {"fraco": {}}},
+        ]
+        self.assertEqual(eval_laya.target_of(rows), "fraco")
+        self.assertEqual(eval_laya.durations(rows), [40.0, 0.0])
+        self.assertIsNone(eval_laya.durations(rows[1:]))
+
 
 if __name__ == "__main__":
     unittest.main()
