@@ -93,7 +93,7 @@ export async function processVideo(
         const keep = planKeep(transcript.words, transcript.loudness, p.start, p.end);
         const words = wordsInWindow(transcript.words, p.start, p.end);
         const humor = withHumor
-          ? await planHumor({ title: p.title, channelName: channel.name, start: p.start, end: p.end, words, lively: livelyMoments(transcript.words, transcript.loudness, p.start, p.end) }, keep, { log: (m) => log.info(m) })
+          ? await planHumor({ title: p.title, channelName: channel.name, start: p.start, end: p.end, words, lively: livelyMoments(transcript.words, transcript.loudness, p.start, p.end), sourcePath: source.path }, keep, { log: (m) => log.info(m) })
           : null;
         log.info(`clip "${p.title}": ${keep.length} piece(s), ${keptSeconds(keep)} of ${(p.end - p.start).toFixed(1)} s kept, humor ${humor ? `${humor.jokes.length} joke(s), ${humor.emojis.length} emoji, ${humor.effects.length} effect(s)` : "off"}`);
         if (humor?.jokes.length) log.info(`clip "${p.title}" jokes: ${humor.jokes.map((j) => `${(j.start - p.start).toFixed(1)}s ${j.text}`).join(" | ")}`);
@@ -104,7 +104,7 @@ export async function processVideo(
   const rendered = await timed(timings, "render", () =>
     renderClips({ source: source.path, framing, credit: channel.credit, captions: config.clip.captions, jobs }, (m) => log.info(m)),
   );
-  rendered.clips.forEach((c, i) => log.info(`clip ${i + 1}: ${c.frames} frames in ${c.seconds} s (faces ${c.facesSeen}, switches ${c.speakerSwitches}, face coverage ${Math.round(c.faceCoverage * 100)}%, speaker by ${c.speakerMethod ?? "mouth"}, group shots ${c.groupShots ?? 0}${c.humor ? `, humor drawn ${c.humor.jokes}/${c.humor.emojis}/${c.humor.effects}` : ""})`));
+  rendered.clips.forEach((c, i) => log.info(`clip ${i + 1}: ${c.frames} frames in ${c.seconds} s (faces ${c.facesSeen}, switches ${c.speakerSwitches}, face coverage ${Math.round(c.faceCoverage * 100)}%, speaker by ${c.speakerMethod ?? "mouth"}, group shots ${c.groupShots ?? 0}${c.humor ? `, humor drawn ${c.humor.jokes}/${c.humor.emojis}/${c.humor.effects}` : ""}${c.placement ? `, on-screen text boxes ${c.placement.textBoxesSeen}, captions moved ${c.placement.captionsMoved} / skipped ${c.placement.captionsSkipped}, emoji moved ${c.placement.emojisMoved}` : ""})`));
 
   const runs = await timed(timings, "context", () => Promise.all(picks.map((p, i) => writeRun(runIds[i] as string, channel, videoId, source.title, p, transcript, framing, jobs[i]?.out as string, keptSeconds(jobs[i]?.keep ?? []), jobs[i]?.humor ?? null))));
   if (!options.noJournal) {

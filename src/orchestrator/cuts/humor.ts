@@ -9,7 +9,11 @@
 import { join } from "node:path";
 import { z } from "zod";
 import { paths } from "../lib/config.js";
-import { generateJson, type LlmProvider } from "../lib/llmClient.js";
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { buildFrameExtractArgs, resolveFfmpegBinaries, runBinary } from "../lib/ffmpeg.js";
+import { generateJsonWithImages, type LlmImage, type LlmProvider } from "../lib/llmClient.js";
 import type { CutChannel } from "./config.js";
 import type { Interval } from "./jumpcut.js";
 import { ensureModelFile, type ModelFile } from "./render.js";
@@ -68,11 +72,33 @@ export interface HumorInput {
   words: readonly TranscriptWord[];
   /** Laughs/reactions (absolute seconds), from jumpcut.livelyMoments. */
   lively: readonly Interval[];
+  /** Source video: frames of the clip go to the agy so jokes match what is on screen (absent = text only). */
+  sourcePath?: string;
+}
+
+/** At most this many frames per clip (one call; each frame is a 512 px JPEG). */
+export const MAX_FRAMES = 10;
+const MIN_FRAME_GAP = 2;
+
+/**
+ * When to grab frames (absolute seconds, sorted): the middle of each laugh first (that is where the jokes and
+ * effects go), then evenly spaced fill, never two frames closer than 2 s and only on kept footage.
+ */
+export function frameTimes(start: number, end: number, lively: readonly Interval[], keep: readonly Interval[], max = MAX_FRAMES): number[] {
+  const kept = (t: number) => keep.some(([a, b]) => t >= a && t <= b);
+  const out: number[] = [];
+  const add = (t: number) => {
+    if (out.length < max && t > start && t < end && kept(t) && out.every((x) => Math.abs(x - t) >= MIN_FRAME_GAP)) out.push(Math.round(t * 10) / 10);
+  };
+  for (const [a, b] of lively) add((a + b) / 2);
+  const step = (end - start) / (max + 1);
+  for (let i = 1; i <= max; i++) add(start + i * step);
+  return out.sort((a, b) => a - b);
 }
 
 const rel = (t: number, start: number): string => (t - start).toFixed(1);
 
-export function buildHumorPrompt(input: HumorInput): string {
+export function buildHumorPrompt(input: HumorInput, frameAt: readonly number[] = []): string {
   const lines: string[] = [];
   let line: string[] = [];
   let lineStart = 0;
@@ -95,6 +121,12 @@ export function buildHumorPrompt(input: HumorInput): string {
     "",
     `MOMENTOS DE RISADA/REAÇÃO (sem fala): ${input.lively.map(([a, b]) => `${rel(a, input.start)}-${rel(b, input.start)}`).join(", ") || "nenhum detectado"}`,
     "",
+    ...(frameAt.length
+      ? [
+          `IMAGENS: você recebe ${frameAt.length} quadros do corte, nesta ordem: ${frameAt.map((t, i) => `quadro ${i + 1} = ${rel(t, input.start)} s`).join(", ")}. Use o que aparece (caras, reações, o carro, o que deu errado) nas piadas, e ponha "spotlight"/"punch" onde a imagem justifica.`,
+          "",
+        ]
+      : []),
     "Monte o plano:",
     `- "jokes": piadas do editor ENTRE ASTERISCOS, curtas (até ${JOKE_MAX_CHARS} letras), com termos do assunto (ex. em carros: "*risos stage 3*", "*gargalhadas repletas de remap*", "*APERTANDO*"). No máximo uma a cada ${JOKE_EVERY} s. Prefira os momentos de risada e as pausas.`,
     `- "emojis": reações (use só estes: ${Object.keys(EMOJIS).join(" ")}), no máximo um a cada ${EMOJI_EVERY} s, no instante da reação.`,
@@ -158,9 +190,30 @@ export interface PlanHumorOptions {
 }
 
 /** Asks the agy, validates, downloads the emoji it used. Any failure = no humor for this clip (never blocks it). */
+/** JPEG frames of the source at the given seconds (missing ones are skipped). */
+async function grabFrames(source: string, times: readonly number[]): Promise<{ at: number[]; images: LlmImage[] }> {
+  const { ffmpeg } = resolveFfmpegBinaries();
+  const dir = await mkdtemp(join(tmpdir(), "humor-frames-"));
+  const at: number[] = [];
+  const images: LlmImage[] = [];
+  try {
+    for (const [i, t] of times.entries()) {
+      const out = join(dir, `f${i}.jpg`);
+      await runBinary(ffmpeg, buildFrameExtractArgs(source, out, t), 60_000).catch(() => undefined);
+      if (!existsSync(out)) continue;
+      images.push({ mimeType: "image/jpeg", data: await readFile(out) });
+      at.push(t);
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+  return { at, images };
+}
+
 export async function planHumor(input: HumorInput, keep: readonly Interval[], options: PlanHumorOptions = {}): Promise<HumorJob | null> {
   try {
-    const draft = await generateJson(buildHumorPrompt(input), HumorDraftSchema, { provider: options.provider, model: options.model, thinking: "low", temperature: 0.7 });
+    const frames = input.sourcePath ? await grabFrames(input.sourcePath, frameTimes(input.start, input.end, input.lively, keep)) : { at: [], images: [] };
+    const draft = await generateJsonWithImages(buildHumorPrompt(input, frames.at), frames.images, HumorDraftSchema, { provider: options.provider, model: options.model, thinking: "low", temperature: 0.7 });
     const plan = validateHumor(draft, input.start, input.end, keep);
     const emojis: HumorJob["emojis"] = [];
     for (const e of plan.emojis) {

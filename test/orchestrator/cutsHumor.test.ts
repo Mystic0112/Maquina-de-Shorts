@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildHumorPrompt, DURATION, EMOJIS, emojiModel, humorEnabled, planHumor, validateHumor } from "../../src/orchestrator/cuts/humor.js";
+import { buildHumorPrompt, DURATION, EMOJIS, emojiModel, frameTimes, humorEnabled, MAX_FRAMES, planHumor, validateHumor } from "../../src/orchestrator/cuts/humor.js";
 import { livelyMoments } from "../../src/orchestrator/cuts/jumpcut.js";
 import type { LlmProvider } from "../../src/orchestrator/lib/llmClient.js";
 
@@ -64,5 +64,22 @@ describe("laugh moments", () => {
     // gap 1-2 loud (laugh), 3-4 quiet, 5-6.5 loud
     expect(livelyMoments(words, { hop: 0.1, db }, 0, 8)).toEqual([[1, 2], [5, 6.5]]);
     expect(livelyMoments(words, undefined, 0, 8)).toEqual([]);
+  });
+});
+
+describe("humor: the agy sees the clip", () => {
+  it("grabs frames at the laughs first, then evenly, 2 s apart, only on kept footage", () => {
+    const times = frameTimes(100, 160, [[110, 112], [111, 113], [131, 133]], [[100, 130], [135, 160]]);
+    expect(times).toContain(111); // laugh middle
+    expect(times).not.toContain(132); // laugh inside a cut-out stretch
+    expect(times.length).toBeLessThanOrEqual(MAX_FRAMES);
+    for (let i = 1; i < times.length; i++) expect((times[i] as number) - (times[i - 1] as number)).toBeGreaterThanOrEqual(2);
+    expect(times.every((t) => (t > 100 && t <= 130) || (t >= 135 && t < 160))).toBe(true);
+  });
+
+  it("tells the agy which second each frame is", () => {
+    const prompt = buildHumorPrompt({ title: "T", channelName: "ACF", start: 100, end: 160, words: [], lively: [] }, [103, 111.5]);
+    expect(prompt).toContain("quadro 1 = 3.0 s, quadro 2 = 11.5 s");
+    expect(buildHumorPrompt({ title: "T", channelName: "ACF", start: 100, end: 160, words: [], lively: [] })).not.toContain("IMAGENS");
   });
 });

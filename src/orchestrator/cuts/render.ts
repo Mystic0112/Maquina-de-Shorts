@@ -34,6 +34,18 @@ export const YUNET: ModelFile = {
 };
 export const YUNET_FILE = YUNET.file;
 
+/**
+ * Burned-in text detector (PP-OCRv3 DB, opencv_zoo, Apache-2.0), pinned to a commit: 2 423 490 bytes. Lets the
+ * cut renderer keep our captions off the creator's own captions and the TikTok watermark.
+ */
+export const TEXT_DETECTOR: ModelFile = {
+  label: "PP-OCRv3 text detector (~2.4 MB)",
+  url: "https://github.com/opencv/opencv_zoo/raw/48b10fa505aeb51fbd127fc60a5c660040e823b7/models/text_detection_ppocr/text_detection_en_ppocrv3_2023may.onnx",
+  file: join(paths.root, "models", "textdet", "text_detection_en_ppocrv3_2023may.onnx"),
+  minBytes: 2_300_000,
+  maxBytes: 2_600_000,
+};
+
 /** Caption font of the cuts: Montserrat ExtraBold (SIL OFL 1.1), pinned to a commit: 455 468 bytes. */
 export const MONTSERRAT: ModelFile = {
   label: "Montserrat ExtraBold font (~450 KB)",
@@ -106,6 +118,7 @@ export const RenderResultSchema = z.object({
       /** Times the camera opened up because two or more people talked at once. */
       groupShots: z.number().optional(),
       humor: z.object({ jokes: z.number(), emojis: z.number(), effects: z.number() }).optional(),
+      placement: z.object({ textBoxesSeen: z.number(), captionsMoved: z.number(), captionsSkipped: z.number(), emojisMoved: z.number() }).optional(),
     }),
   ),
 });
@@ -122,12 +135,13 @@ export function buildRenderPayload(
   yunet: string,
   ffmpeg: string,
   asdModel: string | null = null,
-  extras: { font?: string | null; watermark?: WatermarkPayload | null } = {},
+  extras: { font?: string | null; watermark?: WatermarkPayload | null; textModel?: string | null } = {},
 ): Record<string, unknown> {
   return {
     source: input.source,
     yunet,
     asdModel,
+    textModel: extras.textModel ?? null,
     watermark: extras.watermark ?? null,
     ffmpeg,
     framing: input.framing,
@@ -178,11 +192,16 @@ export async function renderClips(input: RenderInput, log: (m: string) => void):
   // CUTS_FONT overrides; without it, Montserrat (a missing font falls back to the system fonts in Python).
   const font = env("CUTS_FONT") ?? (await ensureModelFile(MONTSERRAT, fetch, log).catch(() => null));
   const watermark = watermarkPayload(resolveWatermarkFiles(loadConfig().watermark, log));
+  // Without it captions only avoid faces (burned-in text is not seen).
+  const textModel = await ensureModelFile(TEXT_DETECTOR, fetch, log).catch((error: unknown) => {
+    log(`WARN text detector unavailable, captions will not avoid burned-in text: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  });
   const { ffmpeg } = resolveFfmpegBinaries();
   return runPythonJson({
     script: "python/cuts/render_clip.py",
     python: resolveCutsPython(),
-    stdin: buildRenderPayload(input, yunet, ffmpeg, asdModel, { font, watermark }),
+    stdin: buildRenderPayload(input, yunet, ffmpeg, asdModel, { font, watermark, textModel }),
     schema: RenderResultSchema,
     timeoutMs: 90 * 60 * 1000,
     onStderrLine: log,

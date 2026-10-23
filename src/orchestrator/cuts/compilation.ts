@@ -160,7 +160,7 @@ export async function processCompilation(channel: CutChannel, feed: readonly Fee
     const keep = planKeep(part.transcript.words, part.transcript.loudness, 0, part.durationSeconds);
     const words = part.transcript.words;
     const humor = withHumor
-      ? await planHumor({ title: pick.title, channelName: channel.name, start: 0, end: part.durationSeconds, words, lively: livelyMoments(words, part.transcript.loudness, 0, part.durationSeconds) }, keep, { log: (m) => log.info(m) })
+      ? await planHumor({ title: pick.title, channelName: channel.name, start: 0, end: part.durationSeconds, words, lively: livelyMoments(words, part.transcript.loudness, 0, part.durationSeconds), sourcePath: part.sourcePath }, keep, { log: (m) => log.info(m) })
       : null;
     const out = join(runDir, "parts", `part_${String(i + 1).padStart(2, "0")}.mp4`);
     await renderClips({ source: part.sourcePath, framing: config.clip.framing, credit: channel.credit, captions: config.clip.captions, jobs: [{ start: 0, end: part.durationSeconds, keep, humor, out, words }] }, (m) => log.info(m));
