@@ -257,15 +257,15 @@ def face_at(cx: float, track_id: int = 0, width: float = 152.0) -> speaker.Face:
 
 class CameraTests(unittest.TestCase):
     def test_target_shot_zooms_on_the_speaker_and_out_without_one(self) -> None:
-        shot = camera.target_shot(face_at(960.0), [], None, 1920, 1080)
+        shot = camera.target_shot(face_at(960.0, width=200.0), [], None, 1920, 1080)
         self.assertAlmostEqual(
-            shot.height, 152 / 0.38 * 16 / 9
+            shot.height, 200 / 0.38 * 16 / 9
         )  # face = 38% of the crop width
         self.assertAlmostEqual(
             shot.cy, 500 + 0.1 * shot.height
         )  # face at 40% of the crop height
         tiny = camera.target_shot(face_at(960.0, width=20.0), [], None, 1920, 1080)
-        self.assertAlmostEqual(tiny.height, 1080 / 2.2)
+        self.assertAlmostEqual(tiny.height, 1080 / 1.25)
         wide = camera.target_shot(
             None, [face_at(400.0), face_at(800.0)], None, 1920, 1080
         )
@@ -279,7 +279,7 @@ class CameraTests(unittest.TestCase):
         speakers = [None] * 30 + [face_at(960.0)] * 150 + [None] * 150
         path = camera.camera_path(speakers, [[]] * len(speakers), 1920, 1080, 30.0)
         self.assertEqual(path[0].height, 1080.0)
-        self.assertLess(path[179].height, 760.0)  # zoomed in on the speaker
+        self.assertLess(path[179].height, 880.0)  # zoomed in on the speaker (floor: 1080 / 1.25 = 864)
         self.assertGreater(path[-1].height, 1050.0)  # back to the wide shot
         steps = [abs(b.height - a.height) for a, b in pairwise(path)]
         self.assertLessEqual(max(steps), camera.ZOOM_ALPHA * 1080 + 1e-9)
@@ -330,18 +330,18 @@ class GroupShotTests(unittest.TestCase):
         shot = camera.group_shot(faces, 1920, 1080)
         # x span: 800 - 75 - 90 to 1100 + 75 + 90 = 635..1265 -> 630 px wide -> 1120 px tall > 1080: doesn't fit
         self.assertEqual(shot, camera.Shot(950.0, 540.0, 1080.0))
-        close = talking((0, 900.0, 1.0), (1, 1000.0, 1.0))
+        close = talking((0, 850.0, 1.0), (1, 1050.0, 1.0))
         shot = camera.group_shot(close, 1920, 1080)
-        # x span 735..1165 = 430 px -> 764.4 tall, wider than one face's shot (150 / 0.38 * 16 / 9 = 701.8)
-        self.assertAlmostEqual(shot.height, 430 / camera.ASPECT)
+        # x span 685..1215 = 530 px -> 942.2 tall, wider than one face's shot (the 864 px floor)
+        self.assertAlmostEqual(shot.height, 530 / camera.ASPECT)
         self.assertAlmostEqual(shot.cx, 950.0)
         self.assertAlmostEqual(shot.cy, 500.0)
         left, _, width, _ = camera.crop_rect(shot, 1920, 1080)
-        self.assertLessEqual(left, 735)
-        self.assertGreaterEqual(left + width, 1165)
+        self.assertLessEqual(left, 685)
+        self.assertGreaterEqual(left + width, 1215)
 
     def test_camera_eases_out_to_the_group_slowly(self) -> None:
-        faces = talking((0, 900.0, 1.0), (1, 1000.0, 1.0))
+        faces = talking((0, 850.0, 1.0), (1, 1050.0, 1.0))
         speakers = [faces[0]] * 60
         groups = [[]] * 20 + [faces] * 40
         path = camera.camera_path(

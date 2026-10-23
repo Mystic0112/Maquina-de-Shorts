@@ -18,7 +18,7 @@ from speaker import ASD_THRESHOLD, Face
 
 ASPECT = 9 / 16  # crop width / height
 FACE_FRACTION = 0.38  # face box width / crop width
-MIN_HEIGHT_FRACTION = 1 / 2.2  # tightest crop height, of the source height
+MIN_HEIGHT_FRACTION = 1 / 1.25  # tightest crop height, of the source height (1/2.2 blurred 1080p sources: ~3.9x upscale)
 FACE_TOP = 0.40  # face centre, from the top of the crop
 DEAD_ZONE = 0.08  # of the current crop width (x) or height (y, zoom)
 PAN_ALPHA = 0.08

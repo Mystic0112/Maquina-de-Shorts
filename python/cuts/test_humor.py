@@ -47,12 +47,12 @@ class TimingTests(unittest.TestCase):
         punch = item(2.0, 3.0, kind="punch")
         self.assertEqual(humor.punch_factor(punch, 1.9), 1.0)
         self.assertEqual(humor.punch_factor(punch, 2.0), 1.0)
-        self.assertAlmostEqual(humor.punch_factor(punch, 2.08), 1.25)
-        self.assertAlmostEqual(humor.punch_factor(punch, 2.5), 1.25)
-        self.assertAlmostEqual(humor.punch_factor(punch, 2.925), 1.125)  # halfway down
+        self.assertAlmostEqual(humor.punch_factor(punch, 2.08), humor.PUNCH_ZOOM)
+        self.assertAlmostEqual(humor.punch_factor(punch, 2.5), humor.PUNCH_ZOOM)
+        self.assertAlmostEqual(humor.punch_factor(punch, 2.925), (1 + humor.PUNCH_ZOOM) / 2)  # halfway down
         self.assertLess(humor.punch_factor(punch, 2.999), 1.001)
         self.assertEqual(humor.punch_factor(punch, 3.0), 1.0)
-        self.assertEqual(humor.effect_zoom(item(0, 1, kind="spotlight"), 0.5), 1.1)
+        self.assertEqual(humor.effect_zoom(item(0, 1, kind="spotlight"), 0.5), humor.SPOTLIGHT_ZOOM)
         self.assertEqual(humor.effect_zoom(item(0, 1, kind="flash"), 0.5), 1.0)
         self.assertEqual(humor.effect_zoom(None, 0.5), 1.0)
         # applied to the crop before the resize: shrinks around the crop centre
