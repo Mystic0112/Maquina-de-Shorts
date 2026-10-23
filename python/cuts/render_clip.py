@@ -53,6 +53,24 @@ import watermark as wm
 
 OUT_W, OUT_H = cmp.OUT_W, cmp.OUT_H
 CAPTION_FONT_SIZE = 60
+
+
+@dataclass(frozen=True)
+class CaptionLook:
+    size: int
+    upper: bool
+    stroke: int | None  # None = text_overlay's default (size / 12)
+
+
+# "padrao": Montserrat ExtraBold as spoken; "impacto": the @oguxtamedia look (Anton, caps, bigger, thicker outline).
+CAPTION_LOOKS = {
+    "padrao": CaptionLook(CAPTION_FONT_SIZE, False, None),
+    "impacto": CaptionLook(84, True, 84 // 7),
+}
+
+
+def caption_look(style: str) -> CaptionLook:
+    return CAPTION_LOOKS.get(style, CAPTION_LOOKS["padrao"])
 JPEG_QUALITY = (
     95  # pipe frames are re-encoded by libx264; 95 keeps the double encode invisible
 )
@@ -85,6 +103,8 @@ class JobSpec:
     text_model: str | None = None
     watermark: wm.Watermark | None = None
     humor: hum.Humor | None = None
+    caption_style: str = "padrao"
+    caption_font: str | None = None  # font of the caption cues only (None = `font`)
 
 
 def resolve_font(explicit: str | None) -> str | None:
@@ -209,9 +229,16 @@ def render(
     cues = caps.build_cues(job.words, job.start, job.end, job.words_per_cue)
     font = resolve_font(job.font)
     color = caps.hex_to_bgr(job.color)
+    look = caption_look(job.caption_style)
+    caption_font = resolve_font(job.caption_font) if job.caption_font else font
     overlays = {
         cue.text: cmp.text_overlay(
-            cue.text, font, CAPTION_FONT_SIZE, color, int(OUT_W * 0.9)
+            cue.text.upper() if look.upper else cue.text,
+            caption_font,
+            look.size,
+            color,
+            int(OUT_W * 0.9),
+            stroke_width=look.stroke,
         )
         for cue in cues
     }
@@ -397,6 +424,8 @@ def read_jobs(raw: dict[str, Any]) -> tuple[list[JobSpec], int]:
             words_per_cue=int(captions_cfg.get("wordsPerCue", 3)),
             color=captions_cfg.get("color", "#FFE11A"),
             font=raw.get("font"),
+            caption_style=str(captions_cfg.get("style", "padrao")),
+            caption_font=raw.get("captionFont") or None,
             hold_seconds=float(raw.get("holdSeconds", spk.DEFAULT_HOLD_SECONDS)),
             asd_model=raw.get("asdModel") or None,
             text_model=raw.get("textModel") or None,

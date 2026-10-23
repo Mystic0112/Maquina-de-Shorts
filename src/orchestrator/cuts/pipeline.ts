@@ -102,7 +102,7 @@ export async function processVideo(
     ),
   );
   const rendered = await timed(timings, "render", () =>
-    renderClips({ source: source.path, framing, credit: channel.credit, captions: config.clip.captions, jobs }, (m) => log.info(m)),
+    renderClips({ source: source.path, framing, credit: channel.credit, captions: config.clip.captions, captionStyle: channel.captionStyle, jobs }, (m) => log.info(m)),
   );
   rendered.clips.forEach((c, i) => log.info(`clip ${i + 1}: ${c.frames} frames in ${c.seconds} s (faces ${c.facesSeen}, switches ${c.speakerSwitches}, face coverage ${Math.round(c.faceCoverage * 100)}%, speaker by ${c.speakerMethod ?? "mouth"}, group shots ${c.groupShots ?? 0}${c.humor ? `, humor drawn ${c.humor.jokes}/${c.humor.emojis}/${c.humor.effects}` : ""}${c.placement ? `, on-screen text boxes ${c.placement.textBoxesSeen}, captions moved ${c.placement.captionsMoved} / skipped ${c.placement.captionsSkipped}, emoji moved ${c.placement.emojisMoved}` : ""})`));
 

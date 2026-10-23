@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { assembleCutMetadata, cutCreditBlock, CUTS_CATEGORY_ID } from "../../src/orchestrator/cuts/metadata.js";
 import type { CutRunContext } from "../../src/orchestrator/cuts/types.js";
-import { buildRenderPayload, ensureModelFile, LIGHT_ASD, MONTSERRAT, watermarkPayload } from "../../src/orchestrator/cuts/render.js";
+import { ANTON, buildRenderPayload, ensureModelFile, LIGHT_ASD, MONTSERRAT, watermarkPayload } from "../../src/orchestrator/cuts/render.js";
 import { WATERMARK_DEFAULTS } from "../../src/shared/settings.js";
 import { KEEP_GAP_SECONDS, keptSeconds, MAX_LIVELY_SECONDS, PAD_SECONDS, planKeep, type Loudness } from "../../src/orchestrator/cuts/jumpcut.js";
 import { buildVerifyPrompt, verifyPicks } from "../../src/orchestrator/cuts/select.js";
@@ -119,10 +119,13 @@ describe("cuts: owner's watermark and caption font", () => {
     expect(watermarkPayload({ settings: { ...on, enabled: false }, imagePath: "/b/logo.png" })).toBeNull();
     expect(watermarkPayload({ settings: { ...on, text: "" }, imagePath: null })).toBeNull();
     const input = { source: "/s.mp4", framing: "face" as const, credit: "c", captions: { wordsPerCue: 3, color: "#FFE11A" }, jobs: [] };
-    expect(buildRenderPayload(input, "/y", "ffmpeg", null, { font: "/f.ttf", watermark: null })).toMatchObject({ font: "/f.ttf", watermark: null });
+    expect(buildRenderPayload(input, "/y", "ffmpeg", null, { font: "/f.ttf", watermark: null })).toMatchObject({ font: "/f.ttf", watermark: null, captionFont: null, captions: { style: "padrao" } });
+    // "impacto" (@oguxtamedia look): its own font for the captions only; jokes and watermark keep `font`.
+    expect(buildRenderPayload({ ...input, captionStyle: "impacto" }, "/y", "ffmpeg", null, { font: "/f.ttf", captionFont: "/a.ttf" })).toMatchObject({ font: "/f.ttf", captionFont: "/a.ttf", captions: { wordsPerCue: 3, style: "impacto" } });
   });
   it("pins the caption font to a commit of the OFL repo", () => {
     expect(MONTSERRAT.url).toMatch(/JulietaUla\/Montserrat\/raw\/[0-9a-f]{40}\/fonts\/ttf\/Montserrat-ExtraBold\.ttf$/);
+    expect(ANTON.url).toMatch(/google\/fonts\/raw\/[0-9a-f]{40}\/ofl\/anton\/Anton-Regular\.ttf$/);
   });
 });
 

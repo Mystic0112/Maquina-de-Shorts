@@ -286,6 +286,8 @@ export interface CutChannelDraft {
   style?: "vlog" | "podcast" | "compilacao";
   /** Jokes/emoji/effects on the cut; absent = on for vlogs only. */
   humor?: boolean;
+  /** Caption look: "padrao" (Montserrat) or "impacto" (@oguxtamedia: Anton, caps, bigger); absent = padrao. */
+  captionStyle?: "padrao" | "impacto";
   minSeconds?: number;
   maxSeconds?: number;
   authorization?: { url: string; date?: string; note?: string; conditions?: string[] };

@@ -12,6 +12,11 @@ const STYLE_OPTIONS = [
   { value: "compilacao" as const, label: "Compilação (vários vídeos curtos, 45 a 90 s)" },
 ];
 
+const CAPTION_OPTIONS = [
+  { value: "padrao" as const, label: "Padrão (Montserrat)" },
+  { value: "impacto" as const, label: "Impacto (Anton, caixa alta)" },
+];
+
 const statusColor = (c: CutChannelDraft): string => (c.blocked ? "var(--critical)" : c.enabled ? "var(--good)" : "var(--muted)");
 
 export function CutsChannelsSection(props: {
@@ -88,6 +93,14 @@ export function CutsChannelsSection(props: {
                 checked={c.humor ?? (c.style ?? "podcast") !== "podcast"}
                 onChange={(v) => update(i, { humor: v })}
                 help="Piadas entre asteriscos, emojis e efeitos rápidos nas risadas. Desligue em canal de política."
+              />
+              <Segmented
+                label="Legenda"
+                value={c.captionStyle ?? "padrao"}
+                options={CAPTION_OPTIONS}
+                onChange={(v) => update(i, { captionStyle: v })}
+                help="Amarela com contorno preto nas duas. Impacto = fonte alta e grossa, em caixa alta e maior, como nos cortes do @oguxtamedia."
+                error={err(i, "captionStyle")}
               />
               <TextInput label="Crédito do canal" value={c.credit} onChange={(v) => update(i, { credit: v })} help="Vai para a descrição do corte, junto com o link do vídeo original." error={err(i, "credit")} />
               <NumberInput label="Vídeos por dia" value={c.maxVideosPerDay} min={1} max={10} onChange={(v) => update(i, { maxVideosPerDay: v })} error={err(i, "maxVideosPerDay")} />

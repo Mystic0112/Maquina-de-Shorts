@@ -354,6 +354,16 @@ class GroupShotTests(unittest.TestCase):
         self.assertLess(abs(path[-1].height - target.height), 20)
 
 
+class CaptionLookTests(unittest.TestCase):
+    def test_impact_style_is_caps_bigger_and_thicker_and_unknown_falls_back(self) -> None:
+        plain, impact = render_clip.caption_look("padrao"), render_clip.caption_look("impacto")
+        self.assertFalse(plain.upper)
+        self.assertTrue(impact.upper)
+        self.assertGreater(impact.size, plain.size)
+        self.assertGreater(impact.stroke or 0, plain.size // 12)
+        self.assertEqual(render_clip.caption_look("???"), plain)
+
+
 class WatermarkTests(unittest.TestCase):
     def test_origin_for_every_position_and_safe_zones(self) -> None:
         expected = {

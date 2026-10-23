@@ -10,7 +10,7 @@ import { env, loadConfig, paths } from "../lib/config.js";
 import { resolveFfmpegBinaries } from "../lib/ffmpeg.js";
 import { runPythonJson } from "../lib/python.js";
 import { resolveWatermarkFiles, type ResolvedWatermark } from "../lib/watermark.js";
-import type { CutsConfig } from "./config.js";
+import type { CutChannel, CutsConfig } from "./config.js";
 import type { HumorJob } from "./humor.js";
 import type { Interval } from "./jumpcut.js";
 import type { TranscriptWord } from "./transcribe.js";
@@ -55,6 +55,17 @@ export const MONTSERRAT: ModelFile = {
   maxBytes: 500_000,
 };
 
+/** Caption font of the "impacto" style: Anton (SIL OFL 1.1, Google Fonts), pinned to a commit: 170 812 bytes. */
+export const ANTON: ModelFile = {
+  label: "Anton font (~170 KB)",
+  url: "https://github.com/google/fonts/raw/e0a8124cf36bb7c32ca68e5d46d6acdbc3df866a/ofl/anton/Anton-Regular.ttf",
+  file: join(paths.root, "models", "fonts", "Anton-Regular.ttf"),
+  minBytes: 150_000,
+  maxBytes: 200_000,
+};
+
+export type CaptionStyle = NonNullable<CutChannel["captionStyle"]>;
+
 /** What render_clip.py draws as the owner's brand mark (null = none). */
 export interface WatermarkPayload {
   text: string | null;
@@ -97,6 +108,8 @@ export interface RenderInput {
   framing: CutsConfig["clip"]["framing"];
   credit: string;
   captions: CutsConfig["clip"]["captions"];
+  /** The channel's caption look (absent = "padrao"). */
+  captionStyle?: CaptionStyle;
   jobs: RenderJob[];
   workers?: number;
 }
@@ -135,7 +148,7 @@ export function buildRenderPayload(
   yunet: string,
   ffmpeg: string,
   asdModel: string | null = null,
-  extras: { font?: string | null; watermark?: WatermarkPayload | null; textModel?: string | null } = {},
+  extras: { font?: string | null; captionFont?: string | null; watermark?: WatermarkPayload | null; textModel?: string | null } = {},
 ): Record<string, unknown> {
   return {
     source: input.source,
@@ -146,7 +159,8 @@ export function buildRenderPayload(
     ffmpeg,
     framing: input.framing,
     credit: input.credit,
-    captions: input.captions,
+    captions: { ...input.captions, style: input.captionStyle ?? "padrao" },
+    captionFont: extras.captionFont ?? null,
     holdSeconds: SPEAKER_HOLD_SECONDS,
     font: extras.font ?? env("CUTS_FONT"),
     workers: input.workers,
@@ -191,6 +205,8 @@ export async function renderClips(input: RenderInput, log: (m: string) => void):
   });
   // CUTS_FONT overrides; without it, Montserrat (a missing font falls back to the system fonts in Python).
   const font = env("CUTS_FONT") ?? (await ensureModelFile(MONTSERRAT, fetch, log).catch(() => null));
+  // Without Anton the "impacto" captions keep the caps/size/outline in the default font.
+  const captionFont = input.captionStyle === "impacto" ? await ensureModelFile(ANTON, fetch, log).catch(() => null) : null;
   const watermark = watermarkPayload(resolveWatermarkFiles(loadConfig().watermark, log));
   // Without it captions only avoid faces (burned-in text is not seen).
   const textModel = await ensureModelFile(TEXT_DETECTOR, fetch, log).catch((error: unknown) => {
@@ -201,7 +217,7 @@ export async function renderClips(input: RenderInput, log: (m: string) => void):
   return runPythonJson({
     script: "python/cuts/render_clip.py",
     python: resolveCutsPython(),
-    stdin: buildRenderPayload(input, yunet, ffmpeg, asdModel, { font, watermark, textModel }),
+    stdin: buildRenderPayload(input, yunet, ffmpeg, asdModel, { font, captionFont, watermark, textModel }),
     schema: RenderResultSchema,
     timeoutMs: 90 * 60 * 1000,
     onStderrLine: log,

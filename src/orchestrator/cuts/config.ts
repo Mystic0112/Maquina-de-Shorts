@@ -34,6 +34,8 @@ export const ChannelSchema = z
   style: z.enum(["vlog", "podcast", "compilacao"]).default("podcast"),
   /** Jokes, emoji and quick effects on top of the cut (cuts/humor.ts); absent = on for vlogs, off otherwise. */
   humor: z.boolean().optional(),
+  /** Caption look: "padrao" (Montserrat as spoken) or "impacto" (@oguxtamedia: Anton, caps, bigger). */
+  captionStyle: z.enum(["padrao", "impacto"]).optional(),
   /** Overrides the clip length of the channel's style. */
   minSeconds: z.number().positive().optional(),
   maxSeconds: z.number().positive().max(MAX_SHORT_SECONDS).optional(),
