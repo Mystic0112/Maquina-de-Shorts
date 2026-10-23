@@ -9,7 +9,9 @@ overlapping item is skipped with a warning, never an error.
 Per frame (render_clip.py): punch and spotlight shrink the camera crop around its centre before the resize
 (so it stays sharp); spotlight then greys the frame and draws a crosshair on the speaker, flash tints it red
 with a big word; after the captions come the joke (above the caption when one is visible) and the emoji
-(above the highest text line). The "open" framing skips punch and spotlight.
+(above the highest text line). The "open" framing skips punch and spotlight. With obstacles (placement.py:
+the speaker's face, burned-in text), a joke moves to the first clear band that keeps it above the caption and
+an emoji to the first clear anchor (centre, left third, right third); the vertical rules stay the same.
 Timing and geometry helpers are pure; HumorLayer holds the overlays built once per clip.
 """
 
@@ -22,6 +24,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import compose as cmp
+import placement as pl
 import watermark as wm
 from speaker import Face
 
@@ -296,10 +299,18 @@ def _spotlight(out, center: tuple[int, int]) -> None:
 class HumorLayer:
     """One clip's humor overlays, built once; draws them per frame and records which items showed."""
 
-    def __init__(self, humor: Humor, font_path: str | None, framing: str) -> None:
+    def __init__(
+        self,
+        humor: Humor,
+        font_path: str | None,
+        framing: str,
+        obstacles_for: Callable[[float, float], pl.Obstacles] | None = None,
+    ) -> None:
+        """`obstacles_for(start, end)`: what jokes and emoji must avoid between two absolute source seconds."""
         import numpy as np
 
         self.humor = humor
+        self.framing = framing
         self.camera_effects = framing == "face"
         width = int(cmp.OUT_W * 0.9)
         self.jokes = [
@@ -316,6 +327,11 @@ class HumorLayer:
         ]
         paths = {e.image for e in humor.emojis if e.image}
         self.emojis = {p: wm.load_image(p, EMOJI_WIDTH, "emoji") for p in paths}
+        self.joke_widths = [wm.trim(j).shape[1] for j in self.jokes]
+        span = obstacles_for or (lambda _t0, _t1: pl.Obstacles())
+        self.joke_obstacles = [span(j.start, j.end) for j in humor.jokes]
+        self.emoji_obstacles = [span(e.start, e.end) for e in humor.emojis]
+        self.emojis_moved: set[int] = set()
         self.red = np.full((cmp.OUT_H, cmp.OUT_W, 3), FLASH_RED, np.uint8)
         self.seen: set[tuple[str, int]] = set()
 
@@ -367,13 +383,29 @@ class HumorLayer:
             emoji.shape[0] if emoji is not None else None,
         )
         if j is not None and joke is not None and joke_y is not None:
+            limit = caption_y - caption_h // 2 - TEXT_GAP if caption_h else None
+            joke_y = pl.place_joke(
+                joke_y,
+                self.joke_widths[j],
+                joke.shape[0],
+                limit,
+                self.framing,
+                self.joke_obstacles[j],
+            )
+            if emoji is not None:  # still above the highest text line
+                emoji_y = joke_y - joke.shape[0] // 2 - EMOJI_GAP - emoji.shape[0] // 2
             cmp.blend(
                 out, joke, cmp.OUT_W // 2, joke_y, fade_alpha(self.humor.jokes[j], t)
             )
             self.seen.add(("jokes", j))
         if e is not None and emoji is not None and emoji_y is not None:
+            x = pl.emoji_x(
+                emoji_y, emoji.shape[1], emoji.shape[0], self.emoji_obstacles[e]
+            )
+            if x != cmp.OUT_W // 2:
+                self.emojis_moved.add(e)
             scale = pop_scale(self.humor.emojis[e], t)
-            cmp.blend(out, _scaled(emoji, scale), cmp.OUT_W // 2, emoji_y)
+            cmp.blend(out, _scaled(emoji, scale), x, emoji_y)
             self.seen.add(("emojis", e))
 
     def counts(self) -> dict[str, int]:

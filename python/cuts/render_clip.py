@@ -16,6 +16,11 @@ Captions keep the source-relative clock (frame index / fps), so they need no ret
 Humor (humor.py): a job may carry "humor" (jokes, reaction emoji, punch/spotlight/flash effects, absolute
 source seconds like "keep"); it is drawn on the same clock and the result counts what showed.
 
+Placement (placement.py): captions, jokes and emoji avoid the speaker's face and the text already burned into
+the source (textdetect.py, when the top-level "textModel" path is given); a caption cue keeps one position for
+its whole life and is skipped when the video already shows its own caption there. The result's "placement"
+counts it.
+
 Framing "face": a 9:16 crop that pushes in on the speaker and pulls back to full height when nobody speaks.
 Framing "open": a full-height 4:5 window on a blurred, darkened background made from the same frame.
 Exit codes: 0 ok, 1 a clip failed, 2 bad input.
@@ -42,6 +47,7 @@ import captions as caps
 import compose as cmp
 import detect
 import humor as hum
+import placement as pl
 import speaker as spk
 import watermark as wm
 
@@ -76,6 +82,7 @@ class JobSpec:
     words: list[dict[str, Any]]
     keep: list[tuple[float, float]]
     asd_model: str | None = None
+    text_model: str | None = None
     watermark: wm.Watermark | None = None
     humor: hum.Humor | None = None
 
@@ -178,6 +185,7 @@ def render(
 
     src_w, src_h, fps = analysis["width"], analysis["height"], analysis["fps"]
     speakers = analysis["speakers"]
+    kept = {i for f0, f1 in frame_ranges for i in range(f0, f1)}
     if job.framing == "face":
         # The mouth heuristic guesses wrong on handheld footage: only the audio-visual model earns a push-in.
         zoom = analysis.get("speakerMethod") == "light-asd"
@@ -190,9 +198,14 @@ def render(
         shots = cam.camera_path(
             speakers, analysis["faces"], src_w, src_h, fps, zoom, groups
         )
+        crops = [cam.crop_rect(shot, src_w, src_h) for shot in shots]
+        dest = pl.FULL_FRAME
     else:
         crop_w = min(src_w, round(src_h * 4 / 5))
         path = spk.smooth_path([s.cx if s else None for s in speakers], src_w)
+        crops = [(spk.clamp_window(x, crop_w, src_w), 0, crop_w, src_h) for x in path]
+        dest = pl.OPEN_WINDOW
+    span = pl.span_obstacles(crops, dest, speakers, analysis["texts"], fps, kept)
     cues = caps.build_cues(job.words, job.start, job.end, job.words_per_cue)
     font = resolve_font(job.font)
     color = caps.hex_to_bgr(job.color)
@@ -202,12 +215,36 @@ def render(
         )
         for cue in cues
     }
-    layer = hum.HumorLayer(job.humor, font, job.framing) if job.humor else None
+    places = {
+        cue: pl.place_caption(
+            job.framing,
+            wm.trim(overlays[cue.text]).shape[1],
+            overlays[cue.text].shape[0],
+            span(cue.start, cue.end),
+        )
+        for cue in cues
+    }
+    analysis["placement"] = {
+        "textBoxesSeen": sum(len(boxes) for _, boxes in analysis["texts"]),
+        "captionsMoved": sum(1 for p in places.values() if p.moved),
+        "captionsSkipped": sum(1 for p in places.values() if p.skip),
+        "emojisMoved": 0,
+    }
+    layer = (
+        hum.HumorLayer(
+            job.humor,
+            font,
+            job.framing,
+            lambda t0, t1: span(t0 - job.start, t1 - job.start),
+        )
+        if job.humor
+        else None
+    )
     mark = wm.build_overlay(job.watermark, font) if job.watermark else None
     if mark is not None:
         mark_x, mark_y = wm.origin(job.watermark.position, mark.shape[1], mark.shape[0])
         mark_center = (mark_x + mark.shape[1] // 2, mark_y + mark.shape[0] // 2)
-    caption_y = int(OUT_H * 0.66) if job.framing == "face" else int(OUT_H * 0.915)
+    default_y = pl.default_caption_y(job.framing)
     cache: dict[str, Any] = {}
     Path(job.out).parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.Popen(
@@ -217,7 +254,6 @@ def render(
     )
     assert proc.stdin is not None
     cap = detect.open_capture(job.source, job.start)
-    kept = {i for f0, f1 in frame_ranges for i in range(f0, f1)}
     written = 0
     try:
         for index in range(frame_ranges[-1][1]):
@@ -232,18 +268,17 @@ def render(
             t = job.start + index / fps
             rect = None
             if job.framing == "face":
-                rect = cam.crop_rect(shots[index], src_w, src_h)
-                if layer:
-                    rect = layer.crop(rect, t)
+                rect = layer.crop(crops[index], t) if layer else crops[index]
                 left, top, width, height = rect
                 out = cmp.compose_face(frame, left, width, top, height)
             else:
-                left = spk.clamp_window(path[index], crop_w, src_w)
-                out = cmp.compose_open(frame, left, crop_w, cache)
+                out = cmp.compose_open(frame, crops[index][0], crop_w, cache)
             if layer:
                 layer.draw_effects(out, t, rect, speakers[index])
             cue = caps.cue_at(cues, index / fps)
-            caption = overlays[cue.text] if cue else None
+            place = places[cue] if cue else None
+            caption = overlays[cue.text] if cue and place and not place.skip else None
+            caption_y = place.y if place else default_y
             if caption is not None:
                 cmp.blend(out, caption, OUT_W // 2, caption_y)
             if layer:
@@ -270,6 +305,7 @@ def render(
         stderr = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
         code = proc.wait()
         analysis["humor"] = layer.counts() if layer else dict.fromkeys(hum.KINDS, 0)
+        analysis["placement"]["emojisMoved"] = len(layer.emojis_moved) if layer else 0
     if code != 0:
         raise RuntimeError(f"ffmpeg failed ({code}) for {job.out}: {stderr[-2000:]}")
     return written
@@ -315,11 +351,12 @@ def process(job: JobSpec) -> dict[str, Any]:
     frames = render(job, analysis, frame_ranges)
     total = time.perf_counter() - started
     log.info(
-        "%s: rendered %d frames in %.1f s, %d group shot(s)",
+        "%s: rendered %d frames in %.1f s, %d group shot(s), placement %s",
         Path(job.out).parent.name,
         frames,
         total - analysis_s,
         analysis.get("groupShots", 0),
+        analysis["placement"],
     )
     return {
         "out": job.out,
@@ -335,6 +372,7 @@ def process(job: JobSpec) -> dict[str, Any]:
         "speakerMethod": method,
         "groupShots": analysis.get("groupShots", 0),
         "humor": analysis.get("humor", dict.fromkeys(hum.KINDS, 0)),
+        "placement": analysis["placement"],
         "faceCoverage": round(
             sum(1 for s in speakers if s) / max(analysis["frames"], 1), 3
         ),
@@ -361,6 +399,7 @@ def read_jobs(raw: dict[str, Any]) -> tuple[list[JobSpec], int]:
             font=raw.get("font"),
             hold_seconds=float(raw.get("holdSeconds", spk.DEFAULT_HOLD_SECONDS)),
             asd_model=raw.get("asdModel") or None,
+            text_model=raw.get("textModel") or None,
             watermark=watermark,
             humor=hum.parse_humor(j.get("humor")),
             start=float(j["start"]),

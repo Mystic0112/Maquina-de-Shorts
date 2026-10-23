@@ -4,6 +4,8 @@ YuNet (OpenCV, ONNX from the opencv_zoo) detects faces on a 640-px copy of every
 chained into tracks that survive short detection gaps (MAX_MISSED_SECONDS). The speaker per frame comes from
 Light-ASD (asd.py) when the job has weights and torch/av/python_speech_features import, otherwise from the
 mouth-movement heuristic (mouth-patch difference + hysteresis, speaker.choose_speaker).
+When the job has a "textModel", one frame every textdetect.SAMPLE_SECONDS also goes through the burned-in text
+detector (textdetect.py); the boxes feed placement.py in pass 2.
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 import speaker as spk
+import textdetect
 
 if TYPE_CHECKING:
     from render_clip import JobSpec
@@ -56,7 +59,8 @@ def mouth_delta(patch, previous) -> float:
 
 
 def analyze(job: JobSpec) -> dict[str, Any]:
-    """Per-frame faces (source pixels, mouth activity) and per-track observations for the clip window."""
+    """Per-frame faces (source pixels, mouth activity), per-track observations and burned-in text samples
+    ((clip-relative seconds, boxes in source pixels), empty without a text model) for the clip window."""
     import cv2
 
     cap = open_capture(job.source, job.start)
@@ -71,6 +75,9 @@ def analyze(job: JobSpec) -> dict[str, Any]:
         job.yunet, "", det_size, score_threshold=0.7, nms_threshold=0.3, top_k=50
     )
     max_missed = max(1, round(MAX_MISSED_SECONDS * fps))
+    text_model = textdetect.load_detector(job.text_model)
+    text_every = max(1, round(textdetect.SAMPLE_SECONDS * fps))
+    texts: list[tuple[float, list[textdetect.Box]]] = []
     frames: list[list[spk.Face]] = []
     observations: dict[int, list[tuple[int, float, float, float, float]]] = {}
     alive: dict[int, tuple[spk.Face, int]] = {}
@@ -83,6 +90,12 @@ def analyze(job: JobSpec) -> dict[str, Any]:
         if not ok or pos >= job.end - 1e-3:
             break
         index = len(frames)
+        if text_model is not None and index % text_every == 0:
+            boxes = textdetect.detect_text(text_model, frame)
+            if boxes is None:
+                text_model = None
+            else:
+                texts.append((index / fps, boxes))
         small = cv2.resize(frame, det_size, interpolation=cv2.INTER_AREA)
         gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
         _, found = detector.detect(small)
@@ -120,6 +133,7 @@ def analyze(job: JobSpec) -> dict[str, Any]:
         "faces": frames,
         "observations": observations,
         "faces_seen": next_id,
+        "texts": texts,
     }
 
 
