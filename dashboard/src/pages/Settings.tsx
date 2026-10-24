@@ -1,5 +1,6 @@
 import {
   BadgeCheck,
+  Music,
   Captions,
   CircleCheck,
   Shapes,
@@ -44,6 +45,7 @@ import type {
 import { categoryColor } from "../colors";
 import { Card, Empty, formatIcon } from "../components";
 import { CutsChannelsSection } from "../CutsChannels";
+import { MusicSection } from "../MusicSection";
 import { WatermarkSection } from "../WatermarkSection";
 import { SCRIPT_FORMATS, type ScriptFormat } from "../format";
 import { PreviewPanel } from "../PreviewPanel";
@@ -70,6 +72,7 @@ const SECTIONS = [
   { id: "cfg-roteiro", label: "Roteiro", icon: FileText },
   { id: "cfg-formato", label: "Formato", icon: Ruler },
   { id: "cfg-marca", label: "Marca", icon: BadgeCheck },
+  { id: "cfg-musica", label: "Músicas", icon: Music },
   { id: "cfg-temas", label: "Temas", icon: Layers },
   { id: "cfg-upload", label: "Upload", icon: Upload },
   { id: "cfg-chaves", label: "Chaves", icon: KeyRound },
@@ -587,6 +590,8 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
           </Section>
 
           <WatermarkSection wm={watermark} set={set} errorAt={errorAt} />
+
+          <MusicSection />
 
           <TopicsSection categories={topicsDraft} originalIds={new Set(topics.data.categories.map((c) => c.id))} onChange={setTopicsDraft} errorAt={errorAt} />
 

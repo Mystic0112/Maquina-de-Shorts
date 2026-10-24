@@ -352,3 +352,16 @@ export interface RefreshResponse {
   message: string;
   youtube: YoutubeStatus;
 }
+
+/** Configurações > Músicas: a song the owner added for beat-synced edits (data/music/). */
+export interface MusicTrack {
+  id: string;
+  name: string;
+  file: string;
+  bytes: number;
+  addedAt: string;
+}
+
+export interface MusicPayload {
+  tracks: MusicTrack[];
+}

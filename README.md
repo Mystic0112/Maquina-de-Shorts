@@ -531,6 +531,19 @@ Onde ficam as coisas: vídeo-fonte e transcrição em `data/cuts/sources/`, diá
 - No PC de produção os cortes rodam sozinhos com o loop: `scripts\loop.ps1 -PullBetween -CutsEveryHours 3` faz a busca (`--scan`) entre vídeos, no máximo a cada 3 h.
 - A troca de quem está falando ainda fica nervosa quando a pessoa aparece de perfil.
 
+## 🎞️ Edits (cortes nos graves da música)
+
+Para vídeos curtos de "edit" (carro, futebol): os cortes do vídeo são encaixados nos **graves** de uma música, com a música por baixo, fade e volume padrão. A ferramenta acha os golpes de grave (30–130 Hz), testa vários pontos de início da música e escolhe onde cada corte vai parar, mexendo na velocidade de cada trecho no máximo entre 0,7× e 1,4×. **Não publica nada.**
+
+```bash
+.venv-cuts\Scripts\python.exe python/edits/retime_bass.py --video clip.mp4 --music <arquivo|id|nome> --out edit.mp4 --ffmpeg C:/caminho/ffmpeg.exe
+```
+
+- `--music` aceita um arquivo ou uma música da lista de **Configurações → Músicas** (arquivos em `data/music/`, fora do GitHub). Só coloque música com licença para publicar.
+- Precisa de um **ffmpeg completo** (`--ffmpeg` ou `EDITS_FFMPEG`): o do Remotion não tem os filtros `showinfo` e `loudnorm`.
+- Sem `--cuts`, os cortes são detectados sozinhos; `--start-min/--start-max` limitam onde a música pode começar (para pular uma introdução).
+- Testes: `.venv-cuts\Scripts\python.exe -m unittest discover -s python/edits -p "test_*.py"`.
+
 ## 😂 Memes
 
 Figurinhas e sons curtos que reforçam a fala (surpresa, erro, vitória), da Onda 2. **Desligado por padrão** (`editing.enabled`, aba Configurações → Edição).
@@ -579,7 +592,7 @@ cd dashboard && npm run typecheck
 .venv\Scripts\python.exe -m unittest discover -s python/tts -p "test_*.py"     # Linux: .venv/bin/python
 ```
 
-Os cortes têm testes próprios: `.venv\Scripts\python.exe -m unittest discover -s python/cuts -p "test_*.py"`.
+Os cortes têm testes próprios: `.venv\Scripts\python.exe -m unittest discover -s python/cuts -p "test_*.py"`. Os edits também: `... -s python/edits -p "test_*.py"`.
 
 Depois, a varredura de segredos nos arquivos preparados para o commit. Se ela acusar algo, **pare**:
 

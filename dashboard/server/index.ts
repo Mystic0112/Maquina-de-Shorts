@@ -1,11 +1,12 @@
 import { createServer } from "node:http";
 import { join } from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
-import type { RefreshResponse, SaveResponse } from "../shared/api.js";
+import type { MusicPayload, RefreshResponse, SaveResponse } from "../shared/api.js";
 import { buildOverview, buildVideoRows } from "./aggregate.js";
 import { config, dashboardDir, paths } from "./config.js";
 import { LOGO_FILE, logoExists, MAX_LOGO_BYTES, saveLogo } from "./branding.js";
 import { getCuts, putCuts, resolveChannel } from "./cuts.js";
+import { addTrack, listTracks, MAX_TRACK_BYTES, removeTrack, trackPath } from "./music.js";
 import { manualRefresh, startMetrics, youtubeStatus } from "./metrics.js";
 import { getRevenue } from "./revenue.js";
 import { isInsideRenderOutput, listRuns, RUN_ID_PATTERN } from "./runs.js";
@@ -173,6 +174,40 @@ app.get("/api/branding/logo", (_req, res) => {
     return;
   }
   res.sendFile(LOGO_FILE, { headers: { "Cache-Control": "no-store" } });
+});
+
+/* ---------- Músicas (edits) ---------- */
+app.get("/api/music", async (_req, res) => {
+  res.json({ tracks: await listTracks() } satisfies MusicPayload);
+});
+
+// An audio body type + a custom header force a CORS preflight, so other sites cannot upload here.
+app.put("/api/music", express.raw({ type: (req) => /^audio\//i.test(req.headers["content-type"] ?? ""), limit: MAX_TRACK_BYTES }), async (req, res) => {
+  try {
+    if (!/^audio\//i.test(req.headers["content-type"] ?? "")) {
+      res.status(415).json({ ok: false, message: "Envie o arquivo com Content-Type audio/*." });
+      return;
+    }
+    const name = decodeURIComponent(String(req.get("X-Track-Name") ?? ""));
+    const track = await addTrack(name, req.body);
+    res.json({ ok: true, message: "Música adicionada.", track });
+  } catch (error) {
+    sendSettingsError(res, error);
+  }
+});
+
+app.delete("/api/music/:id", async (req, res) => {
+  const removed = await removeTrack(req.params.id);
+  res.status(removed ? 200 : 404).json({ ok: removed, message: removed ? "Música removida da lista." : "Música não encontrada." });
+});
+
+app.get("/api/music/:id/audio", async (req, res) => {
+  const file = await trackPath(req.params.id);
+  if (!file) {
+    res.status(404).end();
+    return;
+  }
+  res.sendFile(file, { headers: { "Cache-Control": "no-store" } });
 });
 
 app.get("/api/voices", async (_req, res) => {
