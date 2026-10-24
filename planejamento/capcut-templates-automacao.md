@@ -78,6 +78,10 @@ registro. Os efeitos continuaram (mantivemos os `material_id`).
 > **Script versionado no repo:** [`python/capcut/clone_draft.py`](../python/capcut/clone_draft.py)
 > (função reutilizável: `clone_and_swap`).
 
+> **Slideshow de fotos por código:** [`python/capcut/photo_edit.py`](../python/capcut/photo_edit.py) gera um projeto do CapCut só com
+> fotos (uma por segmento, zoom que entra e sai, cortes secos), usando o rascunho `0116` como molde do formato. Use com o CapCut
+> FECHADO: `python python/capcut/photo_edit.py --images-dir "C:/fotos" --name "Meu Edit"`. Testes em `test_photo_edit.py`.
+
 O que ele faz:
 1. Copia a pasta do projeto de origem.
 2. Gera novos GUIDs (`draft_content.id` e `draft_meta.draft_id`).
