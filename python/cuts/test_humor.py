@@ -189,7 +189,7 @@ class LayerTests(unittest.TestCase):
         plan = humor.Humor(effects=(item(0.0, 1.0, kind="spotlight"),))
         layer = humor.HumorLayer(plan, None, "face")
         self.assertEqual(
-            layer.crop((0, 0, 608, 1080), 0.5), humor.zoom_rect((0, 0, 608, 1080), 1.1)
+            layer.crop((0, 0, 608, 1080), 0.5), humor.zoom_rect((0, 0, 608, 1080), humor.SPOTLIGHT_ZOOM)
         )
         out = np.full((1920, 1080, 3), (0, 0, 200), np.uint8)
         layer.draw_effects(out, 0.5, (656, 0, 608, 1080), None)
