@@ -2,6 +2,7 @@ import { z } from "zod";
 import { resolveScript } from "../../shared/settings.js";
 import { sanitizeBeats } from "../lib/beats.js";
 import { loadConfig } from "../lib/config.js";
+import { ownerRulesBlock } from "../lib/ownerRules.js";
 import { scriptHash } from "../lib/contentHash.js";
 import { generateGroundedText, generateJson, withCorrection, type GroundedText } from "../lib/llmClient.js";
 import { getLogger } from "../lib/logger.js";
@@ -217,7 +218,7 @@ ${cta ? `Chamada final fixa, narrada depois da última cena (não a altere nem a
 CHECAGEM DE FATOS:
 ${review.text.trim()}
 ${earlier}
-Regras:
+${ownerRulesBlock(settings.instructions, "revision")}Regras:
 - "claims": uma entrada por afirmação checada, com verdict "supported" (correto), "unsupported" (sem respaldo) ou
   "misleading" (enganoso), e "correction" quando não for "supported".
 - Se TODAS forem "supported": devolva hook e scenes EXATAMENTE iguais ao roteiro atual. Só troque o título se a

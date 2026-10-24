@@ -509,6 +509,26 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
               />
 
               <div className="subsection">
+                <FileText size={13} /> Instruções do dono
+              </div>
+              <Field
+                label="Regras fixas para o roteiro"
+                wide
+                help={`Texto livre que entra no prompt de TODO roteiro, abaixo das regras da Máquina (fatos, tamanho, cenas, formato e imagens sempre vencem). Ex.: “Sempre termine com uma pergunta para o público.” ${(script.instructions ?? "").length}/1000`}
+                error={errorAt("script.instructions")}
+              >
+                <textarea
+                  className="input"
+                  rows={4}
+                  maxLength={1000}
+                  value={script.instructions ?? ""}
+                  placeholder="Uma regra por linha. Ex.: Comece com um número impressionante. Use linguagem de quem conversa com um amigo."
+                  onChange={(e) => set("script.instructions", e.target.value)}
+                  aria-label="Instruções para o roteirista"
+                />
+              </Field>
+
+              <div className="subsection">
                 <Megaphone size={13} /> Chamada final
               </div>
               <Segmented

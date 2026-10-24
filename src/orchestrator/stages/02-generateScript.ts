@@ -6,6 +6,7 @@ import { resolveScript, type ScriptSettings } from "../../shared/settings.js";
 import { env, loadConfig, paths } from "../lib/config.js";
 import { generateJson, withCorrection } from "../lib/llmClient.js";
 import { getLogger } from "../lib/logger.js";
+import { ownerRulesBlock } from "../lib/ownerRules.js";
 import { containsWord, isEmphasisWord, normalizeToken, spellNumber, textTokens, titleKeyTokens } from "../lib/ptBr.js";
 import { findSimilarSubject, loadRecentSubjects, RUN_ID_PATTERN } from "../lib/recentTopics.js";
 import { RunRejectedError } from "../lib/rejection.js";
@@ -512,7 +513,7 @@ ${ctaRule(settings, recentCtas)}
 ${viralTitles.length ? `${titleExamplesBlock(viralTitles, "curiosidades")}
 ` : ""}- "overlayText": ${OVERLAY_WORDS.min} a ${OVERLAY_WORDS.max} palavras que aparecem escritas na tela nos primeiros segundos e na capa; frase de impacto coerente com o título, pode usar algarismos e "?" ou "!" (ex.: "A LUA TEM CHEIRO?", "SÓ 7 PRESOS?", "CHOVE DIAMANTE EM URANO"). Sem emoji nem hashtag.
 
-${footageRules(settings, libraries)}
+${ownerRulesBlock(settings.instructions, "script")}${footageRules(settings, libraries)}
 
 Responda somente com o JSON no formato pedido.`;
 }

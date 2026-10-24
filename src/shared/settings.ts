@@ -98,6 +98,8 @@ export const ScriptSettingsSchema = z.object({
   formats: z.array(z.enum(["mito-verdade", "lista", "e-se", "comparacao", "linha-do-tempo", "pergunta-resposta"])).min(1).optional(),
   /** Allow specific footage queries (historical places, missions, artworks, deceased historical figures). */
   specificFootage: z.boolean().optional(),
+  /** Free-text rules from the channel owner, added to the script prompt (stage 02) and the fact-check rewrite (02b). */
+  instructions: z.string().max(1000).optional(),
 });
 
 /** Instagram Reels publisher (config section `instagram`). Off by default; needs `npm run auth:instagram`. */
@@ -185,6 +187,7 @@ export const SCRIPT_DEFAULTS: Required<Omit<ScriptSettings, "cta">> & Pick<Scrip
   ctaStyle: "curto",
   formats: ["mito-verdade", "lista", "e-se", "comparacao", "linha-do-tempo", "pergunta-resposta"],
   specificFootage: true,
+  instructions: "",
 };
 
 export const VOICE_EXTRAS_DEFAULTS: Required<VoiceExtras> = {

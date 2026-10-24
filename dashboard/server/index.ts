@@ -188,7 +188,12 @@ app.put("/api/music", express.raw({ type: (req) => /^audio\//i.test(req.headers[
       res.status(415).json({ ok: false, message: "Envie o arquivo com Content-Type audio/*." });
       return;
     }
-    const name = decodeURIComponent(String(req.get("X-Track-Name") ?? ""));
+    let name: string;
+    try {
+      name = decodeURIComponent(String(req.get("X-Track-Name") ?? ""));
+    } catch {
+      throw new SettingsError(400, "O nome da música tem caracteres inválidos.");
+    }
     const track = await addTrack(name, req.body);
     res.json({ ok: true, message: "Música adicionada.", track });
   } catch (error) {
