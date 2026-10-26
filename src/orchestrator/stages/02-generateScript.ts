@@ -54,9 +54,18 @@ export function wordTolerance(s: ResolvedScriptSettings): WordRange {
   return { min: Math.round(s.minWords * TOLERANCE_FACTORS.min), max: Math.round(s.maxWords * TOLERANCE_FACTORS.max) };
 }
 
-/** Footage query length in words: generic queries stay short; named subjects need a few more words. */
-export function queryWordRange(s: Pick<ResolvedScriptSettings, "specificFootage">): WordRange {
+/** Footage query length in words: generic queries stay short; named subjects need a few more words; illustrations are scene descriptions. */
+export function queryWordRange(s: Pick<ResolvedScriptSettings, "specificFootage"> & Partial<Pick<ResolvedScriptSettings, "imageSource">>): WordRange {
+  if (s.imageSource === "ilustrado") return { min: 5, max: 30 };
   return { min: 2, max: s.specificFootage ? 6 : 4 };
+}
+
+/** How the image query of a (re)written scene or beat is described to the model (02 schema, 02b rewrite). */
+export function imageQueryRule(s: Pick<ResolvedScriptSettings, "specificFootage"> & Partial<Pick<ResolvedScriptSettings, "imageSource">>): string {
+  const q = queryWordRange(s);
+  return s.imageSource === "ilustrado"
+    ? `descrição em inglês da ilustração 3D, ${q.min} a ${q.max} palavras: sujeito, ação e cenário, sem texto na imagem`
+    : `${q.min}-${q.max} palavras em inglês, coisas concretas e visíveis`;
 }
 
 /** Fixed closing line from settings, or undefined when the model should write its own. */
@@ -72,6 +81,7 @@ export function modelWritesCta(s: Pick<ResolvedScriptSettings, "cta" | "ctaStyle
 
 function footageQuerySchema(s: ResolvedScriptSettings, what: string) {
   const q = queryWordRange(s);
+  if (s.imageSource === "ilustrado") return z.string().min(3).describe(`${q.min}-${q.max} English words describing a 3D illustration of ${what}`);
   return z.string().min(3).describe(`${q.min}-${q.max} English words naming ${what}`);
 }
 
@@ -112,7 +122,10 @@ export function buildLlmScriptSchema(s: ResolvedScriptSettings): z.ZodType<LlmSc
     title: z.string().min(5).max(95).describe("Título do Short em pt-BR, curioso e honesto"),
     overlayText: z.string().min(3).max(60).describe('Texto da tela/capa, 3 a 5 palavras, ex.: "A LUA TEM CHEIRO?"'),
     hook: z.string().min(10).describe("Primeira frase (até 12 palavras): assunto concreto + fato mais forte logo no início"),
-    hookFootageQuery: z.string().min(3).describe("English search query for the single most iconic visual of the hook"),
+    hookFootageQuery: z
+      .string()
+      .min(3)
+      .describe(s.imageSource === "ilustrado" ? "English description of the opening 3D illustration (the most striking image of the hook)" : "English search query for the single most iconic visual of the hook"),
     scenes: z.array(sceneSchema(s)).min(s.minScenes).max(s.maxScenes),
   });
   if (!modelWritesCta(s)) return base;
@@ -438,7 +451,25 @@ export function endingProblems(script: Pick<LlmScript, "scenes">, s: Pick<Resolv
   return ["A última cena termina com frase cortada ou reticências, mas a chamada final vem logo depois: termine com uma frase completa."];
 }
 
+/** Image rules when every beat gets a generated illustration instead of a stock search. */
+function illustrationRules(s: ResolvedScriptSettings): string {
+  const q = queryWordRange(s);
+  return `Regras das imagens (em INGLÊS): "hookFootageQuery" (uma), "footageQuery" (uma por cena) e "beats" (1 a ${MAX_BEATS} por cena)
+- Cada trecho ganha uma ILUSTRAÇÃO 3D gerada por IA, sempre no mesmo estilo (low-poly estilizado, fundo escuro); o estilo é
+  acrescentado automaticamente: descreva só a CENA, em ${q.min} a ${q.max} palavras em inglês.
+- Descreva o que aparece: sujeito, ação e cenário concretos e visíveis ("a red hatchback rolling down a steep hill road",
+  "cutaway of a car engine with glowing fuel injectors", "medieval knight holding a fork at a dinner table").
+- "hookFootageQuery": a imagem mais impactante do gancho (a primeira coisa que o espectador vê).
+- "beats": a imagem troca a cada coisa concreta citada, na ordem da narração (1 a ${MAX_BEATS} por cena).
+  "phrase" = trecho LITERAL da narração (copie as palavras exatamente), começando onde a coisa é citada.
+  "footageQuery" do beat descreve EXATAMENTE a coisa citada nesse trecho. A "footageQuery" da cena é igual à do primeiro beat.
+- Pessoas aparecem como personagens estilizados genéricos: NUNCA descreva o rosto de uma pessoa real nem peça semelhança
+  com alguém (nada de nomes de pessoas na descrição).
+- NUNCA: texto, letras, números escritos, logotipos, marcas, placas, personagens de filmes, séries, jogos ou desenhos.`;
+}
+
 function footageRules(s: ResolvedScriptSettings, libraries: string): string {
+  if (s.imageSource === "ilustrado") return illustrationRules(s);
   const q = queryWordRange(s);
   const common = `Regras para as buscas de imagem (em INGLÊS): "hookFootageQuery" (uma), "footageQuery" (uma por cena) e "beats" (1 a ${MAX_BEATS} por cena)
 - O vídeo de fundo vem automaticamente de ${libraries}. Um revisor automático descarta imagens que não mostrem o que está sendo dito naquele instante.

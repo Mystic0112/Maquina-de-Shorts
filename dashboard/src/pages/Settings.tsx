@@ -501,6 +501,16 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
                 onChange={(v) => set("script.loopEnding", v)}
                 help="A última frase responde ou retoma a pergunta do início, para o vídeo emendar no replay em vez de terminar numa despedida genérica."
               />
+              <Segmented
+                label="Imagens do vídeo"
+                value={script.imageSource}
+                options={[
+                  { value: "acervo" as const, label: "Acervo (NASA, Commons, Pexels…)" },
+                  { value: "ilustrado" as const, label: "Ilustrado 3D (gerado pelo agy)" },
+                ]}
+                onChange={(v) => set("script.imageSource", v)}
+                help="Ilustrado: cada trecho da fala ganha uma imagem 3D gerada pelo Antigravity, sempre no mesmo estilo, em vez de buscar no acervo (≈ 1 a 2 min por imagem, créditos do plano). Dica: legenda com 1 palavra por vez combina com esse estilo."
+              />
               <Switch
                 label="Buscar imagens específicas"
                 checked={script.specificFootage}

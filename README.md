@@ -163,6 +163,7 @@ Cada execução ganha um código (`runId`) e uma pasta `render_output/<runId>/`.
 Detalhes que valem saber:
 
 - **Uma imagem por trecho da fala.** O roteiro divide cada cena em trechos (*beats*), e cada trecho tem a sua busca. Assim a imagem combina com a palavra dita naquele momento.
+- **Imagens ilustradas (opcional).** Com `script.imageSource: "ilustrado"` (Configurações > Roteiro > Imagens do vídeo), o 03 não busca no acervo: cada trecho ganha uma ilustração 3D gerada pelo `agy` (ferramenta de imagem do plano, sem chave de API), sempre no mesmo estilo. O revisor continua dando nota a cada imagem e a trava dos 60% vale igual; a descrição credita "Ilustrações geradas por IA". Cerca de 1 a 2 min por imagem. Para testar sem mexer no `config/pipeline.config.json`, rode com `PIPELINE_CONFIG=config/<outro>.json`.
 - **Zoom só em rosto.** Com `visual.zoomOnlyOnFaces: true` (padrão), só há zoom quando o assunto principal é um rosto. Imagem sem rosto fica parada. Nenhuma imagem se repete no mesmo vídeo.
 - **Novas tentativas de tema.** Se o roteiro for reprovado na checagem de fatos, se faltarem imagens boas ou se a narração sair fora da duração, a máquina troca de tema e tenta de novo (até `pipeline.maxScriptAttempts`, padrão 2 tentativas extras). Se nada passar, sai com código `3` e não produz vídeo.
 

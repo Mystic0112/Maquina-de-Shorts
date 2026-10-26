@@ -10,6 +10,7 @@ import { RunRejectedError } from "../lib/rejection.js";
 import type { FactCheckClaim, FactCheckSummary, RunContext, Script } from "../types.js";
 import {
   beatsSchema,
+  imageQueryRule,
   countSpokenWords,
   findScriptProblems,
   isWithinTolerance,
@@ -227,11 +228,10 @@ ${ownerRulesBlock(settings.instructions, "revision")}Regras:
   a frase se não houver como corrigir). Mantenha as demais frases palavra por palavra, o tom e o estilo falado.
 - Limites: texto falado total (gancho + cenas + chamada final) entre ${settings.minWords} e ${settings.maxWords} palavras;
   de ${settings.minScenes} a ${settings.maxScenes} cenas, cada uma com 1 a 3 frases. Atualmente: ${countSpokenWords(script)} palavras.
-- "footageQuery": mantenha a da cena, a menos que o assunto visual da cena tenha mudado (2-4 palavras em inglês,
-  coisas concretas e visíveis).
+- "footageQuery": mantenha a da cena, a menos que o assunto visual da cena tenha mudado (${imageQueryRule(settings)}).
 - "beats": devolva os de cada cena. Em cena NÃO alterada, iguais aos atuais. Em cena reescrita, refaça-os para a
   narração NOVA: 1 a 3 trechos, cada "phrase" copiada palavra por palavra da narração nova, na ordem em que é dita,
-  e "footageQuery" nomeando EXATAMENTE a coisa concreta citada nesse trecho (2-4 palavras em inglês).
+  e "footageQuery" para EXATAMENTE a coisa concreta citada nesse trecho (${imageQueryRule(settings)}).
 - "title": se a checagem NÃO apontou problema no título, devolva-o EXATAMENTE igual. Se apontou, use o título
   sugerido pela checagem (ou um equivalente) com até 70 caracteres, curioso mas preciso, e que não repita nenhuma
   afirmação marcada como "unsupported" ou "misleading".

@@ -169,7 +169,9 @@ let cachedConfig: PipelineConfig | undefined;
 
 export function loadConfig(): PipelineConfig {
   if (cachedConfig) return cachedConfig;
-  const configPath = join(paths.config, "pipeline.config.json");
+  // PIPELINE_CONFIG: one-off runs (e.g. a demo of another image source) without touching the production file.
+  const override = env("PIPELINE_CONFIG");
+  const configPath = override ? paths.fromRoot(override) : join(paths.config, "pipeline.config.json");
   const raw: unknown = JSON.parse(readFileSync(configPath, "utf8"));
   const result = PipelineConfigSchema.safeParse(raw);
   if (!result.success) {

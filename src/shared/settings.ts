@@ -100,6 +100,8 @@ export const ScriptSettingsSchema = z.object({
   specificFootage: z.boolean().optional(),
   /** Free-text rules from the channel owner, added to the script prompt (stage 02) and the fact-check rewrite (02b). */
   instructions: z.string().max(1000).optional(),
+  /** acervo = stock footage search (NASA, Commons, Pexels...); ilustrado = one image generated per beat by agy (lib/illustrate.ts). */
+  imageSource: z.enum(["acervo", "ilustrado"]).optional(),
 });
 
 /** Instagram Reels publisher (config section `instagram`). Off by default; needs `npm run auth:instagram`. */
@@ -188,6 +190,7 @@ export const SCRIPT_DEFAULTS: Required<Omit<ScriptSettings, "cta">> & Pick<Scrip
   formats: ["mito-verdade", "lista", "e-se", "comparacao", "linha-do-tempo", "pergunta-resposta"],
   specificFootage: true,
   instructions: "",
+  imageSource: "acervo",
 };
 
 export const VOICE_EXTRAS_DEFAULTS: Required<VoiceExtras> = {

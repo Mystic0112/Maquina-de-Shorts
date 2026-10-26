@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ILLUSTRATION_SOURCE } from "../lib/illustrate.js";
 import { loadConfig } from "../lib/config.js";
 import { generateJson } from "../lib/llmClient.js";
 import { getLogger } from "../lib/logger.js";
@@ -17,11 +18,12 @@ const SHORTS_TAG = "#Shorts";
 // Image credits
 // ---------------------------------------------------------------------------------------------
 
-export type LicenseKind = "attribution" | "stock" | "public";
+export type LicenseKind = "attribution" | "stock" | "public" | "generated";
 
 /** CC BY (any version, no SA/NC/ND reach this point: the adapter's license gate drops them) needs credit. */
 export function licenseKind(clip: Pick<FootageClip, "license" | "source">): LicenseKind {
   const license = clip.license.toLowerCase();
+  if (clip.source === ILLUSTRATION_SOURCE) return "generated";
   if (/\bcc[\s-]*by\b/.test(license) || license.includes("creative commons attribution")) return "attribution";
   if (/pexels|pixabay/.test(`${clip.source} ${license}`.toLowerCase())) return "stock";
   return "public";
@@ -73,6 +75,7 @@ export function buildCredits(footage: readonly FootageClip[], compact = false): 
     const parts = [...publicBySource].map(([source, n]) => `${source} (${n})`);
     lines.push(`• Domínio público / CC0: ${parts.join(", ")}`);
   }
+  if (clips.some((c) => licenseKind(c) === "generated")) lines.push("• Ilustrações geradas por IA para este vídeo.");
   if (clips.some((c) => sourceLabel(c.source) === "NASA")) {
     lines.push("Imagens da NASA usadas conforme as diretrizes de mídia da NASA; não implicam endosso.");
   }

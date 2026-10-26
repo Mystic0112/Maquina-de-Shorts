@@ -35,6 +35,7 @@ import { footageHash } from "../lib/contentHash.js";
 import { PythonExitError, runPythonJson } from "../lib/python.js";
 import { RunRejectedError } from "../lib/rejection.js";
 import { creditsFitDescription } from "./07-generateMetadata.js";
+import { generateIllustrations } from "../lib/illustrate.js";
 import { redactSecrets } from "../lib/redact.js";
 import { getDefaultProvider, getProviderByName, type LlmProvider } from "../lib/llmClient.js";
 import { buildVerdictRecord, saveVerdictFrames, VERDICT_FRAMES_DIR, writeVerdictLog, type VerdictRecord } from "../lib/verdictLog.js";
@@ -335,6 +336,8 @@ interface FetchRound {
   hookSceneIndex?: number;
   /** First round only: clips get their beat (beat queries travel as pseudo scene indexes, see lib/beats.ts). */
   beatsOf?: Pick<Script, "scenes">;
+  /** Where the raw clips come from; default the stock adapter. "ilustrado" runs generate them (lib/illustrate.ts). */
+  request?: (queries: FootageRequest["queries"], outputDir: string, log: Logger) => Promise<FootageClip[]>;
 }
 
 /** Normalized-name prefix of clips found by the hook query (scene 0). */
@@ -376,7 +379,9 @@ async function fetchAndNormalize(
   log: Logger,
   sourceSizes?: Map<string, SourceSize>,
 ): Promise<FootageClip[]> {
-  const downloaded = await requestFootage(round.queries, round.downloadDir, round.clipsPerQuery, log);
+  const downloaded = round.request
+    ? await round.request(round.queries, round.downloadDir, log)
+    : await requestFootage(round.queries, round.downloadDir, round.clipsPerQuery, log);
   // First occurrence wins, also within one response (the hook query and scene 0's query may find the same file).
   const fresh: FootageClip[] = [];
   for (const c of downloaded) {
@@ -615,14 +620,15 @@ interface GateResult {
   rejected: number;
 }
 
-async function runRelevanceGate(firstRound: readonly FootageClip[], gate: GateContext): Promise<GateResult> {
+async function runRelevanceGate(firstRound: readonly FootageClip[], gate: GateContext, retry = true): Promise<GateResult> {
   let keptScored: ScoredClip[] = [];
   try {
     const firstScored = await scoreAll(firstRound, gate);
     if (firstScored.length > 0 && firstScored.every((s) => !s.verdict)) {
       throw new Error(`Relevance gate unavailable (every scoring call failed): ${firstScored[0]?.error ?? "unknown"}`);
     }
-    const scored = [...firstScored, ...(await retryFailedScenes(firstScored, gate))];
+    // Illustrated runs have no retry: an alternative query would search the stock libraries.
+    const scored = retry ? [...firstScored, ...(await retryFailedScenes(firstScored, gate))] : firstScored;
     const selections = selectAll(scored, gate, true);
     logSceneSummary(selections, gate);
     keptScored = selections.flatMap((s) => s.kept);
@@ -677,27 +683,31 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   // The adapter returns up to clipsPerQuery items of EACH kind; 3 per kind keeps ~6 candidates per scene.
   // Scenes with several beats split a budget of 1.5x that between their beat queries (lib/beats.ts).
   const clipsPerQuery = footageConfig?.clipsPerQuery ?? (settings.enabled ? (kindCount > 1 ? 3 : 4) : 2);
+  // Illustrated: one generated image per query; no resolution penalty (768x1376 by design) and no stock retry.
+  const illustrated = resolveScript(config.script).imageSource === "ilustrado";
+  if (illustrated) log.info("Image source: ilustrado (one image generated per beat by agy, no stock search)");
   const firstRound = await fetchAndNormalize(
     {
-      queries: firstRoundQueries(script, { clipsPerQuery, kinds: kindCount }),
+      queries: illustrated ? firstRoundQueries(script) : firstRoundQueries(script, { clipsPerQuery, kinds: kindCount }),
       downloadDir: footageDir,
       normDir: join(footageDir, "norm"),
-      clipsPerQuery,
+      clipsPerQuery: illustrated ? 1 : clipsPerQuery,
       namePrefix: "",
       hookSceneIndex: script.scenes.length,
       beatsOf: script,
+      ...(illustrated ? { request: generateIllustrations } : {}),
     },
     gate.seen,
     gate.stats,
     log,
-    gate.sourceSizes,
+    illustrated ? undefined : gate.sourceSizes,
   );
   if (firstRound.length === 0) throw new RunRejectedError("No usable footage for this script (every query empty or failed)", ctx);
 
   let kept: FootageClip[];
   let rejected = 0;
   if (settings.enabled) {
-    ({ kept, rejected } = await runRelevanceGate(firstRound, gate));
+    ({ kept, rejected } = await runRelevanceGate(firstRound, gate, !illustrated));
     await removeEmptyDirs([gate.dirs.frames, join(footageDir, "retry")]);
   } else {
     log.warn("Relevance gate disabled in config; footage is NOT checked against the narration");
