@@ -36,10 +36,11 @@ import { PythonExitError, runPythonJson } from "../lib/python.js";
 import { RunRejectedError } from "../lib/rejection.js";
 import { creditsFitDescription } from "./07-generateMetadata.js";
 import { generateIllustrations } from "../lib/illustrate.js";
+import { planTerminal } from "../lib/terminalCards.js";
 import { redactSecrets } from "../lib/redact.js";
 import { getDefaultProvider, getProviderByName, type LlmProvider } from "../lib/llmClient.js";
 import { buildVerdictRecord, saveVerdictFrames, VERDICT_FRAMES_DIR, writeVerdictLog, type VerdictRecord } from "../lib/verdictLog.js";
-import type { FootageClip, RunContext, SceneBeat, Script, ScriptScene } from "../types.js";
+import type { FootageClip, QualitySummary, RunContext, SceneBeat, Script, ScriptScene } from "../types.js";
 
 const FOOTAGE_SCRIPT = "vendor/openmontage_adapter/fetch_footage.py";
 const FOOTAGE_TIMEOUT_MS = 15 * 60 * 1000;
@@ -656,11 +657,35 @@ async function keepFirstPerScene(clips: readonly FootageClip[], keepPerScene: nu
 // Stage
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * "terminal" format: no footage. The quality gate exists to keep pictures that do not show what is said off the
+ * video; here there are no pictures, and every card number is checked against the fact-checked narration.
+ */
+async function terminalRun(ctx: RunContext, script: Script, log: Logger, config: ReturnType<typeof loadConfig>): Promise<RunContext> {
+  const started = performance.now();
+  const scenes = await planTerminal(script, { model: config.llm?.models?.metadata });
+  const kinds = scenes.map((s) => s.card.kind).join(", ");
+  log.info(`Terminal format: ${scenes.length} card(s) in ${seconds(started)} (${kinds}); no footage`);
+  const total = script.scenes.length;
+  const quality: QualitySummary = {
+    passingScenes: total,
+    totalScenes: total,
+    passingRatio: 1,
+    minPassingSceneRatio: config.footage?.minPassingSceneRatio ?? 0.6,
+    minScore: resolveRelevanceSettings(config.footage, config.llm).minScore,
+    verdict: "pass",
+    reason: "formato terminal: sem imagens; números dos cartões conferidos contra a narração",
+    contentHash: footageHash(script, []),
+  };
+  return { ...ctx, footage: [], terminal: { scenes }, quality };
+}
+
 export async function run(ctx: RunContext): Promise<RunContext> {
   const script = ctx.script;
   if (!script) throw new Error("03-fetchFootage requires ctx.script (run 02-generateScript first)");
   const log = getLogger(ctx.runId);
   const config = loadConfig();
+  if (resolveScript(config.script).imageSource === "terminal") return terminalRun(ctx, script, log, config);
   const footageConfig = config.footage;
   const settings = resolveRelevanceSettings(footageConfig, config.llm);
   const footageDir = join(ctx.runDir, "footage");

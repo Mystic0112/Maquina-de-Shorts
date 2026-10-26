@@ -35,7 +35,7 @@ export const STAGES: readonly StageDefinition[] = [
   },
   {
     name: "03-fetchFootage",
-    isDone: (c) => (c.footage?.length ?? 0) > 0,
+    isDone: (c) => (c.footage?.length ?? 0) > 0 || !!c.terminal,
     load: async () => (await import("./stages/03-fetchFootage.js")).run,
   },
   {

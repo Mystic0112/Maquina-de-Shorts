@@ -18,6 +18,7 @@ Lido automaticamente pelo Antigravity CLI, Gemini CLI, Codex e Claude. Leia inte
 | `src/orchestrator/lib/` | cliente LLM, ffmpeg, relevância, redação de segredos, trava de arquivo, retenção, hashes de conteúdo |
 | `src/orchestrator/lib/antigravityCli.ts` + `antigravitySession.ts` | chamada isolada ao `agy` e sessão contínua (`ANTIGRAVITY_CLI_SESSION_TURNS`) |
 | `src/orchestrator/lib/beats.ts` | trechos da fala (*beats*): uma busca de imagem por trecho |
+| `src/orchestrator/lib/terminalCards.ts`, `src/remotion/components/Terminal.tsx` | `script.imageSource: "terminal"`: sem imagens; um cartão animado por cena (números conferidos contra o roteiro checado) |
 | `src/orchestrator/lib/illustrate.ts` | `script.imageSource: "ilustrado"`: uma ilustração 3D por trecho gerada pela ferramenta de imagem do `agy` (arquivo lido da pasta "brain" do agy, conferido antes de copiar) |
 | `src/orchestrator/lib/verdictLog.ts` + `scripts/export_verdicts_dataset.ts` | grava `footage_verdicts.jsonl` e exporta o dataset do juiz de imagem local (LlamaFactory) |
 | `src/orchestrator/cuts/`, `python/cuts/`, `scripts/cuts.ts` | cortes (Onda 4): YouTube ou TikTok, download, transcrição, seleção, conferência de sentido, cortes secos (`jumpcut.ts`), humor (`humor.ts`), compilações de vídeos curtos (`compilation.ts`), recorte vertical; **não publica** |

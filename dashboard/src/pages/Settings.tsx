@@ -508,9 +508,10 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
                 options={[
                   { value: "acervo" as const, label: "Acervo (NASA, Commons, Pexels…)" },
                   { value: "ilustrado" as const, label: "Ilustrado 3D (gerado pelo agy)" },
+                  { value: "terminal" as const, label: "Terminal (sem imagens, cartões animados)" },
                 ]}
                 onChange={(v) => set("script.imageSource", v)}
-                help="Ilustrado: cada trecho da fala ganha uma imagem 3D gerada pelo Antigravity, sempre no mesmo estilo, em vez de buscar no acervo (≈ 1 a 2 min por imagem, créditos do plano). Dica: legenda com 1 palavra por vez combina com esse estilo."
+                help="Ilustrado: cada trecho da fala ganha uma imagem 3D gerada pelo Antigravity, sempre no mesmo estilo, em vez de buscar no acervo (≈ 1 a 2 min por imagem, créditos do plano). Dica: legenda com 1 palavra por vez combina com esse estilo. Terminal: nenhuma imagem; cada cena vira um cartão animado numa janela de terminal (frase, número, lista ou comparação) e a legenda some."
               />
               <Switch
                 label="Buscar imagens específicas"

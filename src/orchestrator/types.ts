@@ -283,6 +283,22 @@ export interface RunRejection {
   retriedAs?: string;
 }
 
+/** What a scene of the "terminal" format shows (script.imageSource "terminal"); every text comes from the narration. */
+export type TerminalCard =
+  | { kind: "headline"; text: string; highlight?: string }
+  | { kind: "number"; value: string; label: string }
+  | { kind: "list"; items: string[] }
+  | { kind: "compare"; left: string; right: string; leftValue?: string; rightValue?: string };
+
+export interface TerminalScene {
+  sceneIndex: number;
+  /** Fake shell command typed at the top ("som-na-agua --comparar"). */
+  command: string;
+  card: TerminalCard;
+  /** Short "// comment" under the card (a paraphrase of the narration). */
+  comment?: string;
+}
+
 export interface RunContext {
   runId: string;
   runDir: string; // absolute path to render_output/<runId>
@@ -304,6 +320,8 @@ export interface RunContext {
   /** Result per platform; YouTube's entry mirrors `upload`. */
   publications?: Partial<Record<PlatformId, PublicationResult>>;
   rejection?: RunRejection;
+  /** "terminal" runs: one animated card per scene instead of footage (lib/terminalCards.ts). */
+  terminal?: { scenes: TerminalScene[] };
 }
 
 /** Execution order: 01, 02, 02b, 03, 04, 05, 05b, 06, 07, 08 (see STAGES in runPipeline.ts). */

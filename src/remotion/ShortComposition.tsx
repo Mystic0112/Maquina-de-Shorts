@@ -6,6 +6,7 @@ import { EditLayer } from "./components/EditLayer.js";
 import { backdropGradient } from "./components/captionStyle.js";
 import { OverlayHook } from "./components/OverlayHook.js";
 import { SceneBackground } from "./components/SceneBackground.js";
+import { TerminalLayer } from "./components/Terminal.js";
 import { Watermark } from "./components/Watermark.js";
 import type { ShortProps } from "./shared.js";
 
@@ -33,8 +34,18 @@ function useCaptionFont(font: ShortProps["captionFont"]): void {
   }, [font, handle]);
 }
 
-export const ShortComposition: React.FC<ShortProps> = ({ scenes, captions, overlay, audioSrc, style, edits, watermark, captionFont }) => {
+export const ShortComposition: React.FC<ShortProps> = ({ scenes, captions, overlay, audioSrc, style, edits, watermark, captionFont, terminal }) => {
   useCaptionFont(captionFont);
+  if (terminal) {
+    return (
+      <AbsoluteFill style={{ backgroundColor: "#000" }}>
+        <TerminalLayer terminal={terminal} />
+        {edits?.length ? <EditLayer cues={edits} captions={style.captions} /> : null}
+        {watermark ? <Watermark watermark={watermark} /> : null}
+        {audioSrc ? <Audio src={staticFile(audioSrc)} /> : null}
+      </AbsoluteFill>
+    );
+  }
   const showCaptions = style.captions.enabled && captions.length > 0;
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>

@@ -107,8 +107,9 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   const watermark = resolveWatermarkFiles(config.watermark, log);
   const style = renderStyleFrom(config);
   // Anton is downloaded once (pinned, size-checked) like the cuts' caption fonts; without it the system fallback is used.
-  const captionFontFile = style.captions.font === "anton" ? await ensureModelFile(ANTON, fetch, log).catch(() => null) : null;
-  if (style.captions.font === "anton" && !captionFontFile) log("WARN Anton font unavailable, captions fall back to Impact");
+  const needsAnton = style.captions.font === "anton" || !!ctx.terminal; // terminal cards are set in Anton too
+  const captionFontFile = needsAnton ? await ensureModelFile(ANTON, fetch, log).catch(() => null) : null;
+  if (needsAnton && !captionFontFile) log("WARN Anton font unavailable, text falls back to Impact");
   const plan: RenderPlan = buildRenderPlan(ctx, videoConfigFrom(config), style, { publicPrefix, watermark, captionFontFile });
   const { props, assets } = plan;
   const outputPath = path.join(ctx.runDir, OUTPUT_FILE_NAME);

@@ -102,8 +102,11 @@ export const ScriptSettingsSchema = z.object({
   specificFootage: z.boolean().optional(),
   /** Free-text rules from the channel owner, added to the script prompt (stage 02) and the fact-check rewrite (02b). */
   instructions: z.string().max(1000).optional(),
-  /** acervo = stock footage search (NASA, Commons, Pexels...); ilustrado = one image generated per beat by agy (lib/illustrate.ts). */
-  imageSource: z.enum(["acervo", "ilustrado"]).optional(),
+  /**
+   * acervo = stock footage search (NASA, Commons, Pexels...); ilustrado = one image generated per beat by agy
+   * (lib/illustrate.ts); terminal = no images, one animated terminal card per scene (lib/terminalCards.ts).
+   */
+  imageSource: z.enum(["acervo", "ilustrado", "terminal"]).optional(),
 });
 
 /** Instagram Reels publisher (config section `instagram`). Off by default; needs `npm run auth:instagram`. */

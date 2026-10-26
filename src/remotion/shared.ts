@@ -3,6 +3,7 @@
 // Props use `type` aliases (not interfaces) so they satisfy Remotion's Record<string, unknown> bound.
 
 import { CAPTION_DEFAULTS, VISUAL_DEFAULTS, type RenderStyle, type WatermarkPosition } from "../shared/settings.js";
+import type { TerminalCard } from "../orchestrator/types.js";
 
 export type { RenderStyle } from "../shared/settings.js";
 
@@ -103,6 +104,23 @@ export type WatermarkProps = {
   size: number;
 };
 
+/** One scene of the "terminal" format: a card inside a terminal window, narration-aligned. */
+export type TerminalSceneProps = {
+  sceneIndex: number;
+  startFrame: number;
+  durationInFrames: number;
+  command: string;
+  card: TerminalCard;
+  comment?: string;
+};
+
+/** "terminal" format: replaces footage, scrim and captions; the hook shows `title` until `titleEndFrame`. */
+export type TerminalProps = {
+  title: string;
+  titleEndFrame: number;
+  scenes: TerminalSceneProps[];
+};
+
 export type ShortProps = {
   width: number;
   height: number;
@@ -119,6 +137,8 @@ export type ShortProps = {
   watermark?: WatermarkProps | null;
   /** Caption font loaded from the bundle (staticFile path) before the first frame; absent = system font. */
   captionFont?: { family: string; src: string } | null;
+  /** Absent/null = regular Short with footage. */
+  terminal?: TerminalProps | null;
 };
 
 export const EMPTY_SHORT_PROPS: ShortProps = {

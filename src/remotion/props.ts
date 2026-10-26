@@ -13,6 +13,8 @@ import {
   type RenderStyle,
   type SceneProps,
   type ShortProps,
+  type TerminalProps,
+  type TerminalSceneProps,
   type WatermarkProps,
 } from "./shared.js";
 import { minShotFrames, planSceneShots } from "./shots.js";
@@ -310,8 +312,10 @@ export function buildRenderPlan(
   const usedEditAssets = [...editAssets.entries()].filter(([id]) => edits.cues.some((c) => c.id === id)).map(([, a]) => a);
 
   const watermark = planWatermark(options);
+  const terminal = ctx.terminal ? buildTerminal(ctx, sceneTimings, fps, totalFrames) : null;
+  // Terminal cards are set in Anton too (when available).
   const fontAsset: StagedAsset | null =
-    style.captions.font === "anton" && options.captionFontFile
+    (style.captions.font === "anton" || terminal) && options.captionFontFile
       ? { sourcePath: options.captionFontFile, publicPath: withPrefix(options.publicPrefix, "fonts/anton.ttf") }
       : null;
   const props: ShortProps = {
@@ -319,15 +323,39 @@ export function buildRenderPlan(
     durationInFrames: totalFrames,
     audioSrc: audioAsset.publicPath,
     style,
-    scenes: buildScenes(sceneTimings, { footage, assets, fps, totalFrames, visual: style.visual, script: ctx.script, words: ctx.narration.words }),
-    captions,
-    overlay: buildOverlayHook(ctx.script?.overlayText, style.visual, fps, totalFrames),
+    scenes: terminal ? [] : buildScenes(sceneTimings, { footage, assets, fps, totalFrames, visual: style.visual, script: ctx.script, words: ctx.narration.words }),
+    // Terminal cards carry the text: no word captions and no overlay (the hook is the title card).
+    captions: terminal ? [] : captions,
+    overlay: terminal ? null : buildOverlayHook(ctx.script?.overlayText, style.visual, fps, totalFrames),
     edits: edits.cues,
     watermark: watermark.props,
     captionFont: fontAsset ? { family: "Anton", src: fontAsset.publicPath } : null,
+    terminal,
   };
   const fontAssets = fontAsset ? [fontAsset] : [];
   return { props, assets: [audioAsset, ...assets.values(), ...usedEditAssets, ...watermark.assets, ...fontAssets], skippedLottieCues: edits.skippedLottie };
+}
+
+/**
+ * Terminal format: each card lives over its scene's narration. Scene 0 starts with the hook (05 prepends it), so
+ * the title card (overlayText) holds until the hook's last word is spoken and scene 0's card takes the rest.
+ */
+export function buildTerminal(ctx: RunContext, timings: readonly SceneTiming[], fps: number, totalFrames: number): TerminalProps {
+  const cards = new Map((ctx.terminal?.scenes ?? []).map((s) => [s.sceneIndex, s]));
+  const hookWords = (ctx.script?.hook ?? "").split(/\s+/).filter(Boolean).length;
+  const words = ctx.narration?.words ?? [];
+  const hookEndMs = hookWords > 0 ? (words[Math.min(hookWords, words.length) - 1]?.endMs ?? 0) : 0;
+  const sorted = [...timings].sort((a, b) => a.startMs - b.startMs);
+  const titleEndFrame = Math.min(msToFrame(hookEndMs, fps), totalFrames - 1);
+  const scenes: TerminalSceneProps[] = sorted.flatMap((t, i) => {
+    const card = cards.get(t.sceneIndex);
+    if (!card) return [];
+    const start = i === 0 ? titleEndFrame : msToFrame(t.startMs, fps);
+    const end = i === sorted.length - 1 ? totalFrames : msToFrame(sorted[i + 1]!.startMs, fps);
+    return [{ sceneIndex: t.sceneIndex, startFrame: start, durationInFrames: Math.max(1, end - start), command: card.command, card: card.card, ...(card.comment ? { comment: card.comment } : {}) }];
+  });
+  const title = (ctx.script?.overlayText ?? ctx.script?.title ?? "").trim();
+  return { title, titleEndFrame, scenes };
 }
 
 /** Watermark props + its staged PNG; nothing when disabled or when there is neither text nor image. */
