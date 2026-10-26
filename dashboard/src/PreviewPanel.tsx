@@ -25,7 +25,7 @@ const HOOK_MIN_FONT = 56;
 const HOOK_MAX_LINES = 2;
 const HOOK_WIDTH = 1080 * (1 - 2 * 0.08);
 const HOOK_FADE_SECONDS = 0.3;
-const GLYPH_EM: Record<string, number> = { "arial-black": 0.8, impact: 0.56, "segoe-black": 0.74, verdana: 0.72 };
+const GLYPH_EM: Record<string, number> = { "arial-black": 0.8, impact: 0.56, "segoe-black": 0.74, verdana: 0.72, anton: 0.55 };
 
 /** Same rule as highlightedWordIndex() in captionStyle.ts. */
 function litIndex(mode: CaptionSettings["highlight"], words: { key: boolean }[], active: number): number {

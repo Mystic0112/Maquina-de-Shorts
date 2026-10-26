@@ -86,6 +86,15 @@ describe("buildRenderPlan", () => {
     expect(buildRenderPlan(ctx(footage), VIDEO, style({}, { tailSeconds: 0.5 })).props.durationInFrames).toBe(315);
   });
 
+  it("stages the Anton file and loads it as the caption font only when captions use it", () => {
+    const footage = [clip(0, "C:\\a.mp4", 20), clip(1, "C:\\b.mp4", 20)];
+    const plan = buildRenderPlan(ctx(footage), VIDEO, style({ font: "anton" }), { publicPrefix: "p1", captionFontFile: "/m/fonts/Anton-Regular.ttf" });
+    expect(plan.props.captionFont).toEqual({ family: "Anton", src: "p1/fonts/anton.ttf" });
+    expect(plan.assets).toContainEqual({ sourcePath: "/m/fonts/Anton-Regular.ttf", publicPath: "p1/fonts/anton.ttf" });
+    expect(buildRenderPlan(ctx(footage), VIDEO, style({ font: "anton" }), { captionFontFile: null }).props.captionFont).toBeNull();
+    expect(buildRenderPlan(ctx(footage), VIDEO, style(), { captionFontFile: "/m/fonts/Anton-Regular.ttf" }).props.captionFont).toBeNull();
+  });
+
   it("makes scenes contiguous over the whole video, the last one absorbing the tail", () => {
     const { props } = buildRenderPlan(ctx([clip(0, "C:\\a.mp4", 20), clip(1, "C:\\b.mp4", 20)]), VIDEO);
     const [first, second] = props.scenes;

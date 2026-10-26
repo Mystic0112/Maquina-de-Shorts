@@ -117,6 +117,8 @@ export type ShortProps = {
   edits: EditCueProps[];
   /** Absent/null = no watermark. */
   watermark?: WatermarkProps | null;
+  /** Caption font loaded from the bundle (staticFile path) before the first frame; absent = system font. */
+  captionFont?: { family: string; src: string } | null;
 };
 
 export const EMPTY_SHORT_PROPS: ShortProps = {

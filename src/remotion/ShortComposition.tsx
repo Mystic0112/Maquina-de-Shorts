@@ -1,5 +1,6 @@
 import type React from "react";
-import { AbsoluteFill, Audio, Sequence, staticFile } from "remotion";
+import { useEffect, useState } from "react";
+import { AbsoluteFill, Audio, cancelRender, continueRender, delayRender, Sequence, staticFile } from "remotion";
 import { Captions } from "./components/Captions.js";
 import { EditLayer } from "./components/EditLayer.js";
 import { backdropGradient } from "./components/captionStyle.js";
@@ -17,7 +18,23 @@ const FallbackBackground: React.FC = () => (
   <AbsoluteFill style={{ background: "linear-gradient(160deg, #1b1f3b 0%, #0b0d1a 100%)" }} />
 );
 
-export const ShortComposition: React.FC<ShortProps> = ({ scenes, captions, overlay, audioSrc, style, edits, watermark }) => {
+/** Loads the staged caption font before any frame is captured (otherwise the first frames use the fallback). */
+function useCaptionFont(font: ShortProps["captionFont"]): void {
+  const [handle] = useState(() => (font ? delayRender(`caption font ${font.family}`) : null));
+  useEffect(() => {
+    if (!font || handle === null) return;
+    new FontFace(font.family, `url(${staticFile(font.src)})`)
+      .load()
+      .then((face) => {
+        document.fonts.add(face);
+        continueRender(handle);
+      })
+      .catch((error: unknown) => cancelRender(error));
+  }, [font, handle]);
+}
+
+export const ShortComposition: React.FC<ShortProps> = ({ scenes, captions, overlay, audioSrc, style, edits, watermark, captionFont }) => {
+  useCaptionFont(captionFont);
   const showCaptions = style.captions.enabled && captions.length > 0;
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>

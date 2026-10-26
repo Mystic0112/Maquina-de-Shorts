@@ -14,6 +14,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { openBrowser, renderStill, selectComposition, type HeadlessBrowser } from "@remotion/renderer";
 import { loadConfig, paths } from "../src/orchestrator/lib/config.js";
+import { ANTON } from "../src/orchestrator/cuts/render.js";
 import { loadRunContext, readContextFile } from "../src/orchestrator/lib/runContext.js";
 import type { RunContext } from "../src/orchestrator/types.js";
 import {
@@ -100,7 +101,9 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const style = renderStyleFrom(config, await loadStyleOverride(args.style));
   const publicPrefix = newPublicPrefix();
-  const { props, assets } = buildRenderPlan(ctx, videoConfigFrom(config), style, { publicPrefix });
+  // Previews never download: Anton is used only when stage 06 already fetched it.
+  const captionFontFile = style.captions.font === "anton" && existsSync(ANTON.file) ? ANTON.file : null;
+  const { props, assets } = buildRenderPlan(ctx, videoConfigFrom(config), style, { publicPrefix, captionFontFile });
   const frame = Math.min(props.durationInFrames - 1, Math.max(0, Math.round(args.time * props.fps)));
 
   const serveUrl = await ensureBundle(logErr);

@@ -10,6 +10,8 @@ export const CAPTION_FONTS = {
   impact: 'Impact, "Arial Black", "Segoe UI Black", Arial, sans-serif',
   "segoe-black": '"Segoe UI Black", "Arial Black", Impact, Arial, sans-serif',
   verdana: 'Verdana, "Segoe UI", Arial, sans-serif',
+  /** Anton (SIL OFL, same file as the cuts' "Impacto" captions): staged into the render bundle by stage 06. */
+  anton: 'Anton, Impact, "Arial Narrow", sans-serif',
 } as const;
 export type CaptionFont = keyof typeof CAPTION_FONTS;
 

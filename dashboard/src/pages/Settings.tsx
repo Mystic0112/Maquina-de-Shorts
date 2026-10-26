@@ -83,6 +83,7 @@ const FONT_LABELS: Record<string, string> = {
   impact: "Impact",
   "segoe-black": "Segoe UI Black",
   verdana: "Verdana",
+  anton: "Anton (a dos cortes)",
 };
 const LOCALES = [
   { id: "pt-BR", label: "Português (BR)" },

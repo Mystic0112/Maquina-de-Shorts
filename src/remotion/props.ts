@@ -40,6 +40,8 @@ export type RenderPlanOptions = {
   publicPrefix?: string;
   /** Resolved watermark settings + the absolute path of its PNG (null = text only). */
   watermark?: { settings: Required<WatermarkSettings>; imagePath: string | null };
+  /** Absolute path of the caption font file when captions.font needs one (anton); absent = system fallback. */
+  captionFontFile?: string | null;
 };
 
 const msToFrame = (ms: number, fps: number): number => Math.round((ms / 1000) * fps);
@@ -308,6 +310,10 @@ export function buildRenderPlan(
   const usedEditAssets = [...editAssets.entries()].filter(([id]) => edits.cues.some((c) => c.id === id)).map(([, a]) => a);
 
   const watermark = planWatermark(options);
+  const fontAsset: StagedAsset | null =
+    style.captions.font === "anton" && options.captionFontFile
+      ? { sourcePath: options.captionFontFile, publicPath: withPrefix(options.publicPrefix, "fonts/anton.ttf") }
+      : null;
   const props: ShortProps = {
     ...video,
     durationInFrames: totalFrames,
@@ -318,8 +324,10 @@ export function buildRenderPlan(
     overlay: buildOverlayHook(ctx.script?.overlayText, style.visual, fps, totalFrames),
     edits: edits.cues,
     watermark: watermark.props,
+    captionFont: fontAsset ? { family: "Anton", src: fontAsset.publicPath } : null,
   };
-  return { props, assets: [audioAsset, ...assets.values(), ...usedEditAssets, ...watermark.assets], skippedLottieCues: edits.skippedLottie };
+  const fontAssets = fontAsset ? [fontAsset] : [];
+  return { props, assets: [audioAsset, ...assets.values(), ...usedEditAssets, ...watermark.assets, ...fontAssets], skippedLottieCues: edits.skippedLottie };
 }
 
 /** Watermark props + its staged PNG; nothing when disabled or when there is neither text nor image. */

@@ -19,6 +19,7 @@ export const AVG_GLYPH_EM: Record<CaptionFont, number> = {
   impact: 0.56,
   "segoe-black": 0.74,
   verdana: 0.72,
+  anton: 0.55,
 };
 const LOWERCASE_WIDTH_FACTOR = 0.85;
 const STROKE_EM = 0.2; // full stroke width; paint-order hides the inner half under the fill

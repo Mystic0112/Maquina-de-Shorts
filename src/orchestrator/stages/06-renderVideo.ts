@@ -9,6 +9,7 @@ import { makeCancelSignal, renderMedia, selectComposition } from "@remotion/rend
 import { loadConfig } from "../lib/config.js";
 import { contentBindingProblems } from "../lib/contentHash.js";
 import { resolveWatermarkFiles } from "../lib/watermark.js";
+import { ANTON, ensureModelFile } from "../cuts/render.js";
 import { buildRenderPlan, COMPOSITION_ID, type RenderPlan, type ShortProps } from "../../remotion/props.js";
 import { ensureBundle, newPublicPrefix, removeStagedAssets, renderStyleFrom, stageAssets, videoConfigFrom } from "../../remotion/node/renderKit.js";
 import type { RenderResult, RunContext } from "../types.js";
@@ -104,7 +105,11 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   const config = loadConfig();
   const publicPrefix = newPublicPrefix();
   const watermark = resolveWatermarkFiles(config.watermark, log);
-  const plan: RenderPlan = buildRenderPlan(ctx, videoConfigFrom(config), renderStyleFrom(config), { publicPrefix, watermark });
+  const style = renderStyleFrom(config);
+  // Anton is downloaded once (pinned, size-checked) like the cuts' caption fonts; without it the system fallback is used.
+  const captionFontFile = style.captions.font === "anton" ? await ensureModelFile(ANTON, fetch, log).catch(() => null) : null;
+  if (style.captions.font === "anton" && !captionFontFile) log("WARN Anton font unavailable, captions fall back to Impact");
+  const plan: RenderPlan = buildRenderPlan(ctx, videoConfigFrom(config), style, { publicPrefix, watermark, captionFontFile });
   const { props, assets } = plan;
   const outputPath = path.join(ctx.runDir, OUTPUT_FILE_NAME);
   const startedAt = Date.now();
