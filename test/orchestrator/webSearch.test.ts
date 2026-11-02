@@ -126,3 +126,12 @@ describe("createWebSearch", () => {
     expect(createWebSearch({ provider: "tavily" })?.name).toBe("tavily");
   });
 });
+
+describe("which providers search the web by themselves", () => {
+  it("lists the ones whose search was proven, and leaves the OpenAI-compatible out (it has none)", async () => {
+    const { hasNativeWebSearch } = await import("../../src/shared/settings.js");
+    for (const name of ["antigravity-cli", "gemini", "anthropic", "claude-code"]) expect(hasNativeWebSearch(name), name).toBe(true);
+    expect(hasNativeWebSearch("openai-compatible")).toBe(false);
+    expect(hasNativeWebSearch("provedor-novo")).toBe(false); // fail-closed
+  });
+});

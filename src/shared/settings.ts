@@ -405,7 +405,8 @@ export function isLocalBaseUrl(url: string): boolean {
  * is treated as having no search: the fact-check then needs a `script.factCheckSearch` provider or the run is
  * rejected. Fail-closed on purpose: a new provider must be proven to search before it is added.
  */
-const NATIVE_WEB_SEARCH: readonly string[] = ["antigravity-cli", "gemini", "anthropic"];
+// claude-code: its WebSearch tool was proven with a plan login at home (2026-11-02: text, 2 sources with uri and title, queries).
+const NATIVE_WEB_SEARCH: readonly string[] = ["antigravity-cli", "gemini", "anthropic", "claude-code"];
 export const hasNativeWebSearch = (name: string): boolean => NATIVE_WEB_SEARCH.includes(name);
 
 /** Key of `llm.models` that was this task's model before `llm.tasks` existed (still honoured when the task has no provider). */
