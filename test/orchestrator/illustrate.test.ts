@@ -1,6 +1,8 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { illustrationPrompt, ILLUSTRATION_LICENSE, ILLUSTRATION_SOURCE, ILLUSTRATION_STYLE, imagePathsIn, isInside, sniffImage } from "../../src/orchestrator/lib/illustrate.js";
+import { findGeneratedImage, illustrationPrompt, ILLUSTRATION_LICENSE, ILLUSTRATION_SOURCE, ILLUSTRATION_STYLE, imagePathsIn, isInside, sniffImage } from "../../src/orchestrator/lib/illustrate.js";
 import { imageQueryRule, queryWordRange } from "../../src/orchestrator/stages/02-generateScript.js";
 import { buildCredits, licenseKind } from "../../src/orchestrator/stages/07-generateMetadata.js";
 import type { FootageClip } from "../../src/orchestrator/types.js";
@@ -48,3 +50,57 @@ describe("illustrated image source (agy image tool)", () => {
     expect(credits).toBe("Créditos das imagens:\n• Ilustrações geradas por IA para este vídeo.");
   });
 });
+
+describe("findGeneratedImage: the file agy names may not be ready at the first look", () => {
+  const brain = mkdtempSync(join(tmpdir(), "brain-test-"));
+  const folder = join(brain, "conversa");
+  mkdirSync(folder, { recursive: true });
+  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64)]);
+  const noWait = async (): Promise<void> => undefined;
+
+  it("accepts a valid file at once", async () => {
+    const file = join(folder, "ok.jpg");
+    writeFileSync(file, jpeg);
+    const found = await findGeneratedImage(`pronto: ${file}`, brain, { wait: noWait });
+    expect(found.file).toContain("ok.jpg");
+    expect(found.ext).toBe("jpg");
+  });
+
+  it("waits and looks again when the file shows up (or finishes) a moment later", async () => {
+    const file = join(folder, "late.jpg");
+    let waits = 0;
+    const found = await findGeneratedImage(`pronto: ${file}`, brain, {
+      wait: async () => {
+        waits += 1;
+        if (waits === 1) writeFileSync(file, Buffer.from("rascunho")); // still being written: not an image yet
+        if (waits === 2) writeFileSync(file, jpeg);
+      },
+    });
+    expect(found.ext).toBe("jpg");
+    expect(waits).toBe(2);
+  });
+
+  it("gives up after the attempts and says which check failed for each path", async () => {
+    const missing = join(folder, "nunca.jpg");
+    const fake = join(folder, "texto.png");
+    writeFileSync(fake, "#!/bin/sh\nrm -rf /");
+    let waits = 0;
+    const found = await findGeneratedImage(`um ${missing} e ${fake}`, brain, { attempts: 3, wait: async () => void (waits += 1) });
+    expect(found.file).toBeUndefined();
+    expect(waits).toBe(2);
+    expect((found.reasons ?? []).join(" | ")).toMatch(/nunca\.jpg: realpath ENOENT/);
+    expect((found.reasons ?? []).join(" | ")).toMatch(/texto\.png: não é JPEG\/PNG\/WEBP/);
+  });
+
+  it("never waits when the answer names no image at all, and refuses files outside the brain folder", async () => {
+    let waits = 0;
+    expect((await findGeneratedImage("sem caminho", brain, { wait: async () => void (waits += 1) })).reasons).toEqual([]);
+    expect(waits).toBe(0);
+    const outside = join(mkdtempSync(join(tmpdir(), "elsewhere-")), "x.jpg");
+    writeFileSync(outside, jpeg);
+    const refused = await findGeneratedImage(outside, brain, { attempts: 1, wait: noWait });
+    expect(refused.file).toBeUndefined();
+    expect((refused.reasons ?? []).join()).toMatch(/fora da pasta brain/);
+  });
+});
+

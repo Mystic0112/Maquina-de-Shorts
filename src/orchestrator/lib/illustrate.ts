@@ -11,7 +11,7 @@
 import { spawn } from "node:child_process";
 import { copyFile, mkdir, mkdtemp, open, realpath, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { basename, isAbsolute, join, resolve, sep } from "node:path";
 import { minimalChildEnv } from "./childEnv.js";
 import { env } from "./config.js";
 import { probeVideo } from "./ffmpeg.js";
@@ -121,22 +121,57 @@ export async function generateIllustration(scene: string, outBase: string, signa
   try {
     const output = await runAgy(illustrationPrompt(scene), cwd, signal);
     const brain = brainDir();
-    // Last mention wins: the final answer repeats the path after the tool output.
-    for (const mentioned of imagePathsIn(output).reverse()) {
-      // realpath: a link inside the brain folder must not lead outside it.
-      const candidate = await realpath(mentioned).catch(() => undefined);
-      if (!candidate || !isInside(await realpath(brain).catch(() => brain), candidate)) continue;
-      const ext = await readHead(candidate).then(sniffImage, () => undefined);
-      if (!ext) continue;
-      const target = `${outBase}.${ext}`;
-      await copyFile(candidate, target);
+    const found = await findGeneratedImage(output, brain);
+    if (found.file) {
+      const target = `${outBase}.${found.ext}`;
+      await copyFile(found.file, target);
       return target;
     }
     // agy may also answer with exit code 0 and the quota error in its text instead of a path.
-    throw quotaErrorFrom(AGY_PROVIDER, output, "Image quota") ?? new Error(`agy não devolveu caminho de imagem válido dentro de ${brain}: ${output.slice(-300)}`);
+    throw quotaErrorFrom(AGY_PROVIDER, output, "Image quota") ?? new Error(`agy não devolveu caminho de imagem válido dentro de ${brain} (${(found.reasons ?? []).join("; ") || "nenhum caminho de imagem na resposta"}): ${output.slice(-300)}`);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** Why a mentioned path was not accepted (goes into the error, so a failure can be diagnosed from the log). */
+async function rejectReason(mentioned: string, brain: string): Promise<{ file: string; ext: "jpg" | "png" | "webp" } | string> {
+  // realpath: a link inside the brain folder must not lead outside it.
+  const candidate = await realpath(mentioned).catch((e: unknown) => `realpath ${(e as { code?: string }).code ?? "failed"}`);
+  if (!isAbsolute(candidate)) return `${basename(mentioned)}: ${candidate}`;
+  if (!isInside(await realpath(brain).catch(() => brain), candidate)) return `${basename(mentioned)}: fora da pasta brain`;
+  const head = await readHead(candidate).catch((e: unknown) => `leitura ${(e as { code?: string }).code ?? "failed"}`);
+  if (typeof head === "string") return `${basename(mentioned)}: ${head}`;
+  const ext = sniffImage(head);
+  return ext ? { file: candidate, ext } : `${basename(mentioned)}: não é JPEG/PNG/WEBP`;
+}
+
+/**
+ * The generated file named in agy's answer, checked (inside the brain folder, image magic bytes). The check is repeated
+ * a few times: on Windows the file can still be locked or half written for a moment after agy mentions it (seen at home
+ * on 2026-11-02: 1 image in 11 refused, complete and valid when checked a moment later).
+ */
+export async function findGeneratedImage(
+  output: string,
+  brain: string,
+  options: { attempts?: number; delayMs?: number; wait?: (ms: number) => Promise<void> } = {},
+): Promise<{ file: string; ext: "jpg" | "png" | "webp"; reasons?: undefined } | { file?: undefined; ext?: undefined; reasons: string[] }> {
+  const { attempts = 3, delayMs = 500, wait = sleep } = options;
+  // Last mention wins: the final answer repeats the path after the tool output.
+  const mentions = imagePathsIn(output).reverse();
+  let reasons: string[] = [];
+  for (let attempt = 1; attempt <= attempts && mentions.length > 0; attempt++) {
+    reasons = [];
+    for (const mentioned of mentions) {
+      const result = await rejectReason(mentioned, brain);
+      if (typeof result !== "string") return result;
+      reasons.push(result);
+    }
+    if (attempt < attempts) await wait(delayMs);
+  }
+  return { reasons };
 }
 
 /** Seams for tests: the real ones call agy and ffprobe. */
