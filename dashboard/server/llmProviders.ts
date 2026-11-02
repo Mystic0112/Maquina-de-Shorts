@@ -2,7 +2,7 @@
 // src/shared/settings.ts (LLM_PROVIDERS, LLM_TASKS); never reveals a key, only whether it is set.
 import { existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
-import { LLM_PROVIDERS, LLM_TASKS, type LlmProviderName } from "../../src/shared/settings.js";
+import { LLM_PROVIDERS, LLM_TASKS, type LlmProviderMeta, type LlmProviderName } from "../../src/shared/settings.js";
 import type { KeyStatus, LlmCatalog, LlmProviderStatus } from "../shared/api.js";
 import { envValue } from "./config.js";
 import { storableKeyStatus } from "./keys.js";
@@ -17,13 +17,13 @@ export function commandExists(command: string, pathVar = process.env["PATH"] ?? 
 
 export function llmProviderStatus(keys: readonly KeyStatus[] = storableKeyStatus(), exists: (cmd: string) => boolean = commandExists): LlmProviderStatus[] {
   return (Object.keys(LLM_PROVIDERS) as LlmProviderName[]).map((name) => {
-    const p = LLM_PROVIDERS[name];
-    const base = { name, label: p.label, paid: p.paid };
+    const p: LlmProviderMeta = LLM_PROVIDERS[name];
+    const base = { name, label: p.label, paid: p.paid, ...(p.note ? { note: p.note } : {}) };
     if (p.keyEnv) {
       const available = keys.some((k) => k.name === p.keyEnv && k.configured);
       return { ...base, available, ...(available ? {} : { reason: `falta a chave ${p.keyEnv} (em Chaves e acessos)` }) };
     }
-    const command = envValue("ANTIGRAVITY_CLI_PATH") ?? p.command;
+    const command = envValue(p.commandEnv ?? "ANTIGRAVITY_CLI_PATH") ?? p.command;
     const available = exists(command);
     return { ...base, available, ...(available ? {} : { reason: `comando "${command}" não encontrado neste computador` }) };
   });

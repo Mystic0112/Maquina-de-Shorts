@@ -2,7 +2,7 @@
 import type { LlmUsage } from "../../src/orchestrator/types.js";
 
 /** Providers billed to the owner's plan credits, not per token (no API cost). */
-const PLAN_PROVIDERS = new Set(["antigravity-cli"]);
+const PLAN_PROVIDERS = new Set(["antigravity-cli", "claude-code"]);
 
 export interface LlmCostEstimate {
   usd: number;

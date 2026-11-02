@@ -5,6 +5,9 @@ import { z } from "zod";
 import type { LlmUsage, LlmUsageByModel, LlmUsageTotals, StageName } from "../types.js";
 import { env, paths } from "./config.js";
 import { AntigravityCliProvider } from "./antigravityCli.js";
+import { CliAgentProvider } from "./cliAgent.js";
+import { CLAUDE_CODE_PROFILE } from "./claudeCodeProfile.js";
+import { QuotaExhaustedError } from "./quota.js";
 
 // Re-exported so existing imports keep working after the move to antigravityCli.ts.
 export { AntigravityCliProvider, DEFAULT_ANTIGRAVITY_MODEL, DEFAULT_ANTIGRAVITY_CLI_PATH } from "./antigravityCli.js";
@@ -87,9 +90,9 @@ export function isRateLimitError(error: unknown): boolean {
  * Used to word the per-task fallback warning; retries keep using isRateLimitError only.
  */
 export function isQuotaExhaustedError(error: unknown): boolean {
-  if (isRateLimitError(error)) return true;
+  if (error instanceof QuotaExhaustedError || isRateLimitError(error)) return true;
   const message = error instanceof Error ? error.message : String(error);
-  return /credits balance|too low to continue|usage limit|too many requests/i.test(message);
+  return /credits balance|too low to continue|usage limit|too many requests|hit your .{0,30}limit/i.test(message);
 }
 
 /** Exponential backoff with full jitter: random in [base*2^n / 2, base*2^n], capped. */
@@ -135,7 +138,8 @@ export async function withRateLimitRetry<T>(
         retry--; // a timeout retry does not consume a rate-limit retry
         continue;
       }
-      if (!isRateLimitError(error) || retry >= retries) throw error;
+      // A plan quota (QuotaExhaustedError) is back in hours, not seconds: no backoff, the caller stops or falls back.
+      if (error instanceof QuotaExhaustedError || !isRateLimitError(error) || retry >= retries) throw error;
       await sleep(delay(retry));
     }
   }
@@ -306,6 +310,8 @@ const PROVIDER_FACTORIES: Record<LlmProviderName, () => LlmProvider> = {
   gemini: () => new GeminiProvider(requireKey("GEMINI_API_KEY"), env("GEMINI_MODEL") ?? DEFAULT_GEMINI_MODEL),
   anthropic: () => new AnthropicProvider(requireKey("ANTHROPIC_API_KEY"), env("ANTHROPIC_MODEL") ?? DEFAULT_ANTHROPIC_MODEL),
   "antigravity-cli": () => new AntigravityCliProvider(env("ANTIGRAVITY_CLI_PATH"), env("ANTIGRAVITY_MODEL")),
+  // Plan login of the Claude Code CLI, no key; never the default (LLM_PROVIDER / llm.tasks must name it).
+  "claude-code": () => new CliAgentProvider(CLAUDE_CODE_PROFILE, { timeoutEnv: "CLAUDE_CLI_TIMEOUT_S", concurrencyEnv: "CLAUDE_CLI_CONCURRENCY" }),
 };
 
 export function getProviderByName(name: LlmProviderName): LlmProvider {

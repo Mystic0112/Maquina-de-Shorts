@@ -27,6 +27,16 @@ describe("providers offered in 'IA por tarefa'", () => {
     expect(JSON.stringify(catalog)).not.toMatch(/AIza|sk-ant/);
   });
 
+  it("claude-code: free, usable when `claude` exists, and carries the plan/terms warning", () => {
+    const cc = llmProviderStatus([], (cmd) => cmd === "claude").find((s) => s.name === "claude-code")!;
+    expect(cc).toMatchObject({ available: true, paid: false });
+    expect(cc.note).toMatch(/plano/);
+    expect(cc.note).toMatch(/termos/);
+    const missing = llmProviderStatus([], () => false).find((s) => s.name === "claude-code")!;
+    expect(missing.available).toBe(false);
+    expect(missing.reason).toMatch(/"claude"/);
+  });
+
   it("commandExists finds a file on PATH and honours absolute paths", () => {
     const dir = mkdtempSync(join(tmpdir(), "cmd-test-"));
     try {

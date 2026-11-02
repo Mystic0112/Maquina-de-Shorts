@@ -348,12 +348,13 @@ O `.env` nunca entra no git. O modelo comentado é o `.env.example`. A tabela ab
 
 | Grupo | Variável | Para quê |
 |---|---|---|
-| IA | `LLM_PROVIDER` | `antigravity-cli` (produção), `gemini` (API paga) ou `anthropic`. Sem valor, o código usa `antigravity-cli` (custo zero). |
+| IA | `LLM_PROVIDER` | `antigravity-cli` (produção), `claude-code` (plano Claude, sem chave), `gemini` (API paga) ou `anthropic`. Sem valor, o código usa `antigravity-cli` (custo zero). |
 | IA | `ANTIGRAVITY_CLI_PATH` | Onde está o `agy` (padrão: `agy` no PATH) |
 | IA | `ANTIGRAVITY_MODEL` | Modelo padrão do `agy` (vazio = `gemini-3.8-flash-medium`). `llm.models` tem prioridade por etapa. |
 | IA | `ANTIGRAVITY_CLI_TIMEOUT_S`, `LLM_TIMEOUT_RETRIES` | Tempo máximo por chamada (padrão 240 s). Estourou? Tenta de novo até `LLM_TIMEOUT_RETRIES` vezes (padrão 2) antes de falhar. |
 | IA | `ANTIGRAVITY_CLI_CONCURRENCY` | Quantos `agy` ao mesmo tempo (padrão 2) |
 | IA | `ANTIGRAVITY_CLI_SESSION_TURNS` | Sessão contínua: quantas perguntas cada processo `agy` responde antes de reiniciar (padrão 0 = desligado). Economiza as instruções internas do agy a cada pergunta. |
+| IA | `CLAUDE_CLI_PATH`, `CLAUDE_CLI_MODEL`, `CLAUDE_CLI_TIMEOUT_S`, `CLAUDE_CLI_CONCURRENCY` | Só para o provedor `claude-code` (plano Claude, sem chave): onde está o `claude` (padrão: `claude` no PATH), modelo (padrão `sonnet`), tempo máximo por chamada (240 s) e quantos ao mesmo tempo (2). |
 | IA | `ANTIGRAVITY_FALLBACK` | Se o `agy` falhar: `none` (padrão, custo zero) ou `gemini` (usa a API paga) |
 | IA | `GEMINI_API_KEY`, `GEMINI_MODEL` | Só com `LLM_PROVIDER=gemini`, voz Gemini TTS ou `ANTIGRAVITY_FALLBACK=gemini` |
 | IA | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | Só com `LLM_PROVIDER=anthropic` |
@@ -416,7 +417,7 @@ Exemplo de modelos por etapa (confira os nomes com `agy models`):
 "llm": { "models": { "script": "gemini-4-argon-medium", "factCheck": "gemini-3.8-flash-medium", "relevance": "gemini-3.8-flash-low", "metadata": "gemini-4-argon-low" } }
 ```
 
-**IA por tarefa (`llm.tasks`, Configurações → IA por tarefa).** Cada tarefa pode ter seu próprio provedor, modelo e esforço (`thinking`), e vários provedores ficam ativos ao mesmo tempo. Tarefas: `script`, `factCheck`, `metadata`, `relevance`, `terminal`, `cutsSelect`, `cutsVerify`, `cutsHumor`, `cutsCompilation`. Provedores: `antigravity-cli` (créditos do plano), `gemini` e `anthropic` (APIs pagas, precisam de chave). Sem `llm.tasks`, tudo funciona como antes (`LLM_PROVIDER` no `.env` + `llm.models`; `footage.relevance.provider` continua valendo). Uma tarefa com provedor próprio ignora o modelo de `llm.models` (ele é de outro provedor).
+**IA por tarefa (`llm.tasks`, Configurações → IA por tarefa).** Cada tarefa pode ter seu próprio provedor, modelo e esforço (`thinking`), e vários provedores ficam ativos ao mesmo tempo. Tarefas: `script`, `factCheck`, `metadata`, `relevance`, `terminal`, `cutsSelect`, `cutsVerify`, `cutsHumor`, `cutsCompilation`. Provedores: `antigravity-cli` (créditos do plano), `claude-code` (plano Claude, sem chave; veja os avisos abaixo), `gemini` e `anthropic` (APIs pagas, precisam de chave). Sem `llm.tasks`, tudo funciona como antes (`LLM_PROVIDER` no `.env` + `llm.models`; `footage.relevance.provider` continua valendo). Uma tarefa com provedor próprio ignora o modelo de `llm.models` (ele é de outro provedor).
 
 ```json
 "llm": {
@@ -432,6 +433,17 @@ Exemplo de modelos por etapa (confira os nomes com `agy models`):
 ```
 
 `fallback` é a alternativa tentada uma vez quando o provedor falha ou a cota acaba ("AI credits balance is too low", 429). **Nunca cai para API paga sozinho:** uma alternativa `gemini` ou `anthropic` só vale com `"allowPaid": true` escrito naquela tarefa (o painel avisa); sem isso ela é ignorada com um aviso no log. Escolher `gemini`/`anthropic` como provedor principal de uma tarefa é decisão do dono e gasta dinheiro.
+
+**Provedor `claude-code` (Claude Code com o login do plano, sem chave).** Para quem não tem o `agy`: usa o Claude Code (`claude`) já instalado e logado com a assinatura da própria pessoa. Pré-requisitos: Claude Code atualizado (o provedor usa `--safe-mode`; se o comando reclamar dessa opção, atualize), `claude` no PATH (no Windows, o instalador nativo, que cria `claude.exe`; ou aponte `CLAUDE_CLI_PATH`) e login feito uma vez abrindo `claude`. Como funciona: cada chamada é um `claude -p --output-format json --json-schema ...` numa pasta temporária vazia, com o ambiente sem nenhuma chave (a `ANTHROPIC_API_KEY` do computador **não** é repassada: com ela o Claude Code cobraria da API em vez do plano), ferramentas desligadas (`--tools ""`), nada de `--dangerously-skip-permissions`. Imagens: ficam na pasta temporária e só a ferramenta `Read` está ligada (ela não é liberada fora dessa pasta). Busca na web (checagem de fatos): só a ferramenta `WebSearch`. Para ligar, escolha-o numa tarefa em Configurações → IA por tarefa (ou `LLM_PROVIDER=claude-code`); **nunca é ligado por padrão**.
+
+Avisos honestos antes de usar:
+
+- **A cota é a do plano da pessoa.** O limite é por janela de horas e por semana; quando acaba, o provedor lança o erro de cota (`QuotaExhaustedError`): a execução para sem trocar de tema, e uma alternativa configurada na tarefa assume. Cada vídeo faz dezenas de chamadas, e as de imagem (juiz de relevância) são as mais numerosas.
+- **Termos de uso do plano.** A documentação da Anthropic (code.claude.com/docs/en/legal-and-compliance, consultada em 2026-11-02) diz que o login do plano é para "uso comum" e que os limites anunciados assumem uso "comum e individual" do Claude Code; quem constrói produto deve usar chave de API. Cada pessoa entrar no `claude` original com a própria assinatura é permitido, mas rodar dezenas de vídeos por dia sem parar é zona cinzenta. **Confira os termos do seu plano antes**; este projeto não afirma que é permitido.
+- Não há geração de imagem neste provedor (o formato "ilustrado" continua só no `agy`).
+- Sem a chave, o custo em dinheiro é zero; o painel conta as chamadas como "plano".
+
+Outros agentes de linha de comando (Codex, opencode, Cursor) entram depois como novos "perfis" (`CliAgentProfile` em `src/orchestrator/lib/cliAgent.ts`, o contrato está no comentário do arquivo; o do Claude Code está em `claudeCodeProfile.ts`), sem mexer no resto.
 
 Os temas ficam em `config/topics.seed.json` (também editáveis na aba Configurações → Temas).
 

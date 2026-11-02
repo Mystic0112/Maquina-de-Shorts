@@ -24,6 +24,11 @@ const SIGNS: readonly RegExp[] = [
   // The word "quota"/"cota" only next to a word that says it ran out ("cota de imagem esgotada", "quota exceeded").
   /\b(?:quota|cota)\b[^.\n]{0,80}\b(?:esgotad\w*|exceed\w*|exhaust\w*|reached|atingid\w*|excedid\w*|redefin\w*|reset\w*)/i,
   /\b(?:esgotad\w*|exceed\w*|exhaust\w*|atingid\w*|excedid\w*)[^.\n]{0,40}\b(?:quota|cota)\b/i,
+  // Claude Code plan limits (docs "errors", 2026-11-02): "You've hit your session limit", "...weekly limit", "...Opus limit";
+  // "usage limit reached" is the older wording (to confirm at home); "Credit balance is too low" is on the same docs page.
+  /\bhit your (?:session|weekly|monthly|usage|opus|sonnet|individual|org\S*|team\S*|channel\S*)\b[^.\n]{0,30}\blimit/i,
+  /usage limit reached/i,
+  /credit balance is too low/i,
 ];
 
 /** Index of the first sign of an exhausted quota in `text`, or -1. */
@@ -60,7 +65,7 @@ export class QuotaExhaustedError extends Error {
     readonly retryAfterMinutes?: number,
   ) {
     const back = retryAfterMinutes ? `; back in about ${Math.floor(retryAfterMinutes / 60)}h${String(retryAfterMinutes % 60).padStart(2, "0")}` : "";
-    super(`Image quota exhausted at provider "${provider}" (RESOURCE_EXHAUSTED)${back}: ${original}`);
+    super(`Quota exhausted at provider "${provider}" (RESOURCE_EXHAUSTED)${back}: ${original}`);
     this.name = "QuotaExhaustedError";
     if (retryAfterMinutes) this.resetAt = new Date(Date.now() + retryAfterMinutes * 60_000).toISOString();
   }

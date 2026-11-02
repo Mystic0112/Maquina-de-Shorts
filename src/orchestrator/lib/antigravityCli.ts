@@ -71,7 +71,7 @@ interface CliWrapper {
 }
 
 /** ponytail: FIFO semaphore; enough for a handful of parallel clip reviews. */
-class Semaphore {
+export class Semaphore {
   private active = 0;
   private readonly waiting: Array<() => void> = [];
 
@@ -371,7 +371,7 @@ export class AntigravityCliProvider implements LlmProvider {
 
 const EXT: Record<LlmImage["mimeType"], string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 
-async function writeImages(dir: string, images: readonly LlmImage[], prefix = ""): Promise<string[]> {
+export async function writeImages(dir: string, images: readonly LlmImage[], prefix = ""): Promise<string[]> {
   const files: string[] = [];
   for (const [i, img] of images.entries()) {
     const filePath = join(dir, `${prefix}frame_${i}.${EXT[img.mimeType]}`);
@@ -397,7 +397,7 @@ function imagePrompt(files: readonly string[], prompt: string): string {
   ].join("\n");
 }
 
-function tail(text: string): string {
+export function tail(text: string): string {
   const t = text.trim();
   return t ? `\n--- stderr ---\n${t.length > STDERR_TAIL_CHARS ? `...${t.slice(-STDERR_TAIL_CHARS)}` : t}` : "";
 }

@@ -260,6 +260,8 @@ export interface LlmProviderStatus {
   available: boolean;
   /** Why it is not available, in pt-BR. */
   reason?: string;
+  /** Honest warning shown next to the provider (plan quota, terms of use), in pt-BR. */
+  note?: string;
 }
 
 /** Providers and tasks the "IA por tarefa" section offers (the registry lives in src/shared/settings.ts). */

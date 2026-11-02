@@ -50,6 +50,10 @@ export function LlmTasksSection(props: {
           const fb = task.fallback;
           const fbInfo = fb?.provider ? byName.get(fb.provider) : undefined;
           const fbPaid = !!fbInfo?.paid;
+          const notes = [...new Set([task.provider, fb?.provider])].flatMap((n) => {
+            const info = n ? byName.get(n) : undefined;
+            return info?.note ? [info] : [];
+          });
           return (
             <div key={t.id} className="llm-task">
               <div className="llm-task-head">
@@ -96,6 +100,11 @@ export function LlmTasksSection(props: {
                   </Field>
                 )}
               </div>
+              {notes.map((info) => (
+                <p key={info.name} className="hint">
+                  <b>{info.label}:</b> {info.note}
+                </p>
+              ))}
               {fbPaid && (
                 <div className="banner">
                   <TriangleAlert size={16} color="var(--critical)" />

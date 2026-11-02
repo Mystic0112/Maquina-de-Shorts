@@ -297,7 +297,27 @@ export const LLM_PROVIDERS = {
   "antigravity-cli": { label: "Antigravity CLI (agy)", paid: false, keyEnv: "", command: "agy" },
   gemini: { label: "Gemini (API paga)", paid: true, keyEnv: "GEMINI_API_KEY", command: "" },
   anthropic: { label: "Claude (API paga)", paid: true, keyEnv: "ANTHROPIC_API_KEY", command: "" },
-} as const;
+  "claude-code": {
+    label: "Claude Code (plano, sem chave)",
+    paid: false,
+    keyEnv: "",
+    command: "claude",
+    commandEnv: "CLAUDE_CLI_PATH",
+    note:
+      "Usa a cota do SEU plano Claude (limite por janela de horas; quando acaba, a tarefa para ou cai na alternativa). " +
+      "Nenhuma chave de API é usada. Confira nos termos do seu plano se uso automatizado é permitido: rodar dezenas de vídeos por dia " +
+      "pode passar do \"uso comum e individual\". Nunca é ligado por padrão.",
+  },
+} as const satisfies Record<string, LlmProviderMeta>;
+/** Shape of a registry entry (optional fields: `commandEnv` = env var that overrides `command`; `note` = help text for the dashboard). */
+export interface LlmProviderMeta {
+  label: string;
+  paid: boolean;
+  keyEnv: string;
+  command: string;
+  commandEnv?: string;
+  note?: string;
+}
 export type LlmProviderName = keyof typeof LLM_PROVIDERS;
 export const LLM_PROVIDER_NAMES = Object.keys(LLM_PROVIDERS) as [LlmProviderName, ...LlmProviderName[]];
 export const isLlmProviderName = (name: string): name is LlmProviderName => Object.hasOwn(LLM_PROVIDERS, name);
