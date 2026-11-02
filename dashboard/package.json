@@ -2,6 +2,7 @@
   "name": "maquina-dashboard",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT OR Apache-2.0",
   "type": "module",
   "description": "Painel local do pipeline de Shorts (somente leitura, 127.0.0.1)",
   "engines": {

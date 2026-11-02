@@ -2,6 +2,7 @@
   "name": "maquina-de-fazer-dinheiro",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT OR Apache-2.0",
   "type": "module",
   "description": "Pipeline autônomo de YouTube Shorts de curiosidades",
   "engines": {

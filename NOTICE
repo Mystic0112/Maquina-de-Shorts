@@ -1,0 +1,66 @@
+Máquina de Shorts
+Copyright (c) 2026 Hélio Vinícius
+
+Este projeto é licenciado sob a sua escolha, MIT OU Apache-2.0 (veja LICENSE-MIT e LICENSE-APACHE),
+EXCETO a pasta vendor/openmontage_adapter/, que é AGPL-3.0 (veja vendor/openmontage_adapter/LICENSE).
+
+Este arquivo reúne os créditos e as licenças de software de terceiros que o projeto usa, inclui no
+repositório ou baixa ao rodar. Os modelos, as fontes e os programas marcados como "baixado ao rodar" NÃO são
+redistribuídos neste repositório: cada pessoa os baixa direto da fonte original e vale a licença de lá.
+Este texto não é aconselhamento jurídico e ainda não foi revisado por um advogado.
+
+----------------------------------------------------------------------------------------------------
+Código de terceiros dentro do repositório
+----------------------------------------------------------------------------------------------------
+
+Light-ASD (detecção de quem fala) — python/cuts/lightasd/
+  Copyright (c) 2023 Liao Junhua. Licença MIT; o texto está em python/cuts/lightasd/LICENSE e deve ser
+  mantido junto do código.
+
+----------------------------------------------------------------------------------------------------
+Baixado ao rodar, ou chamado como programa separado (não vem no repositório)
+----------------------------------------------------------------------------------------------------
+
+OpenMontage — https://github.com/calesthio/OpenMontage
+  AGPL-3.0. É importado só por vendor/openmontage_adapter/fetch_footage.py, que roda como subprocesso.
+  Veja vendor/openmontage_adapter/README.md.
+
+Kokoro-82M (voz local) — https://huggingface.co/hexgrad/Kokoro-82M
+  Apache-2.0.
+
+Chatterbox (voz local, pode usar a voz da própria pessoa) — https://github.com/resemble-ai/chatterbox
+  MIT. Todo áudio gerado leva uma marca d'água inaudível (Perth); não a remova. Use só uma voz que seja sua
+  ou de quem autorizou por escrito.
+
+faster-whisper (tempo de cada palavra e transcrição dos cortes) — https://github.com/SYSTRAN/faster-whisper
+  MIT.
+
+yt-dlp (download dos vídeos dos canais autorizados) — https://github.com/yt-dlp/yt-dlp
+  Unlicense (domínio público).
+
+Remotion (montagem e render do vídeo) — https://www.remotion.dev
+  Licença própria da Remotion: gratuita para pessoas e empresas com até 3 funcionários; uma empresa maior
+  pode precisar de uma licença paga, e a licença muda na versão 5.0. Confira os termos atuais antes de usar
+  ou distribuir.
+
+Modelos do OpenCV Zoo (detector de rostos YuNet e detector de texto PP-OCRv3) —
+https://github.com/opencv/opencv_zoo
+  Cada modelo tem o seu arquivo de licença na própria pasta do repositório de origem; vale a licença de lá.
+
+Fontes (baixadas ao rodar, em models/fonts/)
+  Montserrat e Anton: SIL Open Font License 1.1 (https://openfontlicense.org). Os créditos dos autores
+  ficam nos arquivos das fontes e nos repositórios de origem.
+
+Emojis Noto Emoji 3D (camada de humor dos cortes) — https://github.com/googlefonts/noto-emoji
+  Apache-2.0.
+
+Slint (interface do app desktop nativo, quando existir) — https://slint.dev
+  Se o app usar o Slint sob a licença gratuita, ele precisa mostrar o aviso exigido pela licença (o
+  componente "AboutSlint" ou o selo "Made with Slint"). Confira a licença escolhida antes de distribuir.
+
+----------------------------------------------------------------------------------------------------
+Conteúdo que a máquina usa ao rodar (não é código do projeto)
+----------------------------------------------------------------------------------------------------
+
+Imagens, vídeos, sons e memes só entram com licença permitida pela lista do projeto (README, seção Travas);
+autor, licença e link vão para o context.json e os créditos vão para a descrição do vídeo.

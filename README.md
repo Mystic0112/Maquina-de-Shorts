@@ -18,7 +18,7 @@
 
 <br/>
 
-![TypeScript 7](https://img.shields.io/badge/TypeScript-7-3178C6?logo=typescript&logoColor=white) ![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-339933?logo=nodedotjs&logoColor=white) ![Python 3.13](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white) ![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black) ![Remotion 4](https://img.shields.io/badge/Remotion-4-0B84F3?logo=remotion&logoColor=white) ![Vitest: 570+ testes](https://img.shields.io/badge/Vitest-570%2B_testes-6E9F18?logo=vitest&logoColor=white) ![Custo de API: R$ 0](https://img.shields.io/badge/custo_de_API-R%24_0-2EA44F) ![Plataformas: Windows e Linux](https://img.shields.io/badge/plataformas-Windows_%7C_Linux-555?logo=windows&logoColor=white)
+![Licença MIT ou Apache-2.0](https://img.shields.io/badge/licen%C3%A7a-MIT%20ou%20Apache--2.0-blue) ![TypeScript 7](https://img.shields.io/badge/TypeScript-7-3178C6?logo=typescript&logoColor=white) ![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-339933?logo=nodedotjs&logoColor=white) ![Python 3.13](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white) ![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black) ![Remotion 4](https://img.shields.io/badge/Remotion-4-0B84F3?logo=remotion&logoColor=white) ![Vitest: 570+ testes](https://img.shields.io/badge/Vitest-570%2B_testes-6E9F18?logo=vitest&logoColor=white) ![Custo de API: R$ 0](https://img.shields.io/badge/custo_de_API-R%24_0-2EA44F) ![Plataformas: Windows e Linux](https://img.shields.io/badge/plataformas-Windows_%7C_Linux-555?logo=windows&logoColor=white)
 
 </div>
 
@@ -785,6 +785,25 @@ O planejamento vivo fica no ClickUp, na lista **"Máquina de Shorts"** (ondas 0 
 - [ ] Juiz de imagem local treinado com o dataset de vereditos
 - [ ] Amostra de voz do painel com Kokoro/Gemini no lugar do edge-tts
 
+## 📄 Licença
+
+O código da Máquina de Shorts é licenciado sob a **sua escolha**, uma destas duas licenças (SPDX: `MIT OR Apache-2.0`):
+
+- [MIT](LICENSE-MIT)
+- [Apache-2.0](LICENSE-APACHE)
+
+**Exceção:** a pasta `vendor/openmontage_adapter/` é **AGPL-3.0**, porque o `fetch_footage.py` importa código do OpenMontage (que é AGPL-3.0). O OpenMontage em si não está no repositório e o resto do projeto só chama esse programa como subprocesso. Veja [`vendor/openmontage_adapter/README.md`](vendor/openmontage_adapter/README.md).
+
+Os créditos e as licenças de terceiros (Kokoro, Chatterbox, yt-dlp, fontes e outros) estão no arquivo [`NOTICE`](NOTICE).
+
+**Avisos de licenças de terceiros que valem para quem usa e distribui:**
+
+- **Remotion:** é gratuito para pessoas e para empresas de até 3 funcionários. Uma empresa com 4 ou mais pessoas pode precisar de uma licença paga da Remotion, e a licença muda na versão 5.0. Confira os termos atuais em [remotion.dev](https://www.remotion.dev).
+- **Slint:** quando houver o app desktop nativo, ele usa o Slint; sob a licença gratuita ele precisa mostrar o componente `AboutSlint` ou o selo "Made with Slint".
+- **Vozes e conteúdo:** a voz da ElevenLabs no plano Free é só para uso não comercial, e o Chatterbox só deve usar voz com consentimento (veja [Voz](#%EF%B8%8F-voz-motores)). Imagens, sons e memes só entram com licença permitida (veja [Travas](#%EF%B8%8F-travas)).
+
+Este texto não é aconselhamento jurídico e ainda não foi revisado por um advogado.
+
 ## 🙏 Créditos
 
 | Projeto | Uso aqui |
@@ -804,4 +823,4 @@ O planejamento vivo fica no ClickUp, na lista **"Máquina de Shorts"** (ondas 0 
 - **Memes e sons:** só as licenças da [lista](#-memes), com crédito quando a licença pede.
 - **Cortes:** só canais ligados pelo dono e fora da lista de bloqueio; nunca mudar o sentido nem desmoralizar (conferência antes do render); o crédito do canal e o link do original vão na descrição.
 - **Voz:** Kokoro é Apache-2.0 e Chatterbox é MIT (com marca d'água Perth; só vozes com consentimento). A ElevenLabs depende do plano: o Free é só uso não comercial. O edge-tts não tem licença comercial e ficou só como legado.
-- **OpenMontage:** `vendor/openmontage_adapter/` usa código do [OpenMontage](https://github.com/calesthio/OpenMontage), licenciado sob **AGPL-3.0**. O resto do projeto só o chama como processo separado e **nunca importa** dele em `src/` ou `python/`. Se este repositório for distribuído ou ficar público, o adaptador precisa ser publicado sob AGPL-3.0. O clone em `vendor/openmontage/` não é versionado.
+- **OpenMontage:** `vendor/openmontage_adapter/` importa código do [OpenMontage](https://github.com/calesthio/OpenMontage), licenciado sob **AGPL-3.0**; por isso essa pasta (e só ela) é AGPL-3.0 (veja [Licença](#-licença)). O resto do projeto só a chama como processo separado e **nunca importa** dela em `src/` ou `python/`. O clone em `vendor/openmontage/` não é versionado.

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 # AGPL-3.0 BOUNDARY: this file imports OpenMontage (AGPL-3.0) code and must only be invoked as a subprocess — never import it from src/ or python/.  # noqa: E501
 """Fetch commercially-reusable stock footage for each scene via OpenMontage's DirectClipSearch.
 
