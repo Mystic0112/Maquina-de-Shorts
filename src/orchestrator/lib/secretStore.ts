@@ -25,6 +25,7 @@ export const STORABLE_KEYS: readonly StorableKey[] = [
   { name: "PEXELS_API_KEY", label: "Pexels (imagens)" },
   { name: "PIXABAY_API_KEY", label: "Pixabay (imagens e sons)" },
   { name: "ELEVENLABS_API_KEY", label: "ElevenLabs (voz; sua própria chave; plano Free é só uso não comercial)" },
+  { name: "TAVILY_API_KEY", label: "Tavily (busca na web da checagem de fatos; sua própria chave, plano grátis limitado)" },
 ];
 
 export const STORE_FILE = "api-keys.json";

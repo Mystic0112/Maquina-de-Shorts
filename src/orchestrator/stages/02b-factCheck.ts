@@ -8,6 +8,9 @@ import { generateGroundedText, generateJson, withCorrection, type GroundedText }
 import { taskCallOptions, type TaskCallOptions } from "../lib/llmTasks.js";
 import { getLogger } from "../lib/logger.js";
 import { RunRejectedError } from "../lib/rejection.js";
+import { planFactCheckSearch, reviewWithOwnSearch, type JsonCall, type SearchPlan } from "../lib/factCheckSearch.js";
+import { isSearchUnsupportedError } from "../lib/searchSupport.js";
+import { WebSearchError, type WebSearchProvider } from "../lib/webSearch.js";
 import type { FactCheckClaim, FactCheckSummary, RunContext, Script } from "../types.js";
 import {
   beatsSchema,
@@ -253,6 +256,11 @@ Responda somente com o JSON.`;
 
 export interface FactCheckDeps {
   grounded(prompt: string): Promise<GroundedText>;
+  /**
+   * Present when the task's provider cannot search the web: one review with the machine's own search (lib/factCheckSearch.ts)
+   * replaces the grounded pass. It throws WebSearchError when the search fails (the round then rejects).
+   */
+  review?(script: Script): Promise<GroundedText>;
   structured(prompt: string, schema: z.ZodType<FactCheckResult>): Promise<FactCheckResult>;
   log?(message: string): void;
 }
@@ -261,11 +269,13 @@ export interface FactCheckDeps {
  * `call` = provider/model/thinking of the task (`taskCallOptions("factCheck")`; a plain string is just the model),
  * used by both the grounded and the structured call.
  */
-export function defaultFactCheckDeps(call: TaskCallOptions | string = {}): FactCheckDeps {
+export function defaultFactCheckDeps(call: TaskCallOptions | string = {}, search?: WebSearchProvider): FactCheckDeps {
   const task = typeof call === "string" ? { model: call } : call;
+  const json: JsonCall = (prompt, schema) => generateJson(prompt, schema, { thinking: "low", temperature: 0.2, ...task });
   return {
     grounded: (prompt) => generateGroundedText(prompt, { thinking: "low", temperature: 0.2, ...task }),
     structured: (prompt, schema) => generateJson(prompt, schema, { thinking: "low", temperature: 0.2, ...task }),
+    ...(search ? { review: (script: Script) => reviewWithOwnSearch({ scriptText: scriptForReview(script), curiosityRule: CURIOSITY_RULE, search, json }) } : {}),
   };
 }
 
@@ -282,9 +292,23 @@ async function reviewRound(
   deps: FactCheckDeps,
   previousCorrections: readonly string[],
 ): Promise<ReviewRound> {
-  const reviewPrompt = buildGroundedReviewPrompt(script);
-  let review = await deps.grounded(reviewPrompt);
+  let review: GroundedText;
+  if (deps.review) {
+    // The provider has no search: the machine's own (a search that fails rejects the round, it never passes it).
+    try {
+      review = await deps.review(script);
+    } catch (error) {
+      if (!(error instanceof WebSearchError)) throw error;
+      return { outcome: { kind: "reject", reason: `checagem sem busca na web: ${error.message}`, claims: [] }, review: { text: "", sources: [], queries: [] } };
+    }
+  } else {
+    review = await deps.grounded(buildGroundedReviewPrompt(script));
+  }
+  if (review.sources.length === 0 && deps.review) {
+    return { outcome: { kind: "reject", reason: "checagem sem fontes da web (a busca não devolveu nada)", claims: [] }, review };
+  }
   if (review.sources.length === 0) {
+    const reviewPrompt = buildGroundedReviewPrompt(script);
     // A "review" with no web sources is the model answering from memory: not a fact-check.
     deps.log?.(`Fact-check round ${round}: grounded review returned no web sources; retrying once`);
     review = await deps.grounded(reviewPrompt);
@@ -403,6 +427,12 @@ function uniqueSources(sources: GroundedText["sources"]): GroundedText["sources"
 // Stage
 // ---------------------------------------------------------------------------------------------
 
+/** The run is rejected (never passed or skipped) when the check has no web search to stand on. */
+function rejectedWithoutSearch(ctx: RunContext, reason: string): RunRejectedError {
+  const summary: FactCheckSummary = { verdict: "fail", rounds: 0, claimsChecked: 0, claims: [], corrections: [], sources: [], searchQueries: [], reason };
+  return new RunRejectedError(`Fact-check rejected the script: ${reason}`, { ...ctx, factCheck: summary });
+}
+
 export async function run(ctx: RunContext): Promise<RunContext> {
   if (!ctx.script) throw new Error("02b-factCheck requires ctx.script (run 02-generateScript first)");
   const log = getLogger(ctx.runId);
@@ -416,8 +446,23 @@ export async function run(ctx: RunContext): Promise<RunContext> {
     };
     return { ...ctx, factCheck: { ...skipped, scriptHash: scriptHash(ctx.script) } };
   }
-  const deps = { ...defaultFactCheckDeps(taskCallOptions("factCheck", config)), log: (m: string) => log.warn(m) };
-  const { script, summary } = await factCheckScript(ctx.script, settings, deps);
+  let plan: SearchPlan;
+  try {
+    plan = planFactCheckSearch(config, settings.factCheckSearch);
+  } catch (error) {
+    if (error instanceof WebSearchError) throw rejectedWithoutSearch(ctx, error.message);
+    throw error;
+  }
+  const deps = { ...defaultFactCheckDeps(taskCallOptions("factCheck", config), plan.mode === "own" ? plan.search : undefined), log: (m: string) => log.warn(m) };
+  let checked: FactCheckRun;
+  try {
+    checked = await factCheckScript(ctx.script, settings, deps);
+  } catch (error) {
+    // E.g. the alternative of the task has no search: a clear rejection, never "no check".
+    if (isSearchUnsupportedError(error)) throw rejectedWithoutSearch(ctx, error.message);
+    throw error;
+  }
+  const { script, summary } = checked;
   const failing = summary.claims.filter((c) => c.verdict !== "supported");
   for (const c of failing) log.info(`Fact-check r${c.round} ${c.verdict}: "${c.claim}"${c.correction ? ` -> ${c.correction}` : ""}`);
   for (const change of summary.corrections) log.info(`Fact-check change: ${change}`);

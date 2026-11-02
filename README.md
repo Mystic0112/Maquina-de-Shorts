@@ -363,7 +363,7 @@ O `.env` nunca entra no git. O modelo comentado é o `.env.example`. A tabela ab
 | Voz | `ELEVENLABS_API_KEY` | Sua chave da ElevenLabs (só com `voice.engine: elevenlabs`; o plano Free é só uso não comercial) |
 | Imagens | `PEXELS_API_KEY`, `PIXABAY_API_KEY` | Mais fontes de imagem e vídeo (recomendado). A do Pixabay também serve aos memes. |
 | Publicação | `YT_CLIENT_SECRET_PATH`, `YT_TOKEN_PATH` | Arquivos do login do YouTube (padrão em `secrets/`) |
-| Chaves de API | `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `YOUTUBE_API_KEY`, `PEXELS_API_KEY`, `PIXABAY_API_KEY`, `ELEVENLABS_API_KEY` | Podem vir do `.env` **ou** ser coladas em Configurações > Chaves e acessos, que as guarda em `secrets/api-keys.json` (fora do git, só o dono do arquivo lê). O painel nunca devolve o valor: mostra só "configurada" e de onde vem. O que estiver no `.env` ou no ambiente vale mais que o do painel |
+| Chaves de API | `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `YOUTUBE_API_KEY`, `PEXELS_API_KEY`, `PIXABAY_API_KEY`, `ELEVENLABS_API_KEY`, `TAVILY_API_KEY` | Podem vir do `.env` **ou** ser coladas em Configurações > Chaves e acessos, que as guarda em `secrets/api-keys.json` (fora do git, só o dono do arquivo lê). O painel nunca devolve o valor: mostra só "configurada" e de onde vem. O que estiver no `.env` ou no ambiente vale mais que o do painel |
 | Publicação | `YOUTUBE_CHANNEL_ID` | ID do canal (`UC...`), mostrado pelo `npm run auth:youtube` |
 | Publicação | `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET` | App da Meta, usados só pelo `npm run auth:instagram` |
 | Painel | `YOUTUBE_API_KEY` | Estatísticas públicas no painel (não serve para publicar) |
@@ -446,6 +446,16 @@ Avisos honestos antes de usar:
 - Sem a chave, o custo em dinheiro é zero; o painel conta as chamadas como "plano".
 
 Outros agentes de linha de comando (Codex, opencode, Cursor) entram depois como novos "perfis" (`CliAgentProfile` em `src/orchestrator/lib/cliAgent.ts`, o contrato está no comentário do arquivo; o do Claude Code está em `claudeCodeProfile.ts`), sem mexer no resto.
+
+**Checagem de fatos com a busca da própria Máquina (`script.factCheckSearch`, Configurações → Roteiro).** `agy`, Gemini e Claude buscam na web sozinhos e não precisam disto. Um modelo que **não** busca (compatível com OpenAI, Ollama, LM Studio...) usa a busca da Máquina: a IA propõe 1 ou 2 consultas por afirmação, a Máquina busca, e a IA julga cada afirmação só com os trechos recebidos, citando as URLs que usou. Citação que não está entre os resultados da busca derruba a afirmação para "sem respaldo"; afirmação sem nenhum resultado nunca fica "correto". As rodadas de correção e a trava do hash são as de sempre. **Sem busca configurada, a execução é rejeitada com a mensagem do que configurar (a checagem nunca é pulada em silêncio)**; desligar de propósito continua sendo `script.factCheck: false`. Erro da busca (instância fora do ar, limite de uso) também rejeita.
+
+```json
+"script": { "factCheckSearch": { "provider": "searxng", "baseUrl": "http://localhost:8888" } }
+```
+
+- `searxng` (recomendado, grátis): a **sua** instância do [SearXNG](https://docs.searxng.org/). No `settings.yml` dela, `search.formats` precisa incluir `json` (por padrão só vem `html`; sem isso a instância responde 403). A Máquina só faz as consultas; não instala nada.
+- `tavily`: API de busca com a **sua** chave `TAVILY_API_KEY` (Configurações → Chaves e acessos, ou o `.env`; só de escrita, nunca vai para log nem para o config). Cada checagem gasta de 10 a 40 buscas do plano, e o plano grátis tem limite mensal. `"provider": "tavily"` não precisa de `baseUrl`.
+- Ausente = nenhuma busca própria (config antigo): o comportamento é exatamente o de antes.
 
 Os temas ficam em `config/topics.seed.json` (também editáveis na aba Configurações → Temas).
 

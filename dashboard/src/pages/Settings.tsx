@@ -46,6 +46,7 @@ import type {
 import { categoryColor } from "../colors";
 import { Card, Empty, formatIcon } from "../components";
 import { CutsChannelsSection } from "../CutsChannels";
+import { FactCheckSearchFields } from "../FactCheckSearchFields";
 import { KeysEditor } from "../KeysEditor";
 import { LlmTasksSection } from "../LlmTasksSection";
 import { MusicSection } from "../MusicSection";
@@ -502,6 +503,14 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
                 onChange={(v) => set("script.factCheck", v)}
                 help="O Gemini confere cada afirmação com busca no Google e corrige o roteiro (≈ 4–6 chamadas extras por vídeo). Roteiros que não puderem ser corrigidos são descartados e refeitos com outro tema."
               />
+              {script.factCheck !== false && (
+                <FactCheckSearchFields
+                  search={script.factCheckSearch}
+                  tavilyKeySet={settings.keys.find((k) => k.name === "TAVILY_API_KEY")?.configured}
+                  set={set}
+                  errorAt={errorAt}
+                />
+              )}
               <Switch
                 label="Final que volta ao gancho"
                 checked={script.loopEnding}

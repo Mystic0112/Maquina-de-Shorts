@@ -96,6 +96,18 @@ export const VisualSettingsSchema = z.object({
   tailSeconds: z.number().min(0).max(1.5).optional(),
 });
 
+/**
+ * Web search providers the MACHINE can query for the fact-check when the LLM provider cannot search (metadata shared
+ * with the dashboard; clients and factories: src/orchestrator/lib/webSearch.ts, which the compiler keeps exhaustive).
+ * searxng = the person's own instance (free, local; recommended). tavily = a search API with the person's own key.
+ */
+export const WEB_SEARCH_PROVIDERS = {
+  searxng: { label: "SearXNG (instância própria, grátis)", keyEnv: "", needsUrl: true },
+  tavily: { label: "Tavily (API de busca, com a sua chave)", keyEnv: "TAVILY_API_KEY", needsUrl: false },
+} as const;
+export type WebSearchProviderName = keyof typeof WEB_SEARCH_PROVIDERS;
+export const WEB_SEARCH_PROVIDER_NAMES = Object.keys(WEB_SEARCH_PROVIDERS) as [WebSearchProviderName, ...WebSearchProviderName[]];
+
 export const ScriptSettingsSchema = z.object({
   minWords: z.number().int().min(60).max(300).optional(),
   maxWords: z.number().int().min(80).max(350).optional(),
@@ -131,6 +143,19 @@ export const ScriptSettingsSchema = z.object({
    * missing images up in the stock libraries (same license filters and quality gate). Never a paid API.
    */
   imageFallback: z.enum(["nenhum", "acervo"]).optional(),
+  /**
+   * Machine-owned web search for the fact-check, used ONLY when the fact-check task's LLM provider has no web search
+   * of its own (see hasNativeWebSearch). Providers with native search ignore it. Absent/empty = none: a provider
+   * without native search then REJECTS the run (the check is never skipped silently). The key of a paid search API
+   * is never here: it lives in secrets/ (STORABLE_KEYS).
+   */
+  factCheckSearch: z
+    .object({
+      provider: z.enum(WEB_SEARCH_PROVIDER_NAMES).optional(),
+      /** SearXNG only: base URL of the person's own instance, e.g. http://localhost:8888 (needs the json format enabled). */
+      baseUrl: z.string().max(300).regex(/^(https?:\/\/\S+)?$/, "endereço começando com http:// ou https://").optional(),
+    })
+    .optional(),
 });
 
 /** Instagram Reels publisher (config section `instagram`). Off by default; needs `npm run auth:instagram`. */
@@ -222,6 +247,7 @@ export const SCRIPT_DEFAULTS: Required<Omit<ScriptSettings, "cta">> & Pick<Scrip
   imageSource: "acervo",
   imageProvider: "agy",
   imageFallback: "nenhum",
+  factCheckSearch: {},
 };
 
 export const VOICE_EXTRAS_DEFAULTS: Required<VoiceExtras> = {
@@ -370,6 +396,14 @@ export function isLocalBaseUrl(url: string): boolean {
   const [a, b] = [Number(m[1]), Number(m[2])];
   return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
 }
+
+/**
+ * LLM providers whose own API/tool searches the web (their completeGroundedText works). A provider NOT listed here
+ * is treated as having no search: the fact-check then needs a `script.factCheckSearch` provider or the run is
+ * rejected. Fail-closed on purpose: a new provider must be proven to search before it is added.
+ */
+const NATIVE_WEB_SEARCH: readonly string[] = ["antigravity-cli", "gemini", "anthropic"];
+export const hasNativeWebSearch = (name: string): boolean => NATIVE_WEB_SEARCH.includes(name);
 
 /** Key of `llm.models` that was this task's model before `llm.tasks` existed (still honoured when the task has no provider). */
 type LegacyModelKey = "script" | "factCheck" | "metadata" | "relevance";
