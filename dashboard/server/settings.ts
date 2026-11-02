@@ -22,6 +22,7 @@ import {
 import type { FieldError, KeyStatus, SettingsPayload, TopicsPayload } from "../shared/api.js";
 import { envIsSet, envValue, paths, projectRoot } from "./config.js";
 import { storableKeyStatus } from "./keys.js";
+import { llmCatalog } from "./llmProviders.js";
 
 const BACKUP_DIR = join(projectRoot, "config", "backups");
 
@@ -195,6 +196,7 @@ export async function getSettings(): Promise<SettingsPayload> {
     fonts: CAPTION_FONTS,
     schema: jsonSchema(),
     keys: keyStatus(),
+    llm: llmCatalog(),
   };
 }
 

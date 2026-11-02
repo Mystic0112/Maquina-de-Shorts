@@ -12,6 +12,7 @@ import {
   type LlmProviderName,
   type ThinkingSetting,
 } from "./llmClient.js";
+import { resolveTaskSettings } from "./llmTasks.js";
 
 // ---------------------------------------------------------------------------------------------
 // Settings & verdicts
@@ -39,6 +40,7 @@ export const MAX_IMAGES_PER_CALL = 12;
 
 export function resolveRelevanceSettings(footage: PipelineConfig["footage"], llm?: PipelineConfig["llm"]): RelevanceSettings {
   const r = footage?.relevance;
+  const task = resolveTaskSettings("relevance", { llm, footage }); // llm.tasks.relevance, then the legacy keys
   return {
     enabled: r?.enabled ?? true,
     minScore: r?.minScore ?? 6,
@@ -46,9 +48,9 @@ export function resolveRelevanceSettings(footage: PipelineConfig["footage"], llm
     // 3 passing clips per scene give the renderer material to split long scenes into several shots.
     keepPerScene: r?.keepPerScene ?? DEFAULT_KEEP_PER_SCENE,
     concurrency: r?.concurrency ?? 4,
-    thinking: r?.thinking ?? "low",
-    provider: r?.provider,
-    model: llm?.models?.relevance,
+    thinking: task.thinking ?? r?.thinking ?? "low",
+    provider: task.provider,
+    model: task.model,
     batchSize: Math.min(MAX_BATCH_SIZE, Math.max(1, r?.batchSize ?? 1)),
   };
 }

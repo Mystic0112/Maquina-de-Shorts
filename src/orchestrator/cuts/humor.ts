@@ -13,7 +13,8 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { buildFrameExtractArgs, resolveFfmpegBinaries, runBinary } from "../lib/ffmpeg.js";
-import { generateJsonWithImages, type LlmImage, type LlmProvider } from "../lib/llmClient.js";
+import { generateJsonWithImages, type LlmImage } from "../lib/llmClient.js";
+import type { TaskCallOptions } from "../lib/llmTasks.js";
 import type { CutChannel } from "./config.js";
 import type { Interval } from "./jumpcut.js";
 import { ensureModelFile, type ModelFile } from "./render.js";
@@ -182,9 +183,7 @@ export function validateHumor(draft: HumorDraft, start: number, end: number, kee
   return { jokes, emojis, effects };
 }
 
-export interface PlanHumorOptions {
-  provider?: LlmProvider;
-  model?: string;
+export interface PlanHumorOptions extends TaskCallOptions {
   fetchFn?: typeof fetch;
   log?: (m: string) => void;
 }
@@ -213,7 +212,7 @@ async function grabFrames(source: string, times: readonly number[]): Promise<{ a
 export async function planHumor(input: HumorInput, keep: readonly Interval[], options: PlanHumorOptions = {}): Promise<HumorJob | null> {
   try {
     const frames = input.sourcePath ? await grabFrames(input.sourcePath, frameTimes(input.start, input.end, input.lively, keep)) : { at: [], images: [] };
-    const draft = await generateJsonWithImages(buildHumorPrompt(input, frames.at), frames.images, HumorDraftSchema, { provider: options.provider, model: options.model, thinking: "low", temperature: 0.7 });
+    const draft = await generateJsonWithImages(buildHumorPrompt(input, frames.at), frames.images, HumorDraftSchema, { provider: options.provider, model: options.model, thinking: options.thinking ?? "low", temperature: 0.7 });
     const plan = validateHumor(draft, input.start, input.end, keep);
     const emojis: HumorJob["emojis"] = [];
     for (const e of plan.emojis) {

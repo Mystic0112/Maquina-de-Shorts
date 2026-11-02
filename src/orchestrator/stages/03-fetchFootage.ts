@@ -39,7 +39,8 @@ import { ILLUSTRATION_SOURCE } from "../lib/illustrate.js";
 import { generateImages, getImageProvider } from "../lib/imageProvider.js";
 import { planTerminal } from "../lib/terminalCards.js";
 import { redactSecrets } from "../lib/redact.js";
-import { getDefaultProvider, getProviderByName, type LlmProvider } from "../lib/llmClient.js";
+import { getDefaultProvider, type LlmProvider } from "../lib/llmClient.js";
+import { taskCallOptions } from "../lib/llmTasks.js";
 import { buildVerdictRecord, saveVerdictFrames, VERDICT_FRAMES_DIR, writeVerdictLog, type VerdictRecord } from "../lib/verdictLog.js";
 import type { FootageClip, QualitySummary, RunContext, SceneBeat, Script, ScriptScene } from "../types.js";
 
@@ -458,7 +459,8 @@ export function reviewContextKey(script: Script, clip: FootageClip, altQueries: 
 /** One vision call per batch (`settings.batchSize` clips of the same context); results keep input order. */
 async function scoreAll(clips: readonly FootageClip[], gate: GateContext): Promise<ScoredClip[]> {
   const { settings, stats, log } = gate;
-  const relevanceProvider = settings.provider ? getProviderByName(settings.provider) : undefined;
+  // Provider of the "relevance" task (with its optional fallback); absent = the machine default. Model/thinking: settings.
+  const relevanceProvider = taskCallOptions("relevance").provider;
   const batches = planBatches(clips, (clip) => reviewContextKey(gate.script, clip, gate.altQueries), settings.batchSize);
   const results = new Array<ScoredClip>(clips.length);
   await mapWithConcurrency(batches, settings.concurrency, async (indexes) => {
@@ -665,7 +667,7 @@ async function keepFirstPerScene(clips: readonly FootageClip[], keepPerScene: nu
  */
 async function terminalRun(ctx: RunContext, script: Script, log: Logger, config: ReturnType<typeof loadConfig>): Promise<RunContext> {
   const started = performance.now();
-  const scenes = await planTerminal(script, { model: config.llm?.models?.metadata });
+  const scenes = await planTerminal(script, taskCallOptions("terminal", config));
   const kinds = scenes.map((s) => s.card.kind).join(", ");
   log.info(`Terminal format: ${scenes.length} card(s) in ${seconds(started)} (${kinds}); no footage`);
   const total = script.scenes.length;

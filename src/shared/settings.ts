@@ -262,3 +262,82 @@ function stripUndefined<T extends object>(o: T | undefined): Partial<T> {
   if (!o) return {};
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
 }
+
+// ---------------------------------------------------------------------------------------------
+// LLM: provider and model per task (config section `llm`)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Registry of LLM providers (metadata shared with the dashboard). To add one (Claude Code, OpenAI-compatible...):
+ * add an entry here and its factory in PROVIDER_FACTORIES (src/orchestrator/lib/llmClient.ts), which the compiler
+ * demands. `paid` = billed per call by API key: it is NEVER used as a fallback unless the owner turns that on
+ * for that task (`allowPaid`). `keyEnv` = the key that makes it usable ("" = no key; `command` must exist).
+ */
+export const LLM_PROVIDERS = {
+  "antigravity-cli": { label: "Antigravity CLI (agy)", paid: false, keyEnv: "", command: "agy" },
+  gemini: { label: "Gemini (API paga)", paid: true, keyEnv: "GEMINI_API_KEY", command: "" },
+  anthropic: { label: "Claude (API paga)", paid: true, keyEnv: "ANTHROPIC_API_KEY", command: "" },
+} as const;
+export type LlmProviderName = keyof typeof LLM_PROVIDERS;
+export const LLM_PROVIDER_NAMES = Object.keys(LLM_PROVIDERS) as [LlmProviderName, ...LlmProviderName[]];
+export const isLlmProviderName = (name: string): name is LlmProviderName => Object.hasOwn(LLM_PROVIDERS, name);
+export const isPaidLlmProvider = (name: LlmProviderName): boolean => LLM_PROVIDERS[name].paid;
+
+/** Key of `llm.models` that was this task's model before `llm.tasks` existed (still honoured when the task has no provider). */
+type LegacyModelKey = "script" | "factCheck" | "metadata" | "relevance";
+
+/**
+ * Every task that calls an LLM. Image generation and voice have their own cards: they plug in here later
+ * (a new entry is enough for the schema, the resolver and the dashboard).
+ */
+export const LLM_TASKS = {
+  script: { label: "Roteiro", hint: "Escreve o roteiro de cada Short.", legacyModel: "script" },
+  factCheck: { label: "Checagem de fatos", hint: "Confere o roteiro com busca na web.", legacyModel: "factCheck" },
+  metadata: { label: "Título e descrição", hint: "Metadados dos Shorts e dos cortes.", legacyModel: "metadata" },
+  relevance: { label: "Relevância das imagens", hint: "Dá nota a cada imagem contra a fala (visão).", legacyModel: "relevance" },
+  terminal: { label: "Cartões do formato terminal", hint: "Um cartão animado por cena.", legacyModel: "metadata" },
+  cutsSelect: { label: "Cortes: seleção", hint: "Escolhe os trechos do vídeo original." },
+  cutsVerify: { label: "Cortes: conferência de sentido", hint: "Confere que o corte não muda o sentido." },
+  cutsHumor: { label: "Cortes: humor", hint: "Piadas, emojis e efeitos (vê quadros do vídeo)." },
+  cutsCompilation: { label: "Cortes: compilação", hint: "Escolhe os vídeos curtos da compilação." },
+} as const satisfies Record<string, { label: string; hint: string; legacyModel?: LegacyModelKey }>;
+export type LlmTaskName = keyof typeof LLM_TASKS;
+export const LLM_TASK_NAMES = Object.keys(LLM_TASKS) as [LlmTaskName, ...LlmTaskName[]];
+
+const llmProviderEnum = z.enum(LLM_PROVIDER_NAMES);
+
+export const LlmTaskSettingSchema = z.object({
+  /** Absent = the machine's provider (LLM_PROVIDER in .env, default agy). */
+  provider: llmProviderEnum.optional(),
+  /** Model id of THAT provider (agy aliases for agy, API ids for the others). Absent = provider default. */
+  model: z.string().min(1).optional(),
+  thinking: z.enum(["default", "minimal", "low", "medium", "high"]).optional(),
+  /** Tried once when the provider fails or its quota ends. Absent = no fallback. */
+  fallback: z
+    .object({
+      provider: llmProviderEnum,
+      model: z.string().min(1).optional(),
+      /** Needed for a paid provider (gemini/anthropic): without it the fallback is ignored. Never on by default. */
+      allowPaid: z.boolean().optional(),
+    })
+    .optional(),
+});
+export type LlmTaskSetting = z.infer<typeof LlmTaskSettingSchema>;
+
+/** `llm` section of pipeline.config.json. Older files (only `models`) stay valid and behave as before. */
+export const LlmSettingsSchema = z.object({
+  /** Legacy, model only (same provider as the machine). Prefer `tasks`; it still applies to tasks without their own provider. */
+  models: z
+    .object({
+      script: z.string().min(1).optional(),
+      factCheck: z.string().min(1).optional(),
+      metadata: z.string().min(1).optional(),
+      relevance: z.string().min(1).optional(),
+    })
+    .optional(),
+  /** Strict on purpose: a typo in a task name would silently drop its provider/fallback rules. */
+  tasks: z
+    .strictObject(Object.fromEntries(LLM_TASK_NAMES.map((t) => [t, LlmTaskSettingSchema.optional()])) as Record<LlmTaskName, z.ZodOptional<typeof LlmTaskSettingSchema>>)
+    .optional(),
+});
+export type LlmSettings = z.infer<typeof LlmSettingsSchema>;

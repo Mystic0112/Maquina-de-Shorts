@@ -250,6 +250,24 @@ export interface KeyWriteResponse {
   keys?: KeyStatus[];
 }
 
+/** One LLM provider as the "IA por tarefa" section sees it. */
+export interface LlmProviderStatus {
+  name: string;
+  label: string;
+  /** Billed per call by API key (never a silent fallback; see allowPaid). */
+  paid: boolean;
+  /** Key configured (API providers) or command found (agy). */
+  available: boolean;
+  /** Why it is not available, in pt-BR. */
+  reason?: string;
+}
+
+/** Providers and tasks the "IA por tarefa" section offers (the registry lives in src/shared/settings.ts). */
+export interface LlmCatalog {
+  providers: LlmProviderStatus[];
+  tasks: { id: string; label: string; hint: string }[];
+}
+
 export interface SettingsPayload {
   /** Content hash of the file on disk; sent back on save to detect concurrent edits. */
   version: string;
@@ -275,6 +293,7 @@ export interface SettingsPayload {
   /** JSON Schema of PipelineConfigSchema (drives slider ranges and client-side validation). */
   schema: unknown;
   keys: KeyStatus[];
+  llm: LlmCatalog;
 }
 
 export interface TopicCategory {

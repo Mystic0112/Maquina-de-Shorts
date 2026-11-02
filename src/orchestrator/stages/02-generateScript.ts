@@ -5,6 +5,7 @@ import { z } from "zod";
 import { resolveScript, type ScriptSettings } from "../../shared/settings.js";
 import { env, loadConfig, paths } from "../lib/config.js";
 import { generateJson, withCorrection } from "../lib/llmClient.js";
+import { taskCallOptions, type TaskCallOptions } from "../lib/llmTasks.js";
 import { getLogger } from "../lib/logger.js";
 import { ownerRulesBlock } from "../lib/ownerRules.js";
 import { containsWord, isEmphasisWord, normalizeToken, spellNumber, textTokens, titleKeyTokens } from "../lib/ptBr.js";
@@ -553,8 +554,8 @@ Responda somente com o JSON no formato pedido.`;
 // Stage
 // ---------------------------------------------------------------------------------------------
 
-async function requestScript(prompt: string, s: ResolvedScriptSettings, model?: string): Promise<LlmScript & { cta: string }> {
-  return withEffectiveCta(await generateJson(prompt, buildLlmScriptSchema(s), { model }), s);
+async function requestScript(prompt: string, s: ResolvedScriptSettings, call: TaskCallOptions = {}): Promise<LlmScript & { cta: string }> {
+  return withEffectiveCta(await generateJson(prompt, buildLlmScriptSchema(s), call), s);
 }
 
 export function toScript(raw: LlmScript, s: ResolvedScriptSettings, language: string): Script {
@@ -621,18 +622,18 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   const log = getLogger(ctx.runId);
   const config = loadConfig();
   const settings = resolveScript(config.script);
-  const model = config.llm?.models?.script;
+  const call = taskCallOptions("script", config);
   const recent = await loadRecentSubjects(ctx.runId);
   const recentCtas = modelWritesCta(settings) ? await loadRecentCtas(ctx.runId) : [];
   const prompt = buildScriptPrompt(ctx.topic, ctx.avoid?.titles ?? [], settings, footageLibraries(), recent.map((r) => r.title), recentCtas, titleExamples("curiosidades"));
-  let raw = await requestScript(prompt, settings, model);
+  let raw = await requestScript(prompt, settings, call);
   const repeated = findSimilarSubject(raw.title, recent);
   if (repeated) {
     log.warn(`Script "${raw.title}" repeats a recent subject ("${repeated.title}", shared: ${repeated.shared.join(", ")}); asking for another subject`);
     raw = await requestScript(
       withCorrection(prompt, JSON.stringify(raw, null, 2), `O assunto repete um vídeo recente ("${repeated.title}"). Escolha um assunto completamente diferente.`),
       settings,
-      model,
+      call,
     );
     const again = findSimilarSubject(raw.title, recent);
     if (again) {
@@ -642,7 +643,7 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   const problems = findScriptProblems(raw, settings);
   if (problems.length > 0) {
     log.warn(`Script needs a corrective retry:\n- ${problems.join("\n- ")}`);
-    raw = await requestScript(withCorrection(prompt, JSON.stringify(raw, null, 2), problems.join("\n")), settings, model);
+    raw = await requestScript(withCorrection(prompt, JSON.stringify(raw, null, 2), problems.join("\n")), settings, call);
   }
   const settled = settleScript(raw, settings, recentCtas);
   if (settled.ctaReplaced) log.warn(`Model CTA "${raw.cta}" broke the CTA rules; using "${settled.script.cta}"`);

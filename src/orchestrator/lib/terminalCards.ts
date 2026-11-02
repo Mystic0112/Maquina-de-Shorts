@@ -6,6 +6,7 @@
  */
 import { z } from "zod";
 import { generateJson, withCorrection } from "./llmClient.js";
+import type { TaskCallOptions } from "./llmTasks.js";
 import type { Script, TerminalCard, TerminalScene } from "../types.js";
 
 export const CARD_KINDS = ["headline", "number", "list", "compare"] as const;
@@ -148,12 +149,13 @@ export function buildTerminalPrompt(script: Pick<Script, "title" | "hook" | "sce
 }
 
 /** One LLM call (plus corrections) -> a validated card per scene. */
-export async function planTerminal(script: Script, options: { model?: string; attempts?: number } = {}): Promise<TerminalScene[]> {
+export async function planTerminal(script: Script, options: TaskCallOptions & { attempts?: number } = {}): Promise<TerminalScene[]> {
+  const { attempts = 3, ...call } = options;
   const prompt = buildTerminalPrompt(script);
   let current = prompt;
   let last = "";
-  for (let attempt = 1; attempt <= (options.attempts ?? 3); attempt++) {
-    const draft = await generateJson(current, TerminalDraftSchema, { model: options.model, thinking: "low", temperature: 0.6 });
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const draft = await generateJson(current, TerminalDraftSchema, { thinking: "low", temperature: 0.6, ...call });
     const { scenes, problems } = validateTerminalDraft(draft, script);
     if (problems.length === 0) return scenes;
     last = problems.join("\n");

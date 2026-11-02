@@ -13,6 +13,7 @@ import { buildCutRunContext, FINAL_FILE, newCutRunId, saveCutContext } from "./c
 import { downloadSource, LoginRequiredError, sourceDir, sourceVideoUrl } from "./download.js";
 import { markProcessed, PROCESSED_FILE } from "./feed.js";
 import { titleExamples } from "../viral/titleExamples.js";
+import { taskCallOptions } from "../lib/llmTasks.js";
 import { humorEnabled, planHumor, type HumorJob } from "./humor.js";
 import { keptSeconds, livelyMoments, planKeep } from "./jumpcut.js";
 import { runCutMetadata } from "./metadata.js";
@@ -74,10 +75,10 @@ export async function processVideo(
     options.transcript ? loadTranscript(options.transcript) : transcribeVideo(source.path, join(dir, "transcript.json"), (m) => log.info(m)),
   );
   const proposed = await timed(timings, "select", () =>
-    selectClips({ channelName: channel.name, videoTitle: source.title, transcript, clip: clipSettings, style: channel.style, titleExamples: titleExamples("cortes") }),
+    selectClips({ channelName: channel.name, videoTitle: source.title, transcript, clip: clipSettings, style: channel.style, titleExamples: titleExamples("cortes") }, taskCallOptions("cutsSelect")),
   );
   proposed.forEach((p, i) => log.info(`clip ${i + 1}: ${p.start.toFixed(1)}-${p.end.toFixed(1)} s "${p.title}" (${p.reason})`));
-  const review = await timed(timings, "verify", () => verifyPicks(proposed, transcript));
+  const review = await timed(timings, "verify", () => verifyPicks(proposed, transcript, taskCallOptions("cutsVerify")));
   review.rejected.forEach(({ pick, verdict }) => log.warn(`dropped "${pick.title}": ${verdict?.problem || "no verdict from the reviewer"}`));
   const picks = review.approved;
   if (picks.length === 0) {
@@ -93,7 +94,7 @@ export async function processVideo(
         const keep = planKeep(transcript.words, transcript.loudness, p.start, p.end);
         const words = wordsInWindow(transcript.words, p.start, p.end);
         const humor = withHumor
-          ? await planHumor({ title: p.title, channelName: channel.name, start: p.start, end: p.end, words, lively: livelyMoments(transcript.words, transcript.loudness, p.start, p.end), sourcePath: source.path }, keep, { log: (m) => log.info(m) })
+          ? await planHumor({ title: p.title, channelName: channel.name, start: p.start, end: p.end, words, lively: livelyMoments(transcript.words, transcript.loudness, p.start, p.end), sourcePath: source.path }, keep, { log: (m) => log.info(m), ...taskCallOptions("cutsHumor") })
           : null;
         log.info(`clip "${p.title}": ${keep.length} piece(s), ${keptSeconds(keep)} of ${(p.end - p.start).toFixed(1)} s kept, humor ${humor ? `${humor.jokes.length} joke(s), ${humor.emojis.length} emoji, ${humor.effects.length} effect(s)` : "off"}`);
         if (humor?.jokes.length) log.info(`clip "${p.title}" jokes: ${humor.jokes.map((j) => `${(j.start - p.start).toFixed(1)}s ${j.text}`).join(" | ")}`);

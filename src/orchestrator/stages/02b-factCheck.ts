@@ -5,6 +5,7 @@ import { loadConfig } from "../lib/config.js";
 import { ownerRulesBlock } from "../lib/ownerRules.js";
 import { scriptHash } from "../lib/contentHash.js";
 import { generateGroundedText, generateJson, withCorrection, type GroundedText } from "../lib/llmClient.js";
+import { taskCallOptions, type TaskCallOptions } from "../lib/llmTasks.js";
 import { getLogger } from "../lib/logger.js";
 import { RunRejectedError } from "../lib/rejection.js";
 import type { FactCheckClaim, FactCheckSummary, RunContext, Script } from "../types.js";
@@ -255,11 +256,15 @@ export interface FactCheckDeps {
   log?(message: string): void;
 }
 
-/** `model` = per-stage override from config `llm.models.factCheck` (both the grounded and the structured call). */
-export function defaultFactCheckDeps(model?: string): FactCheckDeps {
+/**
+ * `call` = provider/model/thinking of the task (`taskCallOptions("factCheck")`; a plain string is just the model),
+ * used by both the grounded and the structured call.
+ */
+export function defaultFactCheckDeps(call: TaskCallOptions | string = {}): FactCheckDeps {
+  const task = typeof call === "string" ? { model: call } : call;
   return {
-    grounded: (prompt) => generateGroundedText(prompt, { thinking: "low", temperature: 0.2, model }),
-    structured: (prompt, schema) => generateJson(prompt, schema, { thinking: "low", temperature: 0.2, model }),
+    grounded: (prompt) => generateGroundedText(prompt, { thinking: "low", temperature: 0.2, ...task }),
+    structured: (prompt, schema) => generateJson(prompt, schema, { thinking: "low", temperature: 0.2, ...task }),
   };
 }
 
@@ -409,7 +414,7 @@ export async function run(ctx: RunContext): Promise<RunContext> {
     };
     return { ...ctx, factCheck: { ...skipped, scriptHash: scriptHash(ctx.script) } };
   }
-  const deps = { ...defaultFactCheckDeps(config.llm?.models?.factCheck), log: (m: string) => log.warn(m) };
+  const deps = { ...defaultFactCheckDeps(taskCallOptions("factCheck", config)), log: (m: string) => log.warn(m) };
   const { script, summary } = await factCheckScript(ctx.script, settings, deps);
   const failing = summary.claims.filter((c) => c.verdict !== "supported");
   for (const c of failing) log.info(`Fact-check r${c.round} ${c.verdict}: "${c.claim}"${c.correction ? ` -> ${c.correction}` : ""}`);

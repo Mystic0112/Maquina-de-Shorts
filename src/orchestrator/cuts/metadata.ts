@@ -7,6 +7,7 @@
 import { z } from "zod";
 import { loadConfig } from "../lib/config.js";
 import { generateJson } from "../lib/llmClient.js";
+import { taskCallOptions } from "../lib/llmTasks.js";
 import { getLogger } from "../lib/logger.js";
 import { buildTags, buildTitle, canonicalHashtag, DESCRIPTION_MAX, stripAngleBrackets, validateMetadata } from "../stages/07-generateMetadata.js";
 import type { VideoMetadata } from "../types.js";
@@ -88,7 +89,7 @@ export async function runCutMetadata(ctx: CutRunContext): Promise<CutRunContext>
   const config = loadConfig();
   let draft: CutMetadataDraft | null = null;
   try {
-    draft = await generateJson(buildCutMetadataPrompt(ctx), CutMetadataDraftSchema, { thinking: "low", temperature: 0.3, model: config.llm?.models?.metadata });
+    draft = await generateJson(buildCutMetadataPrompt(ctx), CutMetadataDraftSchema, { thinking: "low", temperature: 0.3, ...taskCallOptions("metadata", config) });
   } catch (error) {
     log.warn(`Cut metadata LLM call failed, using the hook as summary: ${error instanceof Error ? error.message : String(error)}`);
   }

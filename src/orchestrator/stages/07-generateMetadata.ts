@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ILLUSTRATION_SOURCE } from "../lib/illustrate.js";
 import { loadConfig } from "../lib/config.js";
 import { generateJson } from "../lib/llmClient.js";
+import { taskCallOptions } from "../lib/llmTasks.js";
 import { getLogger } from "../lib/logger.js";
 import { creditsFor } from "../lib/memeLibrary.js";
 import { runCutMetadata } from "../cuts/metadata.js";
@@ -430,7 +431,7 @@ export async function run(ctx: RunContext): Promise<RunContext> {
     draft = await generateJson(buildMetadataPrompt(ctx.script, categoryLabel), MetadataDraftSchema, {
       thinking: "low",
       temperature: 0.3,
-      model: config.llm?.models?.metadata,
+      ...taskCallOptions("metadata", config),
     });
   } catch (error) {
     log.warn(`Metadata LLM call failed, using the script title: ${error instanceof Error ? error.message : String(error)}`);

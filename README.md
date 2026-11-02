@@ -412,6 +412,23 @@ Exemplo de modelos por etapa (confira os nomes com `agy models`):
 "llm": { "models": { "script": "gemini-4-argon-medium", "factCheck": "gemini-3.8-flash-medium", "relevance": "gemini-3.8-flash-low", "metadata": "gemini-4-argon-low" } }
 ```
 
+**IA por tarefa (`llm.tasks`, Configurações → IA por tarefa).** Cada tarefa pode ter seu próprio provedor, modelo e esforço (`thinking`), e vários provedores ficam ativos ao mesmo tempo. Tarefas: `script`, `factCheck`, `metadata`, `relevance`, `terminal`, `cutsSelect`, `cutsVerify`, `cutsHumor`, `cutsCompilation`. Provedores: `antigravity-cli` (créditos do plano), `gemini` e `anthropic` (APIs pagas, precisam de chave). Sem `llm.tasks`, tudo funciona como antes (`LLM_PROVIDER` no `.env` + `llm.models`; `footage.relevance.provider` continua valendo). Uma tarefa com provedor próprio ignora o modelo de `llm.models` (ele é de outro provedor).
+
+```json
+"llm": {
+  "tasks": {
+    "script": { "provider": "antigravity-cli", "model": "gemini-4-argon-medium" },
+    "factCheck": {
+      "provider": "antigravity-cli", "model": "gemini-3.8-flash-medium",
+      "fallback": { "provider": "antigravity-cli", "model": "gemini-3.8-flash-low" }
+    },
+    "cutsSelect": { "provider": "anthropic", "model": "claude-sonnet-5-5" }
+  }
+}
+```
+
+`fallback` é a alternativa tentada uma vez quando o provedor falha ou a cota acaba ("AI credits balance is too low", 429). **Nunca cai para API paga sozinho:** uma alternativa `gemini` ou `anthropic` só vale com `"allowPaid": true` escrito naquela tarefa (o painel avisa); sem isso ela é ignorada com um aviso no log. Escolher `gemini`/`anthropic` como provedor principal de uma tarefa é decisão do dono e gasta dinheiro.
+
 Os temas ficam em `config/topics.seed.json` (também editáveis na aba Configurações → Temas).
 
 </details>

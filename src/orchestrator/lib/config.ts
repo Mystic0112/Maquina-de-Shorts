@@ -9,6 +9,8 @@ import {
   EditingSettingsSchema,
   WatermarkSettingsSchema,
   InstagramSettingsSchema,
+  LLM_PROVIDER_NAMES,
+  LlmSettingsSchema,
   ScriptSettingsSchema,
   VisualSettingsSchema,
   VoiceExtrasSchema,
@@ -111,22 +113,12 @@ export const PipelineConfigSchema = z.object({
       keepUploadedVideosDays: z.number().nonnegative().optional(),
     })
     .optional(),
-  llm: z
-    .object({
-      /**
-       * Model name per stage (agy names such as "claude-sonnet-5-5-low", "gemini-4-argon-medium"), so the
-       * load spreads across the plan's separate quotas. Absent = provider default (ANTIGRAVITY_MODEL etc.).
-       */
-      models: z
-        .object({
-          script: z.string().min(1).optional(),
-          factCheck: z.string().min(1).optional(),
-          metadata: z.string().min(1).optional(),
-          relevance: z.string().min(1).optional(),
-        })
-        .optional(),
-    })
-    .optional(),
+  /**
+   * `models`: legacy model name per stage (agy names such as "gemini-4-argon-medium").
+   * `tasks`: provider + model + fallback per task, several providers at once (see lib/llmTasks.ts).
+   * Absent = provider default (LLM_PROVIDER, ANTIGRAVITY_MODEL etc.).
+   */
+  llm: LlmSettingsSchema.optional(),
   pipeline: z
     .object({
       /** Extra topic/script attempts after a quality-gate failure; default 2. */
@@ -147,7 +139,7 @@ export const PipelineConfigSchema = z.object({
           /** false skips the LLM vision gate (debugging); default true. */
           enabled: z.boolean().optional(),
           /** LLM provider used specifically for visual relevance scoring. Default uses LLM_PROVIDER. */
-          provider: z.enum(["gemini", "anthropic", "antigravity-cli"]).optional(),
+          provider: z.enum(LLM_PROVIDER_NAMES).optional(),
           /** Minimum 0-10 score for a clip to pass; default 6. */
           minScore: z.number().min(0).max(10).optional(),
           /** Last-resort floor for below-threshold clips; default 4. */

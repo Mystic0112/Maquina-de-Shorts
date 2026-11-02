@@ -9,7 +9,9 @@ import { AntigravityCliProvider } from "./antigravityCli.js";
 // Re-exported so existing imports keep working after the move to antigravityCli.ts.
 export { AntigravityCliProvider, DEFAULT_ANTIGRAVITY_MODEL, DEFAULT_ANTIGRAVITY_CLI_PATH } from "./antigravityCli.js";
 
-export type LlmProviderName = "gemini" | "anthropic" | "antigravity-cli";
+// The provider names and their metadata (label, paid or not) live in src/shared/settings.ts; factories are below.
+import { isLlmProviderName, LLM_PROVIDER_NAMES, type LlmProviderName } from "../../shared/settings.js";
+export type { LlmProviderName };
 
 export const DEFAULT_GEMINI_MODEL = "gemini-flash-latest";
 export const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5-5";
@@ -77,6 +79,17 @@ export function isRateLimitError(error: unknown): boolean {
   if (status === 429) return true;
   const message = error instanceof Error ? error.message : String(error);
   return /\b429\b|RESOURCE_EXHAUSTED|rate.?limit|quota/i.test(message);
+}
+
+/**
+ * The provider's quota/credits are gone (not just a passing 429): rate limits plus the agy plan messages
+ * ("AI credits balance is too low", usage limit). Same patterns as scheduler/loop.ps1's $QuotaPattern.
+ * Used to word the per-task fallback warning; retries keep using isRateLimitError only.
+ */
+export function isQuotaExhaustedError(error: unknown): boolean {
+  if (isRateLimitError(error)) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /credits balance|too low to continue|usage limit|too many requests/i.test(message);
 }
 
 /** Exponential backoff with full jitter: random in [base*2^n / 2, base*2^n], capped. */
@@ -284,19 +297,24 @@ export function getDefaultProvider(): LlmProvider {
   return defaultProvider;
 }
 
+/**
+ * The one place that builds providers. Typed as exhaustive over LLM_PROVIDERS (src/shared/settings.ts): adding a
+ * provider there fails the build until its factory is added here. Factories run lazily (a missing key only
+ * matters for the providers actually used).
+ */
+const PROVIDER_FACTORIES: Record<LlmProviderName, () => LlmProvider> = {
+  gemini: () => new GeminiProvider(requireKey("GEMINI_API_KEY"), env("GEMINI_MODEL") ?? DEFAULT_GEMINI_MODEL),
+  anthropic: () => new AnthropicProvider(requireKey("ANTHROPIC_API_KEY"), env("ANTHROPIC_MODEL") ?? DEFAULT_ANTHROPIC_MODEL),
+  "antigravity-cli": () => new AntigravityCliProvider(env("ANTIGRAVITY_CLI_PATH"), env("ANTIGRAVITY_MODEL")),
+};
+
 export function getProviderByName(name: LlmProviderName): LlmProvider {
   const cached = providerCache.get(name);
   if (cached) return cached;
-  let provider: LlmProvider;
-  if (name === "gemini") {
-    provider = new GeminiProvider(requireKey("GEMINI_API_KEY"), env("GEMINI_MODEL") ?? DEFAULT_GEMINI_MODEL);
-  } else if (name === "anthropic") {
-    provider = new AnthropicProvider(requireKey("ANTHROPIC_API_KEY"), env("ANTHROPIC_MODEL") ?? DEFAULT_ANTHROPIC_MODEL);
-  } else if (name === "antigravity-cli") {
-    provider = new AntigravityCliProvider(env("ANTIGRAVITY_CLI_PATH"), env("ANTIGRAVITY_MODEL"));
-  } else {
-    throw new Error(`Unknown LLM provider "${name}". Use "gemini", "anthropic" or "antigravity-cli".`);
+  if (!isLlmProviderName(name)) {
+    throw new Error(`Unknown LLM provider "${name}". Use ${LLM_PROVIDER_NAMES.map((n) => `"${n}"`).join(", ")}.`);
   }
+  const provider = PROVIDER_FACTORIES[name]();
   providerCache.set(name, provider);
   return provider;
 }

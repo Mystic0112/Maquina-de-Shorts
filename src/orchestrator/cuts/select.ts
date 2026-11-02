@@ -5,7 +5,8 @@
  * person meant, or a title that lies or demoralizes, is dropped (the owner's cuts rule, 2026-10-22).
  */
 import { z } from "zod";
-import { generateJson, type LlmProvider, withCorrection } from "../lib/llmClient.js";
+import { generateJson, withCorrection } from "../lib/llmClient.js";
+import type { TaskCallOptions } from "../lib/llmTasks.js";
 import { titleExamplesBlock } from "../viral/titleExamples.js";
 import type { CutChannel, CutsConfig } from "./config.js";
 import type { Transcript, TranscriptSegment } from "./transcribe.js";
@@ -131,11 +132,12 @@ export function describeIssues(issues: readonly ValidationIssue[]): string {
   return issues.map((i) => `clip ${i.index + 1}: ${i.problem}`).join("\n");
 }
 
-export interface SelectOptions {
-  provider?: LlmProvider;
+export interface SelectOptions extends TaskCallOptions {
   attempts?: number;
-  model?: string;
 }
+
+/** provider/model/thinking of a task call, without the retry count. */
+const callOf = ({ attempts: _attempts, ...call }: SelectOptions): TaskCallOptions => call;
 
 /** Asks the LLM, snaps, validates; on problems re-asks with the correction preamble (up to `attempts`). */
 export async function selectClips(input: SelectInput, options: SelectOptions = {}): Promise<ClipPick[]> {
@@ -144,7 +146,7 @@ export async function selectClips(input: SelectInput, options: SelectOptions = {
   let currentPrompt = prompt;
   let lastIssues = "";
   for (let attempt = 1; attempt <= attempts; attempt++) {
-    const answer = await generateJson(currentPrompt, ClipPicksSchema, { provider: options.provider, model: options.model, thinking: "low" });
+    const answer = await generateJson(currentPrompt, ClipPicksSchema, { thinking: "low", ...callOf(options) });
     const picks = answer.clips.map((p) => snapToSegments(p, input.transcript.segments)).slice(0, input.clip.perVideo);
     const issues = validatePicks(picks, input.transcript.segments, input.clip);
     if (issues.length === 0) return picks.sort((a, b) => a.start - b.start);
@@ -213,7 +215,7 @@ export async function verifyPicks(
   options: SelectOptions = {},
 ): Promise<{ approved: ClipPick[]; rejected: { pick: ClipPick; verdict?: PickVerdict }[] }> {
   if (picks.length === 0) return { approved: [], rejected: [] };
-  const answer = await generateJson(buildVerifyPrompt(picks, transcript), PickVerdictSchema, { provider: options.provider, model: options.model, thinking: "low" });
+  const answer = await generateJson(buildVerifyPrompt(picks, transcript), PickVerdictSchema, { thinking: "low", ...callOf(options) });
   const approved: ClipPick[] = [];
   const rejected: { pick: ClipPick; verdict?: PickVerdict }[] = [];
   picks.forEach((pick, i) => {

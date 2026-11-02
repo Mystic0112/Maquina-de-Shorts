@@ -10,7 +10,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { resolveFfmpegBinaries, runBinary } from "../lib/ffmpeg.js";
-import { generateJson, type LlmProvider, withCorrection } from "../lib/llmClient.js";
+import { generateJson, withCorrection } from "../lib/llmClient.js";
+import { taskCallOptions, type TaskCallOptions } from "../lib/llmTasks.js";
 import type { Logger } from "../lib/logger.js";
 import { runDirFor } from "../lib/runContext.js";
 import { clipRangeFor, type CutChannel, type CutsConfig } from "./config.js";
@@ -82,13 +83,14 @@ export async function selectCompilation(
   channelName: string,
   candidates: readonly Candidate[],
   range: { minSeconds: number; maxSeconds: number },
-  options: { provider?: LlmProvider; attempts?: number } = {},
+  options: TaskCallOptions & { attempts?: number } = {},
 ): Promise<CompilationPick> {
+  const { attempts = 3, ...call } = options;
   const prompt = buildCompilationPrompt(channelName, candidates, range);
   let current = prompt;
   let last = "";
-  for (let attempt = 1; attempt <= (options.attempts ?? 3); attempt++) {
-    const pick = await generateJson(current, CompilationPickSchema, { provider: options.provider, thinking: "low" });
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const pick = await generateJson(current, CompilationPickSchema, { thinking: "low", ...call });
     const issues = validateCompilation(pick, candidates, range);
     if (issues.length === 0) return pick;
     last = issues.join("\n");
@@ -141,10 +143,10 @@ export async function processCompilation(channel: CutChannel, feed: readonly Fee
     log.info(`${channel.name}: ${candidates.length} usable video(s), not enough for a compilation`);
     return null;
   }
-  const pick = await selectCompilation(channel.name, candidates, range);
+  const pick = await selectCompilation(channel.name, candidates, range, taskCallOptions("cutsCompilation"));
   const parts = pick.videoIds.map((id) => candidates.find((c) => c.videoId === id) as Candidate);
   const total = parts.reduce((s, p) => s + p.durationSeconds, 0);
-  const review = await verifyPicks([{ start: 0, end: total, title: pick.title, hook: pick.hook, reason: pick.reason }], joinTranscripts(parts));
+  const review = await verifyPicks([{ start: 0, end: total, title: pick.title, hook: pick.hook, reason: pick.reason }], joinTranscripts(parts), taskCallOptions("cutsVerify"));
   if (review.approved.length === 0) {
     log.warn(`compilation "${pick.title}" refused by the review: ${review.rejected[0]?.verdict?.problem || "no verdict"}`);
     return null;
@@ -160,7 +162,7 @@ export async function processCompilation(channel: CutChannel, feed: readonly Fee
     const keep = planKeep(part.transcript.words, part.transcript.loudness, 0, part.durationSeconds);
     const words = part.transcript.words;
     const humor = withHumor
-      ? await planHumor({ title: pick.title, channelName: channel.name, start: 0, end: part.durationSeconds, words, lively: livelyMoments(words, part.transcript.loudness, 0, part.durationSeconds), sourcePath: part.sourcePath }, keep, { log: (m) => log.info(m) })
+      ? await planHumor({ title: pick.title, channelName: channel.name, start: 0, end: part.durationSeconds, words, lively: livelyMoments(words, part.transcript.loudness, 0, part.durationSeconds), sourcePath: part.sourcePath }, keep, { log: (m) => log.info(m), ...taskCallOptions("cutsHumor") })
       : null;
     const out = join(runDir, "parts", `part_${String(i + 1).padStart(2, "0")}.mp4`);
     await renderClips({ source: part.sourcePath, framing: config.clip.framing, credit: channel.credit, captions: config.clip.captions, captionStyle: channel.captionStyle, jobs: [{ start: 0, end: part.durationSeconds, keep, humor, out, words }] }, (m) => log.info(m));

@@ -6,6 +6,7 @@ import {
   Shapes,
   CircleX,
   Clapperboard,
+  Cpu,
   FileText,
   Film,
   KeyRound,
@@ -46,6 +47,7 @@ import { categoryColor } from "../colors";
 import { Card, Empty, formatIcon } from "../components";
 import { CutsChannelsSection } from "../CutsChannels";
 import { KeysEditor } from "../KeysEditor";
+import { LlmTasksSection } from "../LlmTasksSection";
 import { MusicSection } from "../MusicSection";
 import { WatermarkSection } from "../WatermarkSection";
 import { SCRIPT_FORMATS, type ScriptFormat } from "../format";
@@ -72,6 +74,7 @@ const SECTIONS = [
   { id: "cfg-visual", label: "Visual", icon: Palette },
   { id: "cfg-roteiro", label: "Roteiro", icon: FileText },
   { id: "cfg-formato", label: "Formato", icon: Ruler },
+  { id: "cfg-ia", label: "IA por tarefa", icon: Cpu },
   { id: "cfg-marca", label: "Marca", icon: BadgeCheck },
   { id: "cfg-musica", label: "Músicas", icon: Music },
   { id: "cfg-temas", label: "Temas", icon: Layers },
@@ -642,6 +645,8 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
               <p className="hint">Fixos: o YouTube Shorts é vertical 9:16, e 1080×1920 é o tamanho nativo do formato.</p>
             </div>
           </Section>
+
+          <LlmTasksSection draft={draft} catalog={settings.llm} set={set} errorAt={errorAt} />
 
           <WatermarkSection wm={watermark} set={set} errorAt={errorAt} />
 

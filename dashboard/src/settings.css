@@ -868,3 +868,22 @@ select.input {
 .preview-panel > .hint {
   margin: 8px 0 10px;
 }
+.llm-tasks {
+  display: grid;
+  gap: 14px;
+}
+.llm-task {
+  border: 1px solid var(--border, #ffffff22);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.llm-task-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+.llm-task .banner {
+  margin: 10px 0 0;
+}
