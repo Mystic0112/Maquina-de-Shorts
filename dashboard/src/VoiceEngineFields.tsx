@@ -70,11 +70,11 @@ export function ChatterboxFields({ voice, defaults, set, errorAt }: Props) {
         value={voice.chatterboxMode ?? defaults.chatterboxMode}
         options={[
           { value: "v3" as const, label: "v3 (padrão)" },
-          { value: "pt-br" as const, label: "pt-BR (melhor, baixa ~8 GB uma vez)" },
+          { value: "pt-br" as const, label: "pt-BR (sem ganho medido, +3 GB)" },
         ]}
         onChange={(v) => set("voice.chatterboxMode", v)}
         error={errorAt("voice.chatterboxMode")}
-        help="Medido em casa com a mesma frase: v3 erra 7,5 a 9,4% das palavras; pt-BR erra 6,6% (igual ao Kokoro) com voz de referência. O pt-BR monta o modelo na primeira execução."
+        help="Medido em casa (3 execuções cada, mesma frase): v3 erra em média 7,9% das palavras e pt-BR 9,4%, ou seja, empatam dentro do ruído. O pt-BR custa uns 3 GB a mais e monta o modelo na primeira execução; por isso o v3 é o padrão."
       />
       <Slider label="Expressividade" value={voice.chatterboxExaggeration ?? defaults.chatterboxExaggeration} min={0.25} max={2} step={0.05} format={(v) => v.toFixed(2)} onChange={(v) => set("voice.chatterboxExaggeration", v)} error={errorAt("voice.chatterboxExaggeration")} help="0,50 é neutro; mais alto dramatiza." />
       <Slider label="Ritmo (cfg)" value={voice.chatterboxCfgWeight ?? defaults.chatterboxCfgWeight} min={0} max={1} step={0.05} format={(v) => v.toFixed(2)} onChange={(v) => set("voice.chatterboxCfgWeight", v)} error={errorAt("voice.chatterboxCfgWeight")} help="Mais baixo = fala mais pausada." />

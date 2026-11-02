@@ -46,7 +46,7 @@ export const VoiceExtrasSchema = z.object({
   kokoroSpeed: z.number().min(0.5).max(2).optional(),
   /** Chatterbox: project-relative (or absolute) 10-15 s recording of a voice the owner has consent to clone; "" = the model's own voice. */
   chatterboxRefAudio: z.string().max(300).optional(),
-  /** Chatterbox model: "v3" (from_pretrained, 7.5-9.4% errors) or "pt-br" (pt-BR checkpoint with the decoder patch, 6.6%; builds ~8 GB once). */
+  /** Chatterbox model: "v3" (from_pretrained, ~7.9% errors, the default) or "pt-br" (pt-BR checkpoint with the decoder patch, ~9.4%: no measured gain, ~3 GB more). */
   chatterboxMode: z.enum(["v3", "pt-br"]).optional(),
   /** Chatterbox emotion/intensity (0.5 = neutral). */
   chatterboxExaggeration: z.number().min(0.25).max(2).optional(),

@@ -21,6 +21,8 @@ const PROBE_SCRIPT = join(projectRoot, "scripts", "probe_provider.ts");
 export const TESTS_FILE = join(projectRoot, "data", "platform-tests.json");
 export const TEST_INTERVAL_MS = 8_000;
 const API_TIMEOUT_MS = 30_000;
+/** A local model (Ollama, LM Studio) can take over a minute to load into memory on the first call (48 s seen at home). */
+const LOCAL_MODEL_TIMEOUT_MS = 120_000;
 const CLI_TIMEOUT_MS = 60_000;
 
 /* ---------- texts (pt-BR). Registry notes (LLM_PROVIDERS[...].note) are reused, not rewritten. ---------- */
@@ -266,7 +268,8 @@ export function platformRouter(deps: PlatformDeps = {}): Router {
     running.add(name);
     lastStart.set(name, now());
     try {
-      const outcome = await probe(name as LlmProviderName, provider.kind === "cli" ? CLI_TIMEOUT_MS : API_TIMEOUT_MS);
+      const local = name === "openai-compatible" && !provider.paid;
+      const outcome = await probe(name as LlmProviderName, provider.kind === "cli" ? CLI_TIMEOUT_MS : local ? LOCAL_MODEL_TIMEOUT_MS : API_TIMEOUT_MS);
       const test: PlatformTest = { ok: outcome.ok === true, at: new Date(now()).toISOString(), message: safeProbeMessage(outcome.message), ...(typeof outcome.ms === "number" ? { ms: Math.round(outcome.ms) } : {}) };
       recordTest(name, test, file);
       reply(200, { ok: test.ok, ran: true, message: test.message, test });

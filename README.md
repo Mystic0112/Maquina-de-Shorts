@@ -501,7 +501,7 @@ O estágio 04 fala o roteiro com um **motor** à escolha, em **Configurações >
 | `gemini` | Nuvem | API paga | `GEMINI_API_KEY` |
 | `edge-tts` | Nuvem | Legado, fora do ar | |
 
-O padrão continua sendo o Kokoro, e uma configuração antiga (sem as chaves novas) segue valendo igual. A pontuação de inteligibilidade medida em casa (mesmo trecho de 590 caracteres, erro de pronúncia por transcrição com Whisper) foi: Kokoro `pm_alex` 5,7%; Chatterbox pt-BR com voz de referência 6,6%; ElevenLabs Multilingual v2 5,7% e Flash 2.5 7,5%. Isso mede se dá para entender, **não o sotaque**: quem decide é o ouvido do dono.
+O padrão continua sendo o Kokoro, e uma configuração antiga (sem as chaves novas) segue valendo igual. A pontuação de inteligibilidade medida em casa (mesmo trecho de 590 caracteres, erro de pronúncia por transcrição com Whisper) foi: Kokoro `pm_alex` 5,7%; Chatterbox v3 com voz de referência 7,9% (média de 3 execuções, de 5,7 a 10,4%); Chatterbox pt-BR 9,4% (média de 3, de 8,5 a 11,3%); ElevenLabs Multilingual v2 5,7% e Flash 2.5 7,5%. Isso mede se dá para entender, **não o sotaque**: quem decide é o ouvido do dono.
 
 ### Chatterbox (voz própria)
 
@@ -518,8 +518,8 @@ O padrão continua sendo o Kokoro, e uma configuração antiga (sem as chaves no
 4. Depois do primeiro download, ponha `HF_HUB_OFFLINE=1` no ambiente: o v3 carrega em ~1 min sem rede e sem os avisos do Hugging Face.
 
 Dois modelos (campo `voice.chatterboxMode`), medidos com o mesmo trecho de 590 caracteres:
-- **`v3`** (padrão): `from_pretrained(t3_model="v3")`, erra 7,5 a 9,4% das palavras.
-- **`pt-br`**: o checkpoint do repositório `ResembleAI/Chatterbox-Multilingual-pt-br`, erra 6,6% com voz de referência (igual ao Kokoro). O `s3gen_v3.pt` dele não tem dois buffers fixos do decodificador de fala (`tokenizer._mel_filters`, 128x201, e `tokenizer.window`, 400, ambos float32): o `python/tts/synthesize_chatterbox.py` os copia do `s3gen.pt` do repositório principal e monta a pasta do modelo em `models/chatterbox-ptbr/` na primeira execução (baixa ~8 GB, uma vez).
+- **`v3`** (padrão): `from_pretrained(t3_model="v3")`, com voz de referência erra em média 7,9% das palavras (3 execuções: 5,7, 7,5 e 10,4%).
+- **`pt-br`**: o checkpoint do repositório `ResembleAI/Chatterbox-Multilingual-pt-br`, erra em média 9,4% (3 execuções: 11,3, 8,5 e 8,5%). **Empata com o v3 dentro do ruído e custa ~3 GB a mais**, então não há ganho medido: o 6,6% de uma primeira medição foi uma execução de sorte. Fica disponível, mas o padrão é o v3. O `s3gen_v3.pt` dele não tem dois buffers fixos do decodificador de fala (`tokenizer._mel_filters`, 128x201, e `tokenizer.window`, 400, ambos float32): o `python/tts/synthesize_chatterbox.py` os copia do `s3gen.pt` do repositório principal e monta a pasta do modelo em `models/chatterbox-ptbr/` na primeira execução (baixa ~8 GB, uma vez).
 
 ### ElevenLabs (sua chave)
 

@@ -127,6 +127,7 @@ describe("routes /api/platform", () => {
   let base = "";
   let clock = 1_000_000;
   const calls: string[] = [];
+  const timeouts: number[] = [];
   let probeMessage = "ok";
   let probeOk = true;
   const start = async (over: PlatformDeps = {}): Promise<string> => {
@@ -142,7 +143,7 @@ describe("routes /api/platform", () => {
       minIntervalMs: 5000,
       keys: storableKeyStatus,
       llm: () => Promise.resolve(undefined),
-      probe: (name) => (calls.push(name), Promise.resolve({ ok: probeOk, message: probeMessage, ms: 1234 })),
+      probe: (name, timeoutMs) => (calls.push(name), timeouts.push(timeoutMs), Promise.resolve({ ok: probeOk, message: probeMessage, ms: 1234 })),
       ...over,
     });
     await new Promise<void>((resolve) => (server = app.listen(0, "127.0.0.1", () => resolve())));
@@ -154,6 +155,7 @@ describe("routes /api/platform", () => {
     await stop();
     server = undefined;
     calls.length = 0;
+    timeouts.length = 0;
     probeOk = true;
     probeMessage = "ok";
     clock += 1_000_000;
@@ -205,6 +207,7 @@ describe("routes /api/platform", () => {
     await start({ llm: () => Promise.resolve({ openaiCompatible: { baseUrl: "http://localhost:11434/v1" } }) });
     expect((await post("openai-compatible")).status).toBe(200);
     expect(calls).toEqual(["openai-compatible"]);
+    expect(timeouts).toEqual([120_000]); // a local model may need over a minute to load on the first call
     await stop();
     calls.length = 0;
     await start({ llm: () => Promise.resolve({ openaiCompatible: { baseUrl: "https://openrouter.ai/api/v1" } }) });

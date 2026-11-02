@@ -31,7 +31,7 @@ export async function probeProvider(make: () => LlmProvider, timeoutMs: number, 
   try {
     const provider = make();
     const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`Sem resposta em ${Math.round(timeoutMs / 1000)} s (tempo esgotado).`)), timeoutMs);
+      timer = setTimeout(() => reject(new Error(`Sem resposta em ${Math.round(timeoutMs / 1000)} s (tempo esgotado). Se o modelo é local e ainda estava carregando na memória, tente de novo.`)), timeoutMs);
     });
     const text = await Promise.race([provider.completeJson(PROBE_PROMPT, PROBE_SCHEMA), timeout]);
     const ms = now() - started;

@@ -17,12 +17,12 @@ an inaudible Perth watermark in every output; do not try to remove it.
 Runs inside its own venv (torch is heavy and its pins clash with Kokoro's); see README "Voz: Chatterbox" and
 CHATTERBOX_PYTHON in .env.
 
-Two ways to load the multilingual model (--mode), both measured at home on 2026-11-02 (same 590-character text,
-mispronounced words found by transcribing the audio with Whisper):
-  v3     ChatterboxMultilingualTTS.from_pretrained(t3_model="v3"): 7.5-9.4% errors. Needs the GitHub build of
-         chatterbox-tts (the PyPI 0.1.7 has no t3_model and loads the much worse v2: 9-19%).
-  pt-br  the pt-BR checkpoint built by build_ptbr_checkpoint(): 6.6% errors (as good as Kokoro) with a reference
-         voice. Its s3gen_v3.pt lacks two fixed buffers of the speech decoder (`tokenizer._mel_filters` 128x201 and
+Two ways to load the multilingual model (--mode), measured at home on 2026-11-02 (same 590-character text,
+mispronounced words found by transcribing the audio with Whisper, 3 runs each with a reference voice):
+  v3     ChatterboxMultilingualTTS.from_pretrained(t3_model="v3"): 7.9% errors on average (5.7-10.4%). The default.
+         Needs the GitHub build of chatterbox-tts (the PyPI 0.1.7 has no t3_model and loads the much worse v2: 9-19%).
+  pt-br  the pt-BR checkpoint built by build_ptbr_checkpoint(): 9.4% on average (8.5-11.3%): a tie with v3 inside the
+         noise, ~3 GB more, no measured gain (an earlier single run of 6.6% was luck). Its s3gen_v3.pt lacks two fixed buffers of the speech decoder (`tokenizer._mel_filters` 128x201 and
          `tokenizer.window` 400, both float32), which are copied from the main repo's s3gen.pt before loading.
 """
 
@@ -50,6 +50,16 @@ REF_AUDIO_SUFFIXES = (".wav", ".mp3", ".flac")
 EXIT_OK, EXIT_FAILED, EXIT_BAD_INPUT = 0, 1, 2
 
 log = logging.getLogger("chatterbox")
+
+
+class _QuietCangjie(logging.Filter):
+    """With HF_HUB_OFFLINE=1 the Chinese tokenizer warns that it cannot fetch its Cangjie map. It is not used for
+    Portuguese; the warning only scares (seen at home on 2026-11-02), so it is logged as info."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno == logging.WARNING and "Cangjie mapping" in record.getMessage():
+            record.levelno, record.levelname = logging.INFO, "INFO"
+        return True
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -219,6 +229,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="[chatterbox] %(levelname)s %(message)s")
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(_QuietCangjie())
     args = parse_args(argv)
     try:
         result = run(args)
