@@ -60,6 +60,15 @@ export function keysRouter(): Router {
     res.status(removed ? 200 : 404).json({ ok: removed, message: removed ? "Chave removida do painel." : "Não há chave guardada pelo painel com esse nome.", keys: storableKeyStatus() } satisfies KeyWriteResponse);
   });
 
+  // Oversized bodies are the caller's mistake, not a server error.
+  router.use((error: unknown, _req: Request, res: Response, next: NextFunction): void => {
+    if ((error as { type?: string } | null)?.type === "entity.too.large") {
+      res.status(413).json({ ok: false, message: "A chave é grande demais (o máximo são 512 caracteres)." } satisfies KeyWriteResponse);
+      return;
+    }
+    next(error);
+  });
+
   return router;
 }
 

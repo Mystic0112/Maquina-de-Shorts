@@ -117,6 +117,9 @@ describe("/api/keys never returns a key", () => {
     expect((await put("PATH", { value: CANARY })).status).toBe(404);
     expect((await put("GEMINI_API_KEY", { value: "tem espaço no meio 12345" })).status).toBe(422);
     expect((await put("GEMINI_API_KEY", { value: 12345678 })).status).toBe(422);
+    const huge = await put("GEMINI_API_KEY", { value: "k".repeat(6000) });
+    expect(huge.status).toBe(413);
+    expect(huge.text).not.toContain("kkkkkkkkkk");
     expect((await call("/GEMINI_API_KEY", { method: "DELETE" })).status).toBe(404);
     expect(readStore(dir)).toEqual({});
   });

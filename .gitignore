@@ -26,3 +26,4 @@ data/cuts/
 config/cuts.json
 data/branding/
 data/music/
+.claude/worktrees/

@@ -1,10 +1,12 @@
 /**
  * API keys typed in the dashboard (Configurações > Chaves). They live in secrets/api-keys.json: outside git, written
- * atomically with mode 0600 (POSIX; on Windows the file inherits the owner-only ACL of the user's profile folder).
+ * atomically with mode 0600 (POSIX) or, on Windows, with the folder's inherited permissions removed and only the current
+ * user granted (a profile folder can still list SYSTEM, administrators and other local accounts).
  * The pipeline loads them into process.env at start (a value already set in the environment or .env wins), so every
  * existing `env("GEMINI_API_KEY")` keeps working. The dashboard API only ever reports whether a key is set, never its
  * value, and never writes keys to config/pipeline.config.json or to logs.
  */
+import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { registerSecret } from "./redact.js";
@@ -66,12 +68,23 @@ function writeStore(dir: string, keys: Record<string, string>): void {
   const file = storePath(dir);
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(keys, null, 2)}\n`, { mode: 0o600 });
-  try {
-    chmodSync(tmp, 0o600);
-  } catch {
-    // Windows: no POSIX modes; the profile folder's ACL applies.
-  }
+  restrictToOwner(tmp);
   renameSync(tmp, file);
+}
+
+/** Owner-only access: chmod on POSIX; on Windows icacls drops inherited entries (best effort, never blocks the save). */
+export function restrictToOwner(file: string): void {
+  if (process.platform !== "win32") {
+    chmodSync(file, 0o600);
+    return;
+  }
+  const user = process.env["USERNAME"]?.trim();
+  if (!user) return;
+  try {
+    execFileSync("icacls", [file, "/inheritance:r", "/grant:r", `${user}:F`], { stdio: "ignore", windowsHide: true, timeout: 10_000 });
+  } catch {
+    // icacls missing or refused: the folder's ACL still applies.
+  }
 }
 
 export function setStoredKey(dir: string, name: string, value: unknown): void {
