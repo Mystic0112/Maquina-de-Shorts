@@ -13,6 +13,7 @@ import { getRevenue } from "./revenue.js";
 import { isInsideRenderOutput, listRuns, RUN_ID_PATTERN } from "./runs.js";
 import { thumbPathFor } from "./thumbnails.js";
 import { PREVIEW_HASH, PREVIEWS_DIR, requestPreview } from "./preview.js";
+import { platformRouter } from "./platform.js";
 import { getSettings, getTopics, putSettings, putTopics, SettingsError } from "./settings.js";
 import { MAX_VOICE_REF_BYTES, removeVoiceReference, saveVoiceReference, voiceReference } from "./voiceRef.js";
 import { listVoices, SAMPLE_HASH, SAMPLES_DIR, voiceSample, type SampleRequest } from "./voices.js";
@@ -180,6 +181,9 @@ app.get("/api/branding/logo", (_req, res) => {
 
 /* ---------- Chaves de API (só escrita) ---------- */
 app.use("/api/keys", keysRouter());
+
+/* ---------- Plataforma: estado dos motores e "Testar conexão" ---------- */
+app.use("/api/platform", platformRouter());
 
 /* ---------- Músicas (edits) ---------- */
 app.get("/api/music", async (_req, res) => {

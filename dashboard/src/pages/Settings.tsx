@@ -1,6 +1,7 @@
 import {
   BadgeCheck,
   Music,
+  Plug,
   Captions,
   CircleCheck,
   Shapes,
@@ -47,8 +48,8 @@ import { categoryColor } from "../colors";
 import { Card, Empty, formatIcon } from "../components";
 import { CutsChannelsSection } from "../CutsChannels";
 import { FactCheckSearchFields } from "../FactCheckSearchFields";
-import { KeysEditor } from "../KeysEditor";
 import { LlmTasksSection } from "../LlmTasksSection";
+import { PlatformSection } from "../PlatformSection";
 import { MusicSection } from "../MusicSection";
 import type { VoiceExtras } from "../../../src/shared/settings";
 import { ChatterboxFields, ElevenLabsFields } from "../VoiceEngineFields";
@@ -72,12 +73,13 @@ import { ChipMultiSelect, ColorField, Field, NumberInput, Section, Segmented, Sl
 
 const SECTIONS = [
   { id: "cfg-cortes", label: "Canais de corte", icon: Scissors },
+  { id: "cfg-plataforma", label: "Plataforma", icon: Plug },
+  { id: "cfg-ia", label: "IA por tarefa", icon: Cpu },
   { id: "cfg-voz", label: "Voz", icon: Mic },
   { id: "cfg-legendas", label: "Legendas", icon: Captions },
   { id: "cfg-visual", label: "Visual", icon: Palette },
   { id: "cfg-roteiro", label: "Roteiro", icon: FileText },
   { id: "cfg-formato", label: "Formato", icon: Ruler },
-  { id: "cfg-ia", label: "IA por tarefa", icon: Cpu },
   { id: "cfg-marca", label: "Marca", icon: BadgeCheck },
   { id: "cfg-musica", label: "Músicas", icon: Music },
   { id: "cfg-temas", label: "Temas", icon: Layers },
@@ -280,6 +282,17 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
         <div className="cfg-main">
           {/* First: the owner looks for the channel links here most (2026-10-22). */}
           <CutsChannelsSection channels={cutsDraft} fileExists={cuts.exists} onChange={setCutsDraft} errorAt={errorAt} />
+
+          <PlatformSection
+            draft={draft}
+            saved={settings.config}
+            voiceEngine={voice.engine ?? settings.defaults.voice.engine}
+            imageSource={script.imageSource}
+            set={set}
+            errorAt={errorAt}
+          />
+
+          <LlmTasksSection draft={draft} catalog={settings.llm} set={set} errorAt={errorAt} />
 
           <VoiceSection voice={voice} set={set} errorAt={errorAt} defaults={settings.defaults.voice} elevenKeySet={settings.keys.find((k) => k.name === "ELEVENLABS_API_KEY")?.configured} />
 
@@ -657,8 +670,6 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
             </div>
           </Section>
 
-          <LlmTasksSection draft={draft} catalog={settings.llm} set={set} errorAt={errorAt} />
-
           <WatermarkSection wm={watermark} set={set} errorAt={errorAt} />
 
           <MusicSection />
@@ -765,8 +776,7 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
             </div>
           </Section>
 
-          <Section id="cfg-chaves" icon={KeyRound} title="Chaves e acessos" description="Só mostramos se cada item está configurado. Chaves de API podem ser coladas aqui (ficam em secrets/, fora do git) e nunca voltam para a tela; o resto se edita no .env.">
-            <KeysEditor />
+          <Section id="cfg-chaves" icon={KeyRound} title="Chaves e acessos" description="Só mostramos se cada item está configurado. As chaves de API são coladas dentro dos cartões da seção Plataforma (ficam em secrets/, fora do controle de versão, e nunca voltam para a tela); aqui ficam os acessos que só se mudam no .env.">
             <div className="key-list">
               {settings.keys.filter((k) => !k.storable).map((k) => (
                 <div key={k.name} className="key-row">

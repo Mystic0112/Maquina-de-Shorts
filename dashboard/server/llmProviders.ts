@@ -23,11 +23,11 @@ function openAiCompatibleStatus(keys: readonly KeyStatus[], llm: LlmSettings | u
   const p = LLM_PROVIDERS["openai-compatible"];
   const base = { name: "openai-compatible", label: p.label, paid: isPaidLlmProvider("openai-compatible", llm) };
   const raw = llm?.openaiCompatible?.baseUrl?.trim();
-  if (!raw) return { ...base, available: false, reason: "falta a URL base (preencha em \"Servidor OpenAI-compatível\", nesta seção)" };
+  if (!raw) return { ...base, available: false, reason: "falta a URL base (preencha no cartão OpenAI-compatível da seção Plataforma)" };
   const url = parseOpenAiBaseUrl(raw);
   if (!url.ok) return { ...base, available: false, reason: url.error };
   const hasKey = keys.some((k) => k.name === p.keyEnv && k.configured);
-  if (!isLocalBaseUrl(url.url) && !hasKey) return { ...base, available: false, reason: `falta a chave ${p.keyEnv} (em Chaves e acessos); só servidores locais dispensam a chave` };
+  if (!isLocalBaseUrl(url.url) && !hasKey) return { ...base, available: false, reason: `falta a chave ${p.keyEnv} (na seção Plataforma); só servidores locais dispensam a chave` };
   return { ...base, available: true };
 }
 
@@ -42,7 +42,7 @@ export function llmProviderStatus(
     const base = { name, label: p.label, paid: p.paid, ...(p.note ? { note: p.note } : {}) };
     if (p.keyEnv) {
       const available = keys.some((k) => k.name === p.keyEnv && k.configured);
-      return { ...base, available, ...(available ? {} : { reason: `falta a chave ${p.keyEnv} (em Chaves e acessos)` }) };
+      return { ...base, available, ...(available ? {} : { reason: `falta a chave ${p.keyEnv} (na seção Plataforma)` }) };
     }
     const command = envValue(p.commandEnv ?? "ANTIGRAVITY_CLI_PATH") ?? p.command;
     const available = exists(command);

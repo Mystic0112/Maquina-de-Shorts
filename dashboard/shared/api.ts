@@ -270,6 +270,84 @@ export interface LlmCatalog {
   tasks: { id: string; label: string; hint: string }[];
 }
 
+/* ---------- Configurações > Plataforma ---------- */
+/** Last "Testar conexão" of a provider (data/platform-tests.json). Never carries a key. */
+export interface PlatformTest {
+  ok: boolean;
+  /** ISO time of the attempt. */
+  at: string;
+  /** Short redacted text. */
+  message: string;
+  ms?: number;
+}
+
+/** One AI provider card: what is installed, configured and tested. */
+export interface PlatformProvider {
+  name: string;
+  label: string;
+  paid: boolean;
+  /** cli = a command on this computer (plan login, no key); api = a key and/or a server URL. */
+  kind: "cli" | "api";
+  command?: string;
+  /** cli only: the command was found on PATH. */
+  installed?: boolean;
+  /** api only: key (and/or URL) in place. */
+  configured?: boolean;
+  /** Can the test run (command found / key and URL in place)? */
+  available: boolean;
+  reason?: string;
+  /** Names of the storable keys shown inside this card. */
+  keyNames: string[];
+  notes: string[];
+  lastTest?: PlatformTest;
+}
+
+/** A keyed service that is not an AI provider (voice, web search, stock images, YouTube statistics). */
+export interface PlatformService {
+  id: string;
+  label: string;
+  keyNames: string[];
+  notes: string[];
+}
+
+/** An agent CLI found on PATH that the machine cannot use yet. */
+export interface PlatformDetectedCli {
+  id: string;
+  label: string;
+  command: string;
+  detected: boolean;
+}
+
+export interface PlatformReadiness {
+  label: string;
+  ready: boolean;
+  detail: string;
+  note?: string;
+}
+
+export interface PlatformStatus {
+  providers: PlatformProvider[];
+  services: PlatformService[];
+  detectedClis: PlatformDetectedCli[];
+  keys: KeyStatus[];
+  /** By voice engine id (VOICE_ENGINES). */
+  voice: Record<string, PlatformReadiness>;
+  /** By script.imageSource id. */
+  images: Record<string, PlatformReadiness>;
+  /** Minimum seconds between two tests of the same provider. */
+  testIntervalSeconds: number;
+}
+
+/** Answer of POST /api/platform/test/:name: only ok/message, never a key. */
+export interface PlatformTestResponse {
+  ok: boolean;
+  message: string;
+  /** false = nothing was called (provider not usable here, or confirmation missing). */
+  ran: boolean;
+  test?: PlatformTest;
+  retryAfterSeconds?: number;
+}
+
 export interface SettingsPayload {
   /** Content hash of the file on disk; sent back on save to detect concurrent edits. */
   version: string;

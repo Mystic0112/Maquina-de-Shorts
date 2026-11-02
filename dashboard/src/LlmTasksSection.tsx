@@ -4,6 +4,7 @@
 import { Cpu, TriangleAlert } from "lucide-react";
 import type { LlmCatalog, LlmProviderStatus } from "../shared/api";
 import { getPath, type Json } from "./settingsModel";
+import { openAiBaseUrlIsPaid } from "../shared/baseUrl";
 import { Field, Section, Switch } from "./settingsUi";
 
 interface TaskDraft {
@@ -19,6 +20,43 @@ function offered(providers: readonly LlmProviderStatus[], current: string | unde
 
 const optionLabel = (p: LlmProviderStatus): string => `${p.label}${p.available ? "" : " (indisponível aqui)"}`;
 
+/** URL base and default model of the "openai-compatible" provider (shown in its Plataforma card; the draft is saved with the page). */
+export function OpenAiCompatibleFields(props: { draft: Json; set: (path: string, value: unknown) => void; errorAt: (path: string) => string | undefined }) {
+  const { draft, set, errorAt } = props;
+  return (
+    <div className="cfg-grid">
+      <Field
+        label="URL base"
+        error={errorAt("llm.openaiCompatible.baseUrl")}
+        help="Ollama: http://localhost:11434/v1 · LM Studio: http://localhost:1234/v1 · OpenRouter: https://openrouter.ai/api/v1. Sem usuário, senha nem parâmetros na URL."
+      >
+        <input
+          className="input"
+          value={String(getPath(draft, "llm.openaiCompatible.baseUrl") ?? "")}
+          placeholder="http://localhost:11434/v1"
+          inputMode="url"
+          autoCapitalize="off"
+          spellCheck={false}
+          onChange={(e) => set("llm.openaiCompatible.baseUrl", e.target.value.trim() || undefined)}
+        />
+      </Field>
+      <Field
+        label="Modelo padrão"
+        error={errorAt("llm.openaiCompatible.model")}
+        help="Ex.: llama3.2 (Ollama), gpt-4o-mini (OpenAI). O modelo escolhido em cada tarefa tem prioridade."
+      >
+        <input
+          className="input"
+          value={String(getPath(draft, "llm.openaiCompatible.model") ?? "")}
+          placeholder="nome do modelo"
+          spellCheck={false}
+          onChange={(e) => set("llm.openaiCompatible.model", e.target.value.trim() || undefined)}
+        />
+      </Field>
+    </div>
+  );
+}
+
 export function LlmTasksSection(props: {
   draft: Json;
   catalog: LlmCatalog;
@@ -27,6 +65,9 @@ export function LlmTasksSection(props: {
 }) {
   const { draft, catalog, set, errorAt } = props;
   const byName = new Map(catalog.providers.map((p) => [p.name, p]));
+  // "openai-compatible" costs money unless its URL is local: judge the URL being typed (the draft), not the saved one.
+  const draftUrl = getPath(draft, "llm.openaiCompatible.baseUrl") as string | undefined;
+  const isPaid = (p: LlmProviderStatus | undefined): boolean => (p?.name === "openai-compatible" ? openAiBaseUrlIsPaid(draftUrl) : !!p?.paid);
   const unusable = catalog.providers.filter((p) => !p.available);
 
   return (
@@ -43,49 +84,17 @@ export function LlmTasksSection(props: {
           Não aparecem para escolher: {unusable.map((p) => `${p.label} (${p.reason ?? "indisponível"})`).join("; ")}.
         </p>
       )}
-      <div className="llm-task">
-        <div className="llm-task-head">
-          <b>Servidor OpenAI-compatível</b>
-          <span className="muted">Para usar OpenAI, OpenRouter, Ollama, LM Studio ou outro servidor no formato da OpenAI.</span>
-        </div>
-        <div className="cfg-grid">
-          <Field
-            label="URL base"
-            error={errorAt("llm.openaiCompatible.baseUrl")}
-            help="Ollama: http://localhost:11434/v1 · LM Studio: http://localhost:1234/v1 · OpenRouter: https://openrouter.ai/api/v1. Sem usuário, senha nem parâmetros na URL."
-          >
-            <input
-              className="input"
-              value={String(getPath(draft, "llm.openaiCompatible.baseUrl") ?? "")}
-              placeholder="http://localhost:11434/v1"
-              onChange={(e) => set("llm.openaiCompatible.baseUrl", e.target.value.trim() || undefined)}
-            />
-          </Field>
-          <Field
-            label="Modelo padrão"
-            error={errorAt("llm.openaiCompatible.model")}
-            help="Ex.: llama3.2 (Ollama), gpt-4o-mini (OpenAI). O modelo escolhido em cada tarefa abaixo tem prioridade."
-          >
-            <input
-              className="input"
-              value={String(getPath(draft, "llm.openaiCompatible.model") ?? "")}
-              placeholder="nome do modelo"
-              onChange={(e) => set("llm.openaiCompatible.model", e.target.value.trim() || undefined)}
-            />
-          </Field>
-        </div>
-        <p className="hint">
-          A chave (opcional em servidor local) fica em Chaves e acessos, como OPENAI_COMPAT_API_KEY. Servidor deste computador ou da rede local é grátis; um servidor
-          na internet cobra por chamada e só entra como alternativa se você permitir. Salve a configuração para o provedor aparecer nas listas abaixo.
-        </p>
-      </div>
+      <p className="hint">
+        O servidor OpenAI-compatível (URL base e modelo padrão) e as chaves ficam nos cartões da seção Plataforma, logo acima. Salve a configuração para o provedor aparecer
+        nas listas abaixo.
+      </p>
       <div className="llm-tasks">
         {catalog.tasks.map((t) => {
           const base = `llm.tasks.${t.id}`;
           const task = (getPath(draft, base) ?? {}) as TaskDraft;
           const fb = task.fallback;
           const fbInfo = fb?.provider ? byName.get(fb.provider) : undefined;
-          const fbPaid = !!fbInfo?.paid;
+          const fbPaid = isPaid(fbInfo);
           const notes = [...new Set([task.provider, fb?.provider])].flatMap((n) => {
             const info = n ? byName.get(n) : undefined;
             return info?.note ? [info] : [];
@@ -118,14 +127,14 @@ export function LlmTasksSection(props: {
                       const v = e.target.value;
                       if (!v) return set(`${base}.fallback`, undefined);
                       set(`${base}.fallback.provider`, v);
-                      if (!byName.get(v)?.paid) set(`${base}.fallback.allowPaid`, undefined);
+                      if (!isPaid(byName.get(v))) set(`${base}.fallback.allowPaid`, undefined);
                     }}
                   >
                     <option value="">Sem alternativa</option>
                     {offered(catalog.providers, fb?.provider).map((p) => (
                       <option key={p.name} value={p.name}>
                         {optionLabel(p)}
-                        {p.paid ? " - gasta dinheiro" : ""}
+                        {isPaid(p) ? " - gasta dinheiro" : ""}
                       </option>
                     ))}
                   </select>

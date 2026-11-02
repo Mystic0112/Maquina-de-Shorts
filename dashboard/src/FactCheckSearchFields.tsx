@@ -51,7 +51,7 @@ export function FactCheckSearchFields(props: {
           <div>
             {tavilyKeySet
               ? "Chave do Tavily configurada."
-              : "Falta a chave do Tavily: cole-a em Chaves e acessos (aqui embaixo na página) ou no .env como TAVILY_API_KEY."}{" "}
+              : "Falta a chave do Tavily: cole-a no cartão do Tavily da seção Plataforma ou no .env como TAVILY_API_KEY."}{" "}
             Cada checagem gasta de 10 a 40 buscas do seu plano; o plano grátis é limitado por mês.
           </div>
         </div>

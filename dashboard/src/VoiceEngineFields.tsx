@@ -96,7 +96,7 @@ export function ElevenLabsFields({ voice, defaults, set, errorAt, keySet }: Prop
       <div className="field">
         <span className="field-label">Chave de API</span>
         <span className={keySet ? "ok-text" : "bad-text"}>{keySet ? "Configurada." : "Falta a ELEVENLABS_API_KEY."}</span>
-        <span className="field-help">Cole em “Chaves e acessos” (mais abaixo) ou ponha ELEVENLABS_API_KEY no .env. O painel nunca mostra o valor.</span>
+        <span className="field-help">Cole no cartão do ElevenLabs da seção Plataforma ou ponha ELEVENLABS_API_KEY no .env. O painel nunca mostra o valor.</span>
       </div>
       <TextInput
         label="ID da voz"

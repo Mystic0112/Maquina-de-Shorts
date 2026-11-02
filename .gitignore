@@ -28,3 +28,5 @@ data/branding/
 data/music/
 .claude/worktrees/
 data/voice_ref/
+data/platform-tests.json
+data/platform-tests.json.tmp
