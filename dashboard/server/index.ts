@@ -14,6 +14,7 @@ import { isInsideRenderOutput, listRuns, RUN_ID_PATTERN } from "./runs.js";
 import { thumbPathFor } from "./thumbnails.js";
 import { PREVIEW_HASH, PREVIEWS_DIR, requestPreview } from "./preview.js";
 import { getSettings, getTopics, putSettings, putTopics, SettingsError } from "./settings.js";
+import { MAX_VOICE_REF_BYTES, removeVoiceReference, saveVoiceReference, voiceReference } from "./voiceRef.js";
 import { listVoices, SAMPLE_HASH, SAMPLES_DIR, voiceSample, type SampleRequest } from "./voices.js";
 
 const app = express();
@@ -217,6 +218,35 @@ app.get("/api/music/:id/audio", async (req, res) => {
     return;
   }
   res.sendFile(file, { headers: { "Cache-Control": "no-store" } });
+});
+
+/* ---------- Voz de referência do Chatterbox ---------- */
+// An audio body type forces a CORS preflight, so other sites cannot upload here.
+app.put("/api/voice/reference", express.raw({ type: (req) => /^audio\//i.test(req.headers["content-type"] ?? ""), limit: MAX_VOICE_REF_BYTES }), async (req, res) => {
+  try {
+    if (!/^audio\//i.test(req.headers["content-type"] ?? "")) {
+      res.status(415).json({ ok: false, message: "Envie o arquivo com Content-Type audio/*." });
+      return;
+    }
+    const path = await saveVoiceReference(req.body);
+    res.json({ ok: true, message: "Gravação enviada.", path });
+  } catch (error) {
+    sendSettingsError(res, error);
+  }
+});
+
+app.get("/api/voice/reference", (_req, res) => {
+  const current = voiceReference();
+  if (!current) {
+    res.status(404).end();
+    return;
+  }
+  res.sendFile(current.file, { headers: { "Cache-Control": "no-store" } });
+});
+
+app.delete("/api/voice/reference", async (_req, res) => {
+  const removed = await removeVoiceReference();
+  res.status(removed ? 200 : 404).json({ ok: removed, message: removed ? "Gravação apagada." : "Não há gravação guardada." });
 });
 
 app.get("/api/voices", async (_req, res) => {

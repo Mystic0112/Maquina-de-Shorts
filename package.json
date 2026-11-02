@@ -13,6 +13,7 @@
     "stage": "tsx scripts/run_stage.ts",
     "memes": "tsx scripts/memes.ts",
     "cuts": "tsx scripts/cuts.ts",
+    "voice-speed": "tsx scripts/voice_speed.ts",
     "dashboard": "npm --prefix dashboard run dev",
     "test": "vitest run",
     "lint": "tsc -p tsconfig.json --noEmit",

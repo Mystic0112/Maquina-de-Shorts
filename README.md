@@ -358,9 +358,11 @@ O `.env` nunca entra no git. O modelo comentado é o `.env.example`. A tabela ab
 | IA | `GEMINI_API_KEY`, `GEMINI_MODEL` | Só com `LLM_PROVIDER=gemini`, voz Gemini TTS ou `ANTIGRAVITY_FALLBACK=gemini` |
 | IA | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | Só com `LLM_PROVIDER=anthropic` |
 | Voz | `KOKORO_PYTHON` | Python do ambiente do Kokoro (vazio = `.venv` do projeto) |
+| Voz | `CHATTERBOX_PYTHON` | Python do ambiente do Chatterbox (só com `voice.engine: chatterbox`; veja [Voz](#%EF%B8%8F-voz-motores)) |
+| Voz | `ELEVENLABS_API_KEY` | Sua chave da ElevenLabs (só com `voice.engine: elevenlabs`; o plano Free é só uso não comercial) |
 | Imagens | `PEXELS_API_KEY`, `PIXABAY_API_KEY` | Mais fontes de imagem e vídeo (recomendado). A do Pixabay também serve aos memes. |
 | Publicação | `YT_CLIENT_SECRET_PATH`, `YT_TOKEN_PATH` | Arquivos do login do YouTube (padrão em `secrets/`) |
-| Chaves de API | `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `YOUTUBE_API_KEY`, `PEXELS_API_KEY`, `PIXABAY_API_KEY` | Podem vir do `.env` **ou** ser coladas em Configurações > Chaves e acessos, que as guarda em `secrets/api-keys.json` (fora do git, só o dono do arquivo lê). O painel nunca devolve o valor: mostra só "configurada" e de onde vem. O que estiver no `.env` ou no ambiente vale mais que o do painel |
+| Chaves de API | `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `YOUTUBE_API_KEY`, `PEXELS_API_KEY`, `PIXABAY_API_KEY`, `ELEVENLABS_API_KEY` | Podem vir do `.env` **ou** ser coladas em Configurações > Chaves e acessos, que as guarda em `secrets/api-keys.json` (fora do git, só o dono do arquivo lê). O painel nunca devolve o valor: mostra só "configurada" e de onde vem. O que estiver no `.env` ou no ambiente vale mais que o do painel |
 | Publicação | `YOUTUBE_CHANNEL_ID` | ID do canal (`UC...`), mostrado pelo `npm run auth:youtube` |
 | Publicação | `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET` | App da Meta, usados só pelo `npm run auth:instagram` |
 | Painel | `YOUTUBE_API_KEY` | Estatísticas públicas no painel (não serve para publicar) |
@@ -384,7 +386,9 @@ Este arquivo é versionado. Quase tudo dá para mudar na aba **Configurações**
 | Opção | Padrão | O que faz |
 |---|---|---|
 | `video.minSeconds` / `maxSeconds` | 45 / 90 | Duração aceita da narração. Fora disso, troca de tema. |
-| `voice.engine` | `kokoro` | `kokoro` (local, grátis, recomendado), `gemini` (API paga) ou `edge-tts` (legado, fora do ar). Sem o Kokoro instalado, o estágio 04 falha com aviso; não cai na API paga. |
+| `voice.engine` | `kokoro` | `kokoro` (local, grátis, recomendado), `chatterbox` (local, pode usar a sua voz), `elevenlabs` (sua chave; plano Free só não comercial), `gemini` (API paga) ou `edge-tts` (legado, fora do ar). Sem o motor instalado, o estágio 04 falha com aviso; não cai na API paga. Veja [Voz](#%EF%B8%8F-voz-motores). |
+| `voice.chatterboxRefAudio` / `chatterboxExaggeration` / `chatterboxCfgWeight` | vazio / 0,5 / 0,5 | Gravação de referência (só voz com consentimento), expressividade e ritmo do Chatterbox |
+| `voice.elevenlabsVoiceId` / `elevenlabsModel` / `elevenlabsStability` | vazio / `eleven_multilingual_v2` / 0,5 | Voz, modelo e estabilidade da ElevenLabs (o ID da voz é obrigatório) |
 | `voice.kokoroVoice` / `kokoroSpeed` | `pm_alex` / 1 | Vozes pt-BR: `pm_alex` (Alex), `pf_dora` (Dora), `pm_santa` (Santa); velocidade de 0,5 a 2 |
 | `voice.geminiVoice` / `geminiModel` / `style` | `Fenrir` / `gemini-3.8-flash-tts` / texto | Só para a voz Gemini |
 | `voice.maxPauseMs` | 250 | Maior pausa mantida na narração, em ms |
@@ -458,6 +462,48 @@ Os temas ficam em `config/topics.seed.json` (também editáveis na aba Configura
 
 > [!CAUTION]
 > **Nunca use um túnel público.** O painel não tem login, e a tela Configurações grava arquivos.
+
+## 🎙️ Voz (motores)
+
+O estágio 04 fala o roteiro com um **motor** à escolha, em **Configurações > Voz** ou em `voice.engine`. Trocar de motor não muda mais nada no pipeline: todos entregam o áudio e o `align_narration.py` marca o tempo de cada palavra.
+
+| Motor | Onde roda | Custo | Observações |
+|---|---|---|---|
+| `kokoro` (padrão) | No PC | Grátis (Apache-2.0) | Venv próprio (`KOKORO_PYTHON`) |
+| `chatterbox` | No PC, na placa de vídeo | Grátis (MIT) | Venv próprio (`CHATTERBOX_PYTHON`); pode falar com **a sua voz** a partir de uma gravação de 10 a 15 s |
+| `elevenlabs` | Nuvem | Sua chave de API, com limites do plano | Nunca é o padrão; leia o aviso abaixo |
+| `gemini` | Nuvem | API paga | `GEMINI_API_KEY` |
+| `edge-tts` | Nuvem | Legado, fora do ar | |
+
+O padrão continua sendo o Kokoro, e uma configuração antiga (sem as chaves novas) segue valendo igual. A pontuação de inteligibilidade medida em casa (mesmo trecho de 590 caracteres, erro de pronúncia por transcrição com Whisper) foi: Kokoro `pm_alex` 5,7%; Chatterbox pt-BR com voz de referência 6,6%; ElevenLabs Multilingual v2 5,7% e Flash 2.5 7,5%. Isso mede se dá para entender, **não o sotaque**: quem decide é o ouvido do dono.
+
+### Chatterbox (voz própria)
+
+> [!WARNING]
+> **Só use uma voz que seja sua ou de quem autorizou por escrito.** Clonar a voz de outra pessoa sem consentimento pode violar direitos dela e as regras das plataformas. O Chatterbox grava uma marca d'água inaudível (Perth) em todo áudio; não tente removê-la.
+
+1. Crie um ambiente separado (o torch dele não deve se misturar com o do Kokoro) e aponte `CHATTERBOX_PYTHON` no `.env` para o `python` dele. O pacote e a versão exatos do modelo pt-BR ficam por conta de quem instala em casa: `<pacote/versão conferidos no PC de casa>`.
+2. Em Configurações > Voz > Chatterbox, envie a gravação de referência (WAV, MP3 ou FLAC; fica em `data/voice_ref/`, fora do git) e escolha o motor.
+3. Gasta ~4 GB de VRAM e 35 a 60 s para cada ~40 s de áudio. A primeira execução baixa os pesos.
+
+O modelo pt-BR oficial precisa de um remendo logo após o carregamento (dois buffers fixos do tokenizador). Ele está isolado em `apply_ptbr_patch` / `PTBR_TOKENIZER_BUFFER_FIXES`, em `python/tts/synthesize_chatterbox.py`.
+
+### ElevenLabs (sua chave)
+
+> [!WARNING]
+> O plano **Free** (10 mil créditos por mês, cerca de 11 Shorts) vale **só para uso não comercial** (Termos de Uso, §1(c)). Para um canal monetizado, use o plano **Starter** (US$ 6/mês) ou superior, que tem licença comercial. Use a **sua** chave: não distribua chave de terceiros nem crie várias contas grátis para esticar a cota (Política de Uso, §8 e §12). A chamada gasta os créditos do seu plano; por isso este motor nunca vem ligado.
+
+Cole a `ELEVENLABS_API_KEY` em Configurações > Chaves e acessos (ou no `.env`), copie o **ID da voz** da sua biblioteca e escolha o motor. Modelos: `eleven_multilingual_v2` (padrão) e `eleven_flash_v2_5`.
+
+### Velocidade da fala por motor
+
+O estágio 02 mede se o gancho cabe em ~3,5 s com as **letras por segundo** do motor (`VOICE_ENGINE_INFO` em `src/shared/voiceEngines.ts`). Kokoro: 14 (medido). Chatterbox e ElevenLabs têm um valor inicial marcado como **a medir**. Para remedir depois de algumas execuções reais com o mesmo motor:
+
+```powershell
+npm run voice-speed -- <runId> <runId> ...
+```
+
+Copie a mediana para o motor em `voiceEngines.ts` e troque `measured` para `true`. Remeça também se trocar a voz ou a velocidade.
 
 ## 📣 Publicação
 
@@ -661,7 +707,7 @@ Os testes têm valores falsos de propósito (`AIzaFAKE…`, `GOCSPX-FAKE…`, `I
 | `src/orchestrator/` | O pipeline: `runPipeline.ts`, os estágios em `stages/`, publicadores em `publishers/`, cortes em `cuts/` e bibliotecas em `lib/` (IA, `agy`, voz, ffmpeg, travas) |
 | `src/remotion/` | A montagem do vídeo (tomadas, texto de capa, legendas, movimento, camada de memes) |
 | `src/shared/` | Padrões das configurações e contratos usados também pelo painel |
-| `python/tts/` | Voz: Kokoro, corte de pausas, alinhamento com Whisper; edge-tts legado |
+| `python/tts/` | Voz: Kokoro, Chatterbox, corte de pausas, alinhamento com Whisper; edge-tts legado |
 | `python/cuts/` | Cortes: transcrição, quem está falando, recorte vertical e legendas |
 | `vendor/openmontage_adapter/` | Busca de imagens com filtro de licença (código AGPL, só por subprocesso) |
 | `dashboard/` | Painel local (Express + Vite + React) |
@@ -724,5 +770,5 @@ O planejamento vivo fica no ClickUp, na lista **"Máquina de Shorts"** (ondas 0 
 - **Imagens e vídeos:** só fontes da lista permitida, cada candidato checado antes do download. Autor, licença e link ficam no `context.json`, e o estágio 07 escreve os créditos na descrição, com "(recortado e editado)".
 - **Memes e sons:** só as licenças da [lista](#-memes), com crédito quando a licença pede.
 - **Cortes:** só canais ligados pelo dono e fora da lista de bloqueio; nunca mudar o sentido nem desmoralizar (conferência antes do render); o crédito do canal e o link do original vão na descrição.
-- **Voz:** Kokoro é Apache-2.0. O edge-tts não tem licença comercial e ficou só como legado.
+- **Voz:** Kokoro é Apache-2.0 e Chatterbox é MIT (com marca d'água Perth; só vozes com consentimento). A ElevenLabs depende do plano: o Free é só uso não comercial. O edge-tts não tem licença comercial e ficou só como legado.
 - **OpenMontage:** `vendor/openmontage_adapter/` usa código do [OpenMontage](https://github.com/calesthio/OpenMontage), licenciado sob **AGPL-3.0**. O resto do projeto só o chama como processo separado e **nunca importa** dele em `src/` ou `python/`. Se este repositório for distribuído ou ficar público, o adaptador precisa ser publicado sob AGPL-3.0. O clone em `vendor/openmontage/` não é versionado.

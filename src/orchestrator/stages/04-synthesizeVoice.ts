@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
 import { env, loadConfig, paths } from "../lib/config.js";
+import { synthesizeElevenLabsSpeech, type ElevenLabsSpeechRequest } from "../lib/elevenLabsTts.js";
 import { pcmToWav, synthesizeGeminiSpeech, type GeminiSpeechRequest, type SpeechAudio } from "../lib/geminiTts.js";
 import { getLogger, type Logger } from "../lib/logger.js";
 import { runPythonJson, scriptSupportsFlag } from "../lib/python.js";
@@ -11,11 +12,15 @@ import type { Narration, RunContext, Script } from "../types.js";
 
 const EDGE_TTS_SCRIPT = "python/tts/synthesize.py";
 const KOKORO_SCRIPT = "python/tts/synthesize_kokoro.py";
+const CHATTERBOX_SCRIPT = "python/tts/synthesize_chatterbox.py";
 const ALIGN_SCRIPT = "python/tts/align_narration.py";
 /** Linux only: lets the child find the distro's espeak-ng when the bundled one lacks its data files. */
 // HF_* so the child finds the cached Kokoro weights where the parent keeps them (synthesize_kokoro.py goes offline once cached).
-const KOKORO_ENV_KEYS = ["ESPEAK_DATA_PATH", "PHONEMIZER_ESPEAK_LIBRARY", "HF_HOME", "HF_HUB_CACHE", "HF_HUB_OFFLINE"];
+const HF_ENV_KEYS = ["HF_HOME", "HF_HUB_CACHE", "HF_HUB_OFFLINE"];
+const KOKORO_ENV_KEYS = ["ESPEAK_DATA_PATH", "PHONEMIZER_ESPEAK_LIBRARY", ...HF_ENV_KEYS];
 const TTS_TIMEOUT_MS = 5 * 60 * 1000;
+/** Chatterbox takes 35-60 s per ~40 s of audio on the RTX 3050 and the first run downloads the weights. */
+const CHATTERBOX_TIMEOUT_MS = 20 * 60 * 1000;
 /** Pause trimming + Whisper alignment take ~6 s per minute of audio; the first run also downloads the model. */
 const ALIGN_TIMEOUT_MS = 10 * 60 * 1000;
 /** synthesize.py stops retrying after this, leaving 20 s before the subprocess timeout. */
@@ -151,7 +156,8 @@ export function kokoroMissingMessage(python: string | undefined): string {
   );
 }
 
-const KokoroOutputSchema = z.object({ audioPath: z.string().min(1), durationMs: z.number().positive(), sentences: z.number() });
+/** What synthesize_kokoro.py and synthesize_chatterbox.py print: the source WAV they wrote. */
+const LocalTtsOutputSchema = z.object({ audioPath: z.string().min(1), durationMs: z.number().positive(), sentences: z.number() });
 
 /**
  * Kokoro (local, free) in its own venv (KOKORO_PYTHON; empty = project .venv) -> narration.source.wav
@@ -168,7 +174,7 @@ export function createKokoroEngine(python: string | undefined = env("KOKORO_PYTH
         script: KOKORO_SCRIPT,
         args: buildKokoroArgs(textFile, sourceFile, voice),
         timeoutMs: TTS_TIMEOUT_MS,
-        schema: KokoroOutputSchema,
+        schema: LocalTtsOutputSchema,
         onStderrLine: stderrLogger(log, "kokoro"),
         envKeys: KOKORO_ENV_KEYS,
         python,
@@ -181,10 +187,92 @@ export function createKokoroEngine(python: string | undefined = env("KOKORO_PYTH
   };
 }
 
+/** synthesize_chatterbox.py CLI args; "--flag=value" keeps a reference path that starts with "-" from parsing as a flag. */
+export function buildChatterboxArgs(textFile: string, outFile: string, voice: Pick<ResolvedVoice, "chatterboxExaggeration" | "chatterboxCfgWeight">, refAudio?: string): string[] {
+  return [
+    "--text-file", textFile,
+    "--out", outFile,
+    `--exaggeration=${voice.chatterboxExaggeration}`,
+    `--cfg-weight=${voice.chatterboxCfgWeight}`,
+    ...(refAudio ? [`--ref-audio=${refAudio}`] : []),
+  ];
+}
+
+/** synthesize_chatterbox.py logs "chatterbox is missing in this interpreter" when the import fails. */
+const chatterboxMissing = (error: unknown): boolean => error instanceof Error && /chatterbox is missing/.test(error.message);
+
+export function chatterboxMissingMessage(python: string | undefined): string {
+  const where = python ? `CHATTERBOX_PYTHON (${python})` : "o Python do projeto (.venv; CHATTERBOX_PYTHON está vazio)";
+  return (
+    `O Chatterbox não está instalado em ${where}. Instale-o num ambiente separado (README, seção Voz: Chatterbox) ` +
+    `e aponte CHATTERBOX_PYTHON no .env, ou volte para voice.engine: "kokoro".`
+  );
+}
+
+/**
+ * Chatterbox (local, MIT, own venv CHATTERBOX_PYTHON) -> narration.source.wav -> alignSourceAudio, like Kokoro.
+ * `chatterboxRefAudio` (project-relative or absolute) makes it speak with that recording's voice: only voices the
+ * owner has consent to use.
+ */
+export function createChatterboxEngine(python: string | undefined = env("CHATTERBOX_PYTHON")): TtsEngine {
+  return {
+    name: "chatterbox",
+    describe: (v) =>
+      `Chatterbox pt-BR (${v.chatterboxRefAudio ? "voz de referência" : "voz padrão"}, exaggeration ${v.chatterboxExaggeration}, cfg ${v.chatterboxCfgWeight}, max pause ${v.maxPauseMs} ms)`,
+    async synthesize(job) {
+      const { textFile, runDir, voice, log } = job;
+      const sourceFile = join(runDir, GEMINI_SOURCE_AUDIO);
+      const ref = voice.chatterboxRefAudio.trim();
+      const refAudio = ref ? (isAbsolute(ref) ? ref : paths.fromRoot(ref)) : undefined;
+      const out = await runPythonJson({
+        script: CHATTERBOX_SCRIPT,
+        args: buildChatterboxArgs(textFile, sourceFile, voice, refAudio),
+        timeoutMs: CHATTERBOX_TIMEOUT_MS,
+        schema: LocalTtsOutputSchema,
+        onStderrLine: stderrLogger(log, "chatterbox"),
+        envKeys: HF_ENV_KEYS,
+        python,
+      }).catch((error: unknown) => {
+        throw chatterboxMissing(error) ? new Error(chatterboxMissingMessage(python), { cause: error }) : error;
+      });
+      log.info(`Chatterbox audio: ${(out.durationMs / 1000).toFixed(1)} s in ${out.sentences} sentences; trimming pauses and aligning words`);
+      return alignSourceAudio(sourceFile, job);
+    },
+  };
+}
+
+export type ElevenLabsSynthesizer = (request: ElevenLabsSpeechRequest) => Promise<SpeechAudio>;
+
+/** ElevenLabs (the person's own API key; never the default) -> narration.source.wav -> alignSourceAudio. */
+export function createElevenLabsEngine(speak: ElevenLabsSynthesizer = (request) => synthesizeElevenLabsSpeech(request)): TtsEngine {
+  return {
+    name: "elevenlabs",
+    describe: (v) => `ElevenLabs ${v.elevenlabsModel} voice ${v.elevenlabsVoiceId || "(none chosen)"} (stability ${v.elevenlabsStability}, max pause ${v.maxPauseMs} ms)`,
+    async synthesize(job) {
+      const { text, runDir, voice, log } = job;
+      const audio = await speak({ text, voiceId: voice.elevenlabsVoiceId, model: voice.elevenlabsModel, stability: voice.elevenlabsStability });
+      const sourceFile = join(runDir, GEMINI_SOURCE_AUDIO);
+      await writeFile(sourceFile, pcmToWav(audio));
+      log.info(`ElevenLabs audio: ${(audio.pcm.length / 2 / audio.sampleRate).toFixed(1)} s; trimming pauses and aligning words`);
+      return alignSourceAudio(sourceFile, job);
+    },
+  };
+}
+
+/**
+ * THE engine registry: config `voice.engine` -> engine. The Record type makes adding a VoiceEngine
+ * (src/shared/settings.ts) fail to compile until it has a factory here and an entry in src/shared/voiceEngines.ts.
+ */
+const ENGINE_FACTORIES: Record<VoiceEngine, () => TtsEngine> = {
+  kokoro: () => createKokoroEngine(),
+  chatterbox: () => createChatterboxEngine(),
+  elevenlabs: () => createElevenLabsEngine(),
+  gemini: () => createGeminiEngine(),
+  "edge-tts": () => edgeTtsEngine,
+};
+
 export function selectTtsEngine(engine: VoiceEngine): TtsEngine {
-  if (engine === "edge-tts") return edgeTtsEngine;
-  if (engine === "kokoro") return createKokoroEngine();
-  return createGeminiEngine();
+  return ENGINE_FACTORIES[engine]();
 }
 
 export async function run(ctx: RunContext, engineFor: (engine: VoiceEngine) => TtsEngine = selectTtsEngine): Promise<RunContext> {

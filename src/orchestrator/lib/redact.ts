@@ -10,6 +10,7 @@ export const SECRET_ENV_VARS = [
   "YOUTUBE_API_KEY",
   "PEXELS_API_KEY",
   "PIXABAY_API_KEY",
+  "ELEVENLABS_API_KEY",
   "INSTAGRAM_APP_SECRET",
 ] as const;
 

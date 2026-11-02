@@ -16,10 +16,12 @@ export const CAPTION_FONTS = {
 export type CaptionFont = keyof typeof CAPTION_FONTS;
 
 /**
- * TTS engines: Kokoro (default; local model, free; needs its own venv, see KOKORO_PYTHON), Gemini TTS (paid API)
- * or edge-tts (Microsoft's unofficial endpoint; 403 since Oct 2026).
+ * TTS engines: Kokoro (default; local model, free; needs its own venv, see KOKORO_PYTHON), Chatterbox (local, MIT,
+ * own venv CHATTERBOX_PYTHON; can speak with the owner's own voice from a reference recording), ElevenLabs (the
+ * person's own API key; the free plan is non-commercial only), Gemini TTS (paid API) or edge-tts (Microsoft's
+ * unofficial endpoint; 403 since Oct 2026). Per-engine metadata (labels, speech rate): src/shared/voiceEngines.ts.
  */
-export const VOICE_ENGINES = ["gemini", "kokoro", "edge-tts"] as const;
+export const VOICE_ENGINES = ["gemini", "kokoro", "chatterbox", "elevenlabs", "edge-tts"] as const;
 export type VoiceEngine = (typeof VOICE_ENGINES)[number];
 
 export const VoiceExtrasSchema = z.object({
@@ -42,6 +44,18 @@ export const VoiceExtrasSchema = z.object({
   kokoroVoice: z.string().min(1).optional(),
   /** Kokoro speaking speed multiplier. */
   kokoroSpeed: z.number().min(0.5).max(2).optional(),
+  /** Chatterbox: project-relative (or absolute) 10-15 s recording of a voice the owner has consent to clone; "" = the model's own voice. */
+  chatterboxRefAudio: z.string().max(300).optional(),
+  /** Chatterbox emotion/intensity (0.5 = neutral). */
+  chatterboxExaggeration: z.number().min(0.25).max(2).optional(),
+  /** Chatterbox pacing/guidance (0.5 default; lower = slower, more deliberate). */
+  chatterboxCfgWeight: z.number().min(0).max(1).optional(),
+  /** ElevenLabs model id (eleven_multilingual_v2, eleven_flash_v2_5, ...). */
+  elevenlabsModel: z.string().regex(/^[a-z0-9_]{3,60}$/, "id do modelo, ex.: eleven_multilingual_v2").optional(),
+  /** ElevenLabs voice id (letters and digits; goes into the request URL, so it is validated). "" = not chosen yet. */
+  elevenlabsVoiceId: z.union([z.literal(""), z.string().regex(/^[A-Za-z0-9]{10,40}$/, "id da voz: só letras e números")]).optional(),
+  /** ElevenLabs voice stability (0 = more expressive, 1 = more monotone). */
+  elevenlabsStability: z.number().min(0).max(1).optional(),
 });
 
 export const CaptionSettingsSchema = z.object({
@@ -221,6 +235,12 @@ export const VOICE_EXTRAS_DEFAULTS: Required<VoiceExtras> = {
   style: "Narre em português do Brasil, tom curioso e envolvente, ritmo ágil de vídeo curto, sem pausas longas",
   kokoroVoice: "pm_alex",
   kokoroSpeed: 1,
+  chatterboxRefAudio: "",
+  chatterboxExaggeration: 0.5,
+  chatterboxCfgWeight: 0.5,
+  elevenlabsModel: "eleven_multilingual_v2",
+  elevenlabsVoiceId: "",
+  elevenlabsStability: 0.5,
 };
 
 export const INSTAGRAM_DEFAULTS: Required<InstagramSettings> = { enabled: false, maxPostsPerDay: 3 };

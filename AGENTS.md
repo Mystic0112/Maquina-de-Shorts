@@ -28,7 +28,7 @@ Lido automaticamente pelo Antigravity CLI, Gemini CLI, Codex e Claude. Leia inte
 | `scripts/memes.ts`, `assets/memes/` | biblioteca de memes e sons (Onda 2); só `inventory.json` é versionado |
 | `src/remotion/` | composição do vídeo (tomadas, capa, legendas, movimento, camada de memes) |
 | `src/shared/settings.ts` | esquemas e padrões das configurações |
-| `python/tts/` | Kokoro, corte de pausas, alinhamento (faster-whisper `base`, cache em `models/`); edge-tts legado |
+| `python/tts/` + `src/shared/voiceEngines.ts` | motores de voz plugáveis (registro em `04-synthesizeVoice.ts`, `ENGINE_FACTORIES`): Kokoro (padrão), Chatterbox (venv próprio, voz de referência só com consentimento), ElevenLabs (chave do usuário, nunca padrão; `lib/elevenLabsTts.ts`), Gemini; corte de pausas; alinhamento (faster-whisper `base`, cache em `models/`); edge-tts legado. Letras por segundo por motor em `voiceEngines.ts` (`npm run voice-speed` remede) |
 | `vendor/openmontage_adapter/fetch_footage.py` | busca de imagens com filtro de licença; código AGPL — **só via subprocesso**, nunca importar em `src/` ou `python/` |
 | `dashboard/` | painel local React (`npm run dashboard`, http://localhost:5180) com a aba Configurações |
 | `scheduler/` | scripts do Agendador do Windows |

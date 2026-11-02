@@ -27,3 +27,4 @@ config/cuts.json
 data/branding/
 data/music/
 .claude/worktrees/
+data/voice_ref/

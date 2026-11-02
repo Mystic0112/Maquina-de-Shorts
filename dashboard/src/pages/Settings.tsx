@@ -49,6 +49,8 @@ import { CutsChannelsSection } from "../CutsChannels";
 import { KeysEditor } from "../KeysEditor";
 import { LlmTasksSection } from "../LlmTasksSection";
 import { MusicSection } from "../MusicSection";
+import type { VoiceExtras } from "../../../src/shared/settings";
+import { ChatterboxFields, ElevenLabsFields } from "../VoiceEngineFields";
 import { WatermarkSection } from "../WatermarkSection";
 import { SCRIPT_FORMATS, type ScriptFormat } from "../format";
 import { PreviewPanel } from "../PreviewPanel";
@@ -278,7 +280,7 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
           {/* First: the owner looks for the channel links here most (2026-10-22). */}
           <CutsChannelsSection channels={cutsDraft} fileExists={cuts.exists} onChange={setCutsDraft} errorAt={errorAt} />
 
-          <VoiceSection voice={voice} set={set} errorAt={errorAt} defaults={settings.defaults.voice} />
+          <VoiceSection voice={voice} set={set} errorAt={errorAt} defaults={settings.defaults.voice} elevenKeySet={settings.keys.find((k) => k.name === "ELEVENLABS_API_KEY")?.configured} />
 
           <Section
             id="cfg-legendas"
@@ -832,11 +834,14 @@ function bounds(schema: unknown, path: string): { min?: number; max?: number } {
 }
 
 /* ---------- Voz ---------- */
-type VoiceEngineId = "gemini" | "kokoro" | "edge-tts";
-type VoiceDraft = { engine?: VoiceEngineId; name?: string; language?: string; rate?: string; pitch?: string; volume?: string; kokoroVoice?: string; kokoroSpeed?: number };
+type VoiceEngineId = NonNullable<VoiceExtras["engine"]>;
+type VoiceDraft = VoiceExtras & { name?: string; language?: string };
+// Same labels as VOICE_ENGINE_INFO in src/shared/voiceEngines.ts (the dashboard only imports types from src/shared).
 const VOICE_ENGINE_OPTIONS: { value: VoiceEngineId; label: string }[] = [
-  { value: "gemini", label: "Gemini (API)" },
   { value: "kokoro", label: "Kokoro (local, grátis)" },
+  { value: "chatterbox", label: "Chatterbox (local, voz própria)" },
+  { value: "elevenlabs", label: "ElevenLabs (sua chave)" },
+  { value: "gemini", label: "Gemini (API paga)" },
   { value: "edge-tts", label: "edge-tts" },
 ];
 const KOKORO_VOICES = [
@@ -847,7 +852,8 @@ const KOKORO_VOICES = [
 
 function VoiceSection(props: {
   voice: VoiceDraft;
-  defaults: { engine: VoiceEngineId; rate: string; pitch: string; volume: string; kokoroVoice: string; kokoroSpeed: number };
+  defaults: Required<VoiceExtras>;
+  elevenKeySet: boolean | undefined;
   set: (path: string, value: unknown) => void;
   errorAt: (path: string) => string | undefined;
 }) {
@@ -909,7 +915,7 @@ function VoiceSection(props: {
       id="cfg-voz"
       icon={Mic}
       title="Voz da narração"
-      description="Motor da narração. A lista de vozes e a amostra abaixo são do edge-tts; o Kokoro roda no PC sem API paga."
+      description="Motor da narração: Kokoro e Chatterbox rodam no PC sem API paga; ElevenLabs e Gemini usam API. A lista de vozes e a amostra abaixo são do edge-tts."
       onReset={() => {
         set("voice.engine", undefined);
         set("voice.name", "pt-BR-AntonioNeural");
@@ -919,6 +925,7 @@ function VoiceSection(props: {
         set("voice.volume", undefined);
         set("voice.kokoroVoice", undefined);
         set("voice.kokoroSpeed", undefined);
+        for (const key of ["chatterboxRefAudio", "chatterboxExaggeration", "chatterboxCfgWeight", "elevenlabsModel", "elevenlabsVoiceId", "elevenlabsStability"]) set(`voice.${key}`, undefined);
       }}
     >
       <div className="cfg-grid" style={{ marginBottom: 14 }}>
@@ -945,6 +952,8 @@ function VoiceSection(props: {
             />
           </>
         )}
+        {engine === "chatterbox" && <ChatterboxFields voice={voice} defaults={props.defaults} set={set} errorAt={errorAt} />}
+        {engine === "elevenlabs" && <ElevenLabsFields voice={voice} defaults={props.defaults} set={set} errorAt={errorAt} keySet={props.elevenKeySet} />}
       </div>
       <div className="voice-tools">
         <div className="chips-row" role="radiogroup" aria-label="Idioma">

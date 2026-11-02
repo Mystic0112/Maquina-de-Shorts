@@ -2,7 +2,8 @@ import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { resolveScript, type ScriptSettings } from "../../shared/settings.js";
+import { resolveScript, resolveVoiceExtras, type ScriptSettings, type VoiceEngine } from "../../shared/settings.js";
+import { lettersPerSecondFor } from "../../shared/voiceEngines.js";
 import { env, loadConfig, paths } from "../lib/config.js";
 import { generateJson, withCorrection } from "../lib/llmClient.js";
 import { taskCallOptions, type TaskCallOptions } from "../lib/llmTasks.js";
@@ -32,11 +33,15 @@ export const HOOK_MAX_SECONDS = 3.5;
 /** The concrete subject must be named this early in the hook (~5 words, counted as tokens). */
 export const HOOK_LEAD_WORDS = 6;
 /**
- * Speech rate used to estimate the hook's length (letters only, no spaces). Measured on real runs:
- * Kokoro pm_alex 13.8 letters/s (median of 13 runs, 13.7-14.2; hook 14.0), Gemini Fenrir 15.2 (1 run),
- * edge-tts ~15-16. 14 fits the default engine (Kokoro) and is conservative for the faster voices.
+ * Speech rate used to estimate the hook's length (letters only, no spaces) is per voice engine:
+ * VOICE_ENGINE_INFO in src/shared/voiceEngines.ts (Kokoro 14 = median of 13 real runs; the new engines are
+ * "a medir em casa"). Stages 02 and 02b pick the configured engine with setSpeechEngine().
  */
-const LETTERS_PER_SECOND = 14;
+// ponytail: module state, one pipeline run per process; thread it through the validators if that ever changes.
+let hookLettersPerSecond = lettersPerSecondFor("kokoro");
+export function setSpeechEngine(engine: VoiceEngine): void {
+  hookLettersPerSecond = lettersPerSecondFor(engine);
+}
 const PAUSE_SECONDS = 0.25;
 export const OVERLAY_WORDS = { min: 3, max: 5 } as const;
 export const OVERLAY_MAX_CHARS = 32;
@@ -154,11 +159,29 @@ export function withEffectiveCta(raw: LlmScript, s: ResolvedScriptSettings): Llm
 // Validators (what the JSON schema cannot express)
 // ---------------------------------------------------------------------------------------------
 
-/** Rough narration time of a line (edge-tts pt-BR), used to keep the hook inside ~3.5 s. */
-export function estimateSpeechSeconds(text: string): number {
+/** Letters (no spaces) and inner pauses (punctuation other than the closing one) of a spoken line. */
+function speechUnits(text: string): { letters: number; pauses: number } {
   const letters = text.replace(/[^\p{L}\p{N}]/gu, "").length;
   const pauses = (text.trim().replace(/[.!?…]+$/u, "").match(/[,;:.!?…—]/gu) ?? []).length;
-  return letters / LETTERS_PER_SECOND + pauses * PAUSE_SECONDS;
+  return { letters, pauses };
+}
+
+/** Rough narration time of a line, used to keep the hook inside ~3.5 s; `lettersPerSecond` defaults to the configured engine's. */
+export function estimateSpeechSeconds(text: string, lettersPerSecond = hookLettersPerSecond): number {
+  const { letters, pauses } = speechUnits(text);
+  return letters / lettersPerSecond + pauses * PAUSE_SECONDS;
+}
+
+/**
+ * Remeasure an engine's speech rate from a finished narration (the inverse of estimateSpeechSeconds): letters per
+ * second of actual speech, with the pauses taken out. `npm run voice-speed -- <runId...>` runs it over real runs;
+ * copy the median into VOICE_ENGINE_INFO (src/shared/voiceEngines.ts).
+ */
+export function measureLettersPerSecond(text: string, narrationSeconds: number): number {
+  const { letters, pauses } = speechUnits(text);
+  const speaking = narrationSeconds - pauses * PAUSE_SECONDS;
+  if (letters === 0 || speaking <= 0) throw new Error("Cannot measure the speech rate: no letters, or the pauses outlast the narration");
+  return letters / speaking;
 }
 
 /** Overused openings (matched without accents). The audit found 2 of 4 hooks on the first two. */
@@ -622,6 +645,7 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   const log = getLogger(ctx.runId);
   const config = loadConfig();
   const settings = resolveScript(config.script);
+  setSpeechEngine(resolveVoiceExtras(config.voice).engine);
   const call = taskCallOptions("script", config);
   const recent = await loadRecentSubjects(ctx.runId);
   const recentCtas = modelWritesCta(settings) ? await loadRecentCtas(ctx.runId) : [];

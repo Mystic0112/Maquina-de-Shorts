@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { resolveScript } from "../../shared/settings.js";
+import { resolveScript, resolveVoiceExtras } from "../../shared/settings.js";
 import { sanitizeBeats } from "../lib/beats.js";
 import { loadConfig } from "../lib/config.js";
 import { ownerRulesBlock } from "../lib/ownerRules.js";
@@ -17,6 +17,7 @@ import {
   isWithinTolerance,
   keyTermMismatches,
   overlayProblems,
+  setSpeechEngine,
   type ResolvedScriptSettings,
 } from "./02-generateScript.js";
 
@@ -407,6 +408,7 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   const log = getLogger(ctx.runId);
   const config = loadConfig();
   const settings = resolveScript(config.script);
+  setSpeechEngine(resolveVoiceExtras(config.voice).engine); // the rewrite's hook is checked at the configured voice's pace
   if (!settings.factCheck) {
     log.warn("Fact-check disabled (script.factCheck=false); the script is NOT verified");
     const skipped: FactCheckSummary = {

@@ -2,7 +2,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resolveVoiceExtras, VOICE_EXTRAS_DEFAULTS } from "../../src/shared/settings.js";
+import { resolveVoiceExtras, VOICE_ENGINES, VOICE_EXTRAS_DEFAULTS } from "../../src/shared/settings.js";
+import { VOICE_ENGINE_INFO } from "../../src/shared/voiceEngines.js";
 
 const voiceConfig = vi.hoisted(() => ({
   current: { engine: "edge-tts", name: "pt-BR-AntonioNeural", language: "pt-BR" } as Record<string, unknown>,
@@ -22,7 +23,20 @@ vi.mock("../../src/orchestrator/lib/logger.js", () => ({
   getLogger: () => ({ debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }),
 }));
 
-const { buildAlignArgs, buildKokoroArgs, buildTtsArgs, createGeminiEngine, createKokoroEngine, GEMINI_SOURCE_AUDIO, run, selectTtsEngine } =
+const {
+  buildAlignArgs,
+  buildChatterboxArgs,
+  buildKokoroArgs,
+  buildTtsArgs,
+  chatterboxMissingMessage,
+  createChatterboxEngine,
+  createElevenLabsEngine,
+  createGeminiEngine,
+  createKokoroEngine,
+  GEMINI_SOURCE_AUDIO,
+  run,
+  selectTtsEngine,
+} =
   await import("../../src/orchestrator/stages/04-synthesizeVoice.js");
 
 describe("buildTtsArgs (edge-tts)", () => {
@@ -83,6 +97,30 @@ describe("voice defaults", () => {
     expect(selectTtsEngine("edge-tts").name).toBe("edge-tts");
     expect(selectTtsEngine("kokoro").name).toBe("kokoro");
     expect(selectTtsEngine("kokoro").describe(voice as never)).toContain("pm_alex");
+  });
+});
+
+describe("engine registry", () => {
+  it("has an engine and speech-rate metadata for every configurable engine", () => {
+    for (const name of VOICE_ENGINES) {
+      expect(selectTtsEngine(name).name).toBe(name);
+      expect(VOICE_ENGINE_INFO[name].lettersPerSecond).toBeGreaterThan(5);
+    }
+    expect(VOICE_ENGINE_INFO.kokoro).toMatchObject({ lettersPerSecond: 14, measured: true });
+    expect(VOICE_ENGINE_INFO.chatterbox.measured).toBe(false); // "a medir em casa"
+    expect(VOICE_ENGINE_INFO.elevenlabs.measured).toBe(false);
+  });
+});
+
+describe("buildChatterboxArgs", () => {
+  const voice = { chatterboxExaggeration: 0.6, chatterboxCfgWeight: 0.4 };
+  it("passes text, output, settings and (only when set) the reference recording", () => {
+    expect(buildChatterboxArgs("t.txt", "o.wav", voice)).toEqual(["--text-file", "t.txt", "--out", "o.wav", "--exaggeration=0.6", "--cfg-weight=0.4"]);
+    expect(buildChatterboxArgs("t.txt", "o.wav", voice, "/refs/voz.wav")).toContain("--ref-audio=/refs/voz.wav");
+  });
+  it("explains how to install it when the module is missing", () => {
+    expect(chatterboxMissingMessage("/opt/cb/bin/python")).toMatch(/CHATTERBOX_PYTHON \(\/opt\/cb\/bin\/python\).*README/);
+    expect(chatterboxMissingMessage(undefined)).toMatch(/CHATTERBOX_PYTHON está vazio/);
   });
 });
 
@@ -197,5 +235,48 @@ describe("04-synthesizeVoice run", () => {
     voiceConfig.current = { ...edge };
     runPythonJson.mockResolvedValue({ audioPath: join(runDir, "n.mp3"), durationMs: 120_000, words: [{ word: "a", startMs: 0, endMs: 1 }] });
     await expect(run(ctx())).rejects.toThrow(/outside the 1-90 s target/);
+  });
+
+  it("chatterbox: synthesizes with its own interpreter and the reference voice, then aligns with the project venv", async () => {
+    voiceConfig.current = { name: "x", language: "pt-BR", engine: "chatterbox", chatterboxRefAudio: "data/voice_ref/reference.wav", maxPauseMs: 200 };
+    runPythonJson.mockReset();
+    runPythonJson
+      .mockResolvedValueOnce({ audioPath: join(runDir, GEMINI_SOURCE_AUDIO), durationMs: 40_000, sentences: 3 })
+      .mockResolvedValueOnce({ audioPath: join(runDir, "narration.wav"), durationMs: 39_000, words: [{ word: "Olá", startMs: 50, endMs: 400 }] });
+    const next = await run(ctx(), () => createChatterboxEngine("/opt/chatterbox/bin/python"));
+    const first = runPythonJson.mock.calls[0]![0] as { script: string; args: string[]; python?: string; envKeys: string[] };
+    expect(first.script).toBe("python/tts/synthesize_chatterbox.py");
+    expect(first.python).toBe("/opt/chatterbox/bin/python");
+    expect(first.envKeys).not.toContain("ELEVENLABS_API_KEY");
+    expect(first.args).toContain("--ref-audio=data/voice_ref/reference.wav"); // project-relative path resolved by paths.fromRoot (identity in this mock)
+    const second = runPythonJson.mock.calls[1]![0] as { script: string; python?: string };
+    expect(second.script).toBe("python/tts/align_narration.py");
+    expect(second.python).toBeUndefined();
+    expect(next.narration?.durationMs).toBe(39_000);
+  });
+
+  it("chatterbox: missing module fails with the install hint", async () => {
+    voiceConfig.current = { name: "x", language: "pt-BR", engine: "chatterbox" };
+    runPythonJson.mockRejectedValueOnce(new Error("Python exited with 1: ...\n[chatterbox] ERROR chatterbox is missing in this interpreter (/x/python)"));
+    await expect(run(ctx(), () => createChatterboxEngine(undefined))).rejects.toThrow(/Chatterbox não está instalado.*CHATTERBOX_PYTHON/s);
+    expect(runPythonJson).toHaveBeenCalledTimes(1);
+  });
+
+  it("elevenlabs: sends text/voice/model/stability, saves the source WAV and aligns it", async () => {
+    voiceConfig.current = { name: "x", language: "pt-BR", engine: "elevenlabs", elevenlabsVoiceId: "21m00Tcm4TlvDq8ikWAM", elevenlabsStability: 0.3, maxPauseMs: 150 };
+    const speak = vi.fn().mockResolvedValue({ pcm: Buffer.alloc(48_000), sampleRate: 24_000 });
+    await run(ctx(), () => createElevenLabsEngine(speak));
+    expect(speak).toHaveBeenCalledWith({ text: "Olá. Mundo.", voiceId: "21m00Tcm4TlvDq8ikWAM", model: "eleven_multilingual_v2", stability: 0.3 });
+    expect((await readFile(join(runDir, GEMINI_SOURCE_AUDIO))).length).toBe(44 + 48_000);
+    const { script, args } = runPythonJson.mock.calls[0]![0] as { script: string; args: string[] };
+    expect(script).toBe("python/tts/align_narration.py");
+    expect(args).toEqual(buildAlignArgs(join(runDir, GEMINI_SOURCE_AUDIO), join(runDir, "narration.txt"), runDir, 150));
+  });
+
+  it("elevenlabs: a failure stops the stage before any alignment", async () => {
+    voiceConfig.current = { name: "x", language: "pt-BR", engine: "elevenlabs" };
+    const speak = vi.fn().mockRejectedValue(new Error("créditos esgotados"));
+    await expect(run(ctx(), () => createElevenLabsEngine(speak))).rejects.toThrow(/créditos/);
+    expect(runPythonJson).not.toHaveBeenCalled();
   });
 });

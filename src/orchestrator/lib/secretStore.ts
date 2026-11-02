@@ -23,6 +23,7 @@ export const STORABLE_KEYS: readonly StorableKey[] = [
   { name: "YOUTUBE_API_KEY", label: "YouTube Data API (estatísticas públicas)" },
   { name: "PEXELS_API_KEY", label: "Pexels (imagens)" },
   { name: "PIXABAY_API_KEY", label: "Pixabay (imagens e sons)" },
+  { name: "ELEVENLABS_API_KEY", label: "ElevenLabs (voz; sua própria chave; plano Free é só uso não comercial)" },
 ];
 
 export const STORE_FILE = "api-keys.json";
