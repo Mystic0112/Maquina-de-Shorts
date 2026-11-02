@@ -284,6 +284,21 @@ describe("runPipeline and the quota", () => {
     expect(existsSync(join(renderOutput, runs[0]!, "context.json"))).toBe(true);
   });
 
+  it("a configuration rejection (no search for the fact-check) stops without another topic", async () => {
+    const { counts, renderOutput } = setup(async (ctx) => ctx);
+    STAGES.find((s) => s.name === "02b-factCheck")!.load = async () => async (ctx) => {
+      counts.factCheck! += 1;
+      throw new RunRejectedError("Fact-check rejected the script: sem busca configurada", ctx, false);
+    };
+    await expect(runPipeline({ until: "03-fetchFootage" })).rejects.toThrow(/fix the configuration/);
+    expect(counts.script).toBe(1);
+    expect(counts.factCheck).toBe(1);
+    const runs = readdirSync(renderOutput);
+    expect(runs).toHaveLength(1);
+    const saved = JSON.parse(readFileSync(join(renderOutput, runs[0]!, "context.json"), "utf8")) as RunContext;
+    expect(saved.rejection).toMatchObject({ stage: "02b-factCheck", retryable: false });
+  });
+
   it("control: a footage rejection still retries with a new topic (script made again)", async () => {
     const { counts } = setup(async (ctx) => { throw new RunRejectedError("No usable footage", ctx); });
     await expect(runPipeline({ until: "03-fetchFootage" })).rejects.toThrow(/QUALITY GATE/);

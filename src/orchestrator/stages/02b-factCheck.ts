@@ -430,7 +430,7 @@ function uniqueSources(sources: GroundedText["sources"]): GroundedText["sources"
 /** The run is rejected (never passed or skipped) when the check has no web search to stand on. */
 function rejectedWithoutSearch(ctx: RunContext, reason: string): RunRejectedError {
   const summary: FactCheckSummary = { verdict: "fail", rounds: 0, claimsChecked: 0, claims: [], corrections: [], sources: [], searchQueries: [], reason };
-  return new RunRejectedError(`Fact-check rejected the script: ${reason}`, { ...ctx, factCheck: summary });
+  return new RunRejectedError(`Fact-check rejected the script: ${reason}`, { ...ctx, factCheck: summary }, false);
 }
 
 export async function run(ctx: RunContext): Promise<RunContext> {

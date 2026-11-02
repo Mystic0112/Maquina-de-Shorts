@@ -126,7 +126,7 @@ export async function executeStage(stage: StageDefinition, ctx: RunContext): Pro
       // Persist the stage's findings (e.g. the fact-check summary) together with its LLM usage.
       const rejected = withStageUsage(error.ctx, stage.name);
       await saveRunContext(rejected).catch(() => undefined);
-      throw new RunRejectedError(error.message, rejected);
+      throw new RunRejectedError(error.message, rejected, error.retryable);
     }
     if (error instanceof QuotaExhaustedError) {
       // Not a rejection: the run keeps what it has and records why it stopped (the dashboard shows it).
@@ -235,7 +235,7 @@ async function runAttempt(ctx: RunContext, untilIndex: number, info: AttemptInfo
         ctx = await executeStage(stage, ctx);
       } catch (error) {
         if (!(error instanceof RunRejectedError)) throw error;
-        const rejected: RunContext = { ...error.ctx, rejection: { stage: stage.name, reason: error.message, ...info } };
+        const rejected: RunContext = { ...error.ctx, rejection: { stage: stage.name, reason: error.message, ...info, ...(error.retryable ? {} : { retryable: false }) } };
         await saveRunContext(rejected);
         return { ok: false, ctx: rejected };
       }
@@ -306,6 +306,12 @@ export async function runPipeline(options: PipelineOptions): Promise<RunContext>
     }
     const reason = result.ctx.rejection?.reason ?? result.ctx.quality?.reason ?? "quality gate failed";
     previousRunIds.push(result.ctx.runId);
+    if (result.ctx.rejection?.retryable === false) {
+      // Configuration, not topic: a new topic would burn the script model to fail the same way.
+      const message = `Run ${result.ctx.runId} stopped, fix the configuration and run again: ${reason}`;
+      log.error(message);
+      throw new Error(message);
+    }
     if (attempt >= maxAttempts) {
       const message = `QUALITY GATE: no publishable video after ${attempt} attempt(s) (${previousRunIds.join(", ")}); last: ${reason}`;
       log.error(message);

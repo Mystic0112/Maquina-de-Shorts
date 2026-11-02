@@ -281,6 +281,8 @@ export interface RunRejection {
   maxAttempts?: number;
   previousRunIds?: string[];
   retriedAs?: string;
+  /** false = no retry with a new topic: the cause is the configuration, not the topic. */
+  retryable?: boolean;
 }
 
 /**

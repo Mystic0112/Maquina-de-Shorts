@@ -9,6 +9,8 @@ export class RunRejectedError extends Error {
   constructor(
     message: string,
     readonly ctx: RunContext,
+    /** false = a configuration problem (e.g. no web search for the fact-check): another topic would fail the same way. */
+    readonly retryable = true,
   ) {
     super(message);
     this.name = "RunRejectedError";

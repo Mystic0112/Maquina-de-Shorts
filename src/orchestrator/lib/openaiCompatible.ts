@@ -20,6 +20,7 @@
  * Web search: this API has none. completeGroundedText throws SearchUnsupportedError (exported); callers that need
  * sources (the fact-check) must catch it and use another path or provider; it never returns text without sources.
  */
+import { SearchUnsupportedError } from "./searchSupport.js";
 import { z } from "zod";
 import { isLocalBaseUrl, parseOpenAiBaseUrl, type OpenAiCompatibleSettings } from "../../shared/settings.js";
 import { LlmOutputError, recordLlmUsage, type CallOptions, type GroundedText, type LlmImage, type LlmProvider } from "./llmClient.js";
@@ -33,17 +34,6 @@ const MAX_RETRY_AFTER_MS = 60_000;
 /** A longer announced wait is not a rate limit any more: treat it as the quota being gone. */
 const QUOTA_WAIT_MS = 10 * 60_000;
 const ERROR_TEXT_CHARS = 400;
-
-/** This provider has no web search. Thrown by completeGroundedText so callers can pick another path for the fact-check. */
-export class SearchUnsupportedError extends Error {
-  constructor(readonly provider = "openai-compatible") {
-    super(
-      `O provedor ${provider} não tem busca na web, então não serve para a checagem de fatos com fontes. ` +
-        "Use outro provedor para essa tarefa (por exemplo o agy ou o Gemini) ou configure uma alternativa.",
-    );
-    this.name = "SearchUnsupportedError";
-  }
-}
 
 /** The model cannot read images (vision). Plain Error subclass so the per-task fallback treats it as a failure. */
 export class VisionUnsupportedError extends Error {
@@ -316,3 +306,5 @@ const QUOTA_STATUS = new Set([402, 403, 429]);
 const QUOTA_TEXT = /insufficient[_ ](?:quota|credits?|funds|balance)|exceeded your current quota|out of credits|credits?[^.]{0,30}(?:exhausted|depleted|too low)|per[- ]day/i;
 /** What servers say when the model cannot take images. Only checked when images were sent. */
 const IMAGE_REJECTION = /image[ _](?:input|url|content)|support\w*[^.]{0,30}image|image[^.]{0,30}(?:not|un)support|\bvision\b|multimodal|modalit/i;
+
+export { SearchUnsupportedError };
