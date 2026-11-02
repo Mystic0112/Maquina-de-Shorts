@@ -506,11 +506,18 @@ O padrão continua sendo o Kokoro, e uma configuração antiga (sem as chaves no
 > [!WARNING]
 > **Só use uma voz que seja sua ou de quem autorizou por escrito.** Clonar a voz de outra pessoa sem consentimento pode violar direitos dela e as regras das plataformas. O Chatterbox grava uma marca d'água inaudível (Perth) em todo áudio; não tente removê-la.
 
-1. Crie um ambiente separado (o torch dele não deve se misturar com o do Kokoro) e aponte `CHATTERBOX_PYTHON` no `.env` para o `python` dele. O pacote e a versão exatos do modelo pt-BR ficam por conta de quem instala em casa: `<pacote/versão conferidos no PC de casa>`.
-2. Em Configurações > Voz > Chatterbox, envie a gravação de referência (WAV, MP3 ou FLAC; fica em `data/voice_ref/`, fora do git) e escolha o motor.
+1. Crie um ambiente separado (Python 3.11; o torch dele não deve se misturar com o do Kokoro) e aponte `CHATTERBOX_PYTHON` no `.env` para o `python` dele. Receita testada no Windows em 2026-11-02:
+   - instale o `chatterbox-tts` **do GitHub**, no commit `5de7a54aa4e5e2baadb0182dde554908b48b85c2` (versão 0.1.7). O pacote do PyPI com o mesmo número **não serve**: não tem a opção `t3_model` e carrega o modelo v2, o pior dos testados (erra 9 a 19% das palavras);
+   - **depois** do chatterbox, instale `torch` e `torchaudio` 2.6.0 com `--index-url https://download.pytorch.org/whl/cu126` (senão o pip deixa o torch de CPU);
+   - versões conferidas: `transformers` 5.2.0, `numpy` 1.26.4, `safetensors` 0.5.3, `diffusers` 0.29.0, `librosa` 0.11.0, `conformer` 0.3.2, `s3tokenizer` 0.3.0 e `setuptools<81` (80.10.2; sem isso a marca d'água Perth quebra com `pkg_resources` e a síntese cai com "'NoneType' object is not callable");
+   - espaço: ambiente ~5 GB, pesos do repositório principal ~5 GB (basta o v3) e do pt-BR ~3 GB.
+2. Em Configurações > Voz > Chatterbox, envie a gravação de referência (WAV, MP3 ou FLAC; fica em `data/voice_ref/`, fora do git), escolha o **modelo** e o motor.
 3. Gasta ~4 GB de VRAM e 35 a 60 s para cada ~40 s de áudio. A primeira execução baixa os pesos.
+4. Depois do primeiro download, ponha `HF_HUB_OFFLINE=1` no ambiente: o v3 carrega em ~1 min sem rede e sem os avisos do Hugging Face.
 
-O modelo pt-BR oficial precisa de um remendo logo após o carregamento (dois buffers fixos do tokenizador). Ele está isolado em `apply_ptbr_patch` / `PTBR_TOKENIZER_BUFFER_FIXES`, em `python/tts/synthesize_chatterbox.py`.
+Dois modelos (campo `voice.chatterboxMode`), medidos com o mesmo trecho de 590 caracteres:
+- **`v3`** (padrão): `from_pretrained(t3_model="v3")`, erra 7,5 a 9,4% das palavras.
+- **`pt-br`**: o checkpoint do repositório `ResembleAI/Chatterbox-Multilingual-pt-br`, erra 6,6% com voz de referência (igual ao Kokoro). O `s3gen_v3.pt` dele não tem dois buffers fixos do decodificador de fala (`tokenizer._mel_filters`, 128x201, e `tokenizer.window`, 400, ambos float32): o `python/tts/synthesize_chatterbox.py` os copia do `s3gen.pt` do repositório principal e monta a pasta do modelo em `models/chatterbox-ptbr/` na primeira execução (baixa ~8 GB, uma vez).
 
 ### ElevenLabs (sua chave)
 

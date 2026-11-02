@@ -188,10 +188,11 @@ export function createKokoroEngine(python: string | undefined = env("KOKORO_PYTH
 }
 
 /** synthesize_chatterbox.py CLI args; "--flag=value" keeps a reference path that starts with "-" from parsing as a flag. */
-export function buildChatterboxArgs(textFile: string, outFile: string, voice: Pick<ResolvedVoice, "chatterboxExaggeration" | "chatterboxCfgWeight">, refAudio?: string): string[] {
+export function buildChatterboxArgs(textFile: string, outFile: string, voice: Pick<ResolvedVoice, "chatterboxExaggeration" | "chatterboxCfgWeight"> & Partial<Pick<ResolvedVoice, "chatterboxMode">>, refAudio?: string): string[] {
   return [
     "--text-file", textFile,
     "--out", outFile,
+    `--mode=${voice.chatterboxMode ?? "v3"}`,
     `--exaggeration=${voice.chatterboxExaggeration}`,
     `--cfg-weight=${voice.chatterboxCfgWeight}`,
     ...(refAudio ? [`--ref-audio=${refAudio}`] : []),
@@ -218,7 +219,7 @@ export function createChatterboxEngine(python: string | undefined = env("CHATTER
   return {
     name: "chatterbox",
     describe: (v) =>
-      `Chatterbox pt-BR (${v.chatterboxRefAudio ? "voz de referência" : "voz padrão"}, exaggeration ${v.chatterboxExaggeration}, cfg ${v.chatterboxCfgWeight}, max pause ${v.maxPauseMs} ms)`,
+      `Chatterbox ${v.chatterboxMode} (${v.chatterboxRefAudio ? "voz de referência" : "voz padrão"}, exaggeration ${v.chatterboxExaggeration}, cfg ${v.chatterboxCfgWeight}, max pause ${v.maxPauseMs} ms)`,
     async synthesize(job) {
       const { textFile, runDir, voice, log } = job;
       const sourceFile = join(runDir, GEMINI_SOURCE_AUDIO);

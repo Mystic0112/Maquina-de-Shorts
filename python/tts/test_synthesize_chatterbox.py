@@ -13,50 +13,34 @@ import synthesize_chatterbox as sc
 import synthesize_kokoro as sk
 
 
-class FakeTensor:
-    """Stands in for a torch buffer: new_tensor keeps what a real one keeps (dtype/device), here a tag."""
+class PatchS3genTest(unittest.TestCase):
+    def test_copies_only_the_two_missing_buffers(self) -> None:
+        ptbr = {"flow.weight": 1, "tokenizer.window": "keep-mine"}
+        main = {"tokenizer._mel_filters": "mel", "tokenizer.window": "main-window", "flow.weight": 2}
+        self.assertEqual(sc.patch_s3gen_state(ptbr, main), ["tokenizer._mel_filters"])
+        self.assertEqual(ptbr, {"flow.weight": 1, "tokenizer.window": "keep-mine", "tokenizer._mel_filters": "mel"})
 
-    def __init__(self, values: list[int], tag: str) -> None:
-        self.values, self.tag = values, tag
-
-    def new_tensor(self, values: list[int]) -> FakeTensor:
-        return FakeTensor(list(values), self.tag)
-
-
-class FakeTokenizer:
-    """A torch-module-like tokenizer: `_buffers` holds the registered buffers, plain attributes the rest."""
-
-    def __init__(self) -> None:
-        self._buffers = {"pad_ids": FakeTensor([0, 0], "cuda:0")}
-        self.sot = 255
-
-
-class PatchTokenizerBuffersTest(unittest.TestCase):
-    def test_overwrites_buffer_keeping_its_tag_and_plain_attribute(self) -> None:
-        tok = FakeTokenizer()
-        changed = sc.patch_tokenizer_buffers(tok, {"pad_ids": [7, 8, 9], "sot": 1})
-        self.assertEqual(changed, ["pad_ids", "sot"])
-        self.assertEqual((tok._buffers["pad_ids"].values, tok._buffers["pad_ids"].tag), ([7, 8, 9], "cuda:0"))
-        self.assertEqual(tok.sot, 1)
-
-    def test_unknown_name_is_an_error_not_a_silent_skip(self) -> None:
+    def test_a_main_checkpoint_without_the_buffers_is_an_error_not_a_half_patch(self) -> None:
         with self.assertRaises(sc.PatchError):
-            sc.patch_tokenizer_buffers(FakeTokenizer(), {"nope": 1})
+            sc.patch_s3gen_state({}, {"tokenizer.window": "w"})
 
-    def test_apply_finds_tokenizer_on_model(self) -> None:
-        class Model:
-            tokenizer = FakeTokenizer()
+    def test_complete_state_changes_nothing(self) -> None:
+        full = {"tokenizer._mel_filters": 1, "tokenizer.window": 2}
+        self.assertEqual(sc.patch_s3gen_state(full, {}), [])
 
-        self.assertEqual(sc.apply_ptbr_patch(Model(), {"sot": 3}), ["sot"])
-        self.assertEqual(Model.tokenizer.sot, 3)
 
-    def test_apply_without_tokenizer_fails_loudly(self) -> None:
-        with self.assertRaises(sc.PatchError):
-            sc.apply_ptbr_patch(object(), {"sot": 3})
+class ModeTest(unittest.TestCase):
+    def test_defaults_and_unknown_mode(self) -> None:
+        args = sc.parse_args(["--text-file", "t.txt", "--out", "o.wav"])
+        self.assertEqual((args.mode, args.ckpt_dir), (sc.MODE_V3, None))
+        with tempfile.TemporaryDirectory() as tmp:
+            text = Path(tmp, "t.txt")
+            text.write_text("Olá.", encoding="utf-8")
+            with self.assertRaises(sk.InputError):
+                sc.run(sc.parse_args(["--text-file", str(text), "--out", str(Path(tmp, "o.wav")), "--mode=v2"]))
 
-    def test_empty_table_is_a_noop_that_warns(self) -> None:
-        with self.assertLogs("chatterbox", level="WARNING"):
-            self.assertEqual(sc.apply_ptbr_patch(object(), {}), [])
+    def test_default_checkpoint_folder_is_inside_models(self) -> None:
+        self.assertEqual(sc.default_ckpt_dir().parts[-2:], ("models", "chatterbox-ptbr"))
 
 
 class ArgsAndDeviceTest(unittest.TestCase):

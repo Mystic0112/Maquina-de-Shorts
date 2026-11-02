@@ -115,7 +115,8 @@ describe("engine registry", () => {
 describe("buildChatterboxArgs", () => {
   const voice = { chatterboxExaggeration: 0.6, chatterboxCfgWeight: 0.4 };
   it("passes text, output, settings and (only when set) the reference recording", () => {
-    expect(buildChatterboxArgs("t.txt", "o.wav", voice)).toEqual(["--text-file", "t.txt", "--out", "o.wav", "--exaggeration=0.6", "--cfg-weight=0.4"]);
+    expect(buildChatterboxArgs("t.txt", "o.wav", voice)).toEqual(["--text-file", "t.txt", "--out", "o.wav", "--mode=v3", "--exaggeration=0.6", "--cfg-weight=0.4"]);
+    expect(buildChatterboxArgs("t.txt", "o.wav", { ...voice, chatterboxMode: "pt-br" })).toContain("--mode=pt-br");
     expect(buildChatterboxArgs("t.txt", "o.wav", voice, "/refs/voz.wav")).toContain("--ref-audio=/refs/voz.wav");
   });
   it("explains how to install it when the module is missing", () => {

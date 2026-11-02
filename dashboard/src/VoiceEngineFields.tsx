@@ -3,7 +3,7 @@
 import { LoaderCircle, TriangleAlert, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import type { VoiceExtras } from "../../src/shared/settings";
-import { Field, Slider, TextInput } from "./settingsUi";
+import { Field, Segmented, Slider, TextInput } from "./settingsUi";
 
 type Props = {
   voice: VoiceExtras;
@@ -65,6 +65,17 @@ export function ChatterboxFields({ voice, defaults, set, errorAt }: Props) {
         </div>
         {upload.msg && <span className={upload.bad ? "bad-text" : "ok-text"}>{upload.msg}</span>}
       </Field>
+      <Segmented
+        label="Modelo"
+        value={voice.chatterboxMode ?? defaults.chatterboxMode}
+        options={[
+          { value: "v3" as const, label: "v3 (padrão)" },
+          { value: "pt-br" as const, label: "pt-BR (melhor, baixa ~8 GB uma vez)" },
+        ]}
+        onChange={(v) => set("voice.chatterboxMode", v)}
+        error={errorAt("voice.chatterboxMode")}
+        help="Medido em casa com a mesma frase: v3 erra 7,5 a 9,4% das palavras; pt-BR erra 6,6% (igual ao Kokoro) com voz de referência. O pt-BR monta o modelo na primeira execução."
+      />
       <Slider label="Expressividade" value={voice.chatterboxExaggeration ?? defaults.chatterboxExaggeration} min={0.25} max={2} step={0.05} format={(v) => v.toFixed(2)} onChange={(v) => set("voice.chatterboxExaggeration", v)} error={errorAt("voice.chatterboxExaggeration")} help="0,50 é neutro; mais alto dramatiza." />
       <Slider label="Ritmo (cfg)" value={voice.chatterboxCfgWeight ?? defaults.chatterboxCfgWeight} min={0} max={1} step={0.05} format={(v) => v.toFixed(2)} onChange={(v) => set("voice.chatterboxCfgWeight", v)} error={errorAt("voice.chatterboxCfgWeight")} help="Mais baixo = fala mais pausada." />
       <span className="field-help" style={{ gridColumn: "1 / -1" }}>
