@@ -43,7 +43,8 @@ export function looksLikeQuotaError(text: string): boolean {
 
 /** Minutes until the quota is back, when the text says so ("redefinida em ~3h25", "resets in 3h25m0s", "em 40 minutos"). */
 export function parseWaitMinutes(text: string): number | undefined {
-  const at = text.search(/redefin\w*|reset\w*|renov\w*|volta\w*|retry|try again|tente|novamente|available again/i);
+  // "redefinida em ~3h25", "previsão de reinício em aproximadamente 4 horas e 37 minutos" (agy, 2026-10-26 and 11-02).
+  const at = text.search(/redefin\w*|reset\w*|renov\w*|volta\w*|reinício|reinicio|restart\w*|retry|try again|tente|novamente|available again/i);
   if (at < 0) return undefined;
   const near = text.slice(at, at + 100);
   const hm = near.match(/(\d{1,2})\s*h(?:oras?|ours?)?\s*(?:e\s*)?(\d{1,2})?/i);
@@ -73,10 +74,20 @@ export class QuotaExhaustedError extends Error {
   }
 }
 
+/**
+ * The words around the quota sign, without the rest of agy's JSON (`...37 minutos.\n","duration_seconds":25.43,"num_turns"...`
+ * showed up in context.json and the dashboard): after the sign the text stops where the JSON string ends.
+ */
+export function quotaMessageWindow(text: string, at: number): string {
+  const after = text.slice(at, at + AFTER_CHARS);
+  const end = after.search(/\\n"|\n"|",\s*"[A-Za-z_]+"\s*:|"\s*[}\]]/);
+  const cut = text.slice(Math.max(0, at - BEFORE_CHARS), at + (end >= 0 ? end : AFTER_CHARS));
+  return cut.replace(/\s+/g, " ").trim();
+}
+
 /** The typed error when `text` (agy's answer or stderr) says the quota is gone; undefined otherwise. */
 export function quotaErrorFrom(provider: string, text: string, what?: string): QuotaExhaustedError | undefined {
   const at = firstSign(text);
   if (at < 0) return undefined;
-  const window = text.slice(Math.max(0, at - BEFORE_CHARS), at + AFTER_CHARS).replace(/\s+/g, " ").trim();
-  return new QuotaExhaustedError(provider, redactSecrets(window), parseWaitMinutes(text), what);
+  return new QuotaExhaustedError(provider, redactSecrets(quotaMessageWindow(text, at)), parseWaitMinutes(text), what);
 }

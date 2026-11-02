@@ -47,6 +47,17 @@ describe("quota detection in agy output", () => {
     expect(Date.parse(err.resetAt!) - Date.now()).toBeGreaterThan(3 * 3600_000);
   });
 
+  it("keeps the message to the quota sentence, without the rest of agy's JSON", () => {
+    const raw =
+      '{"status":"SUCCESS","response":"Erro 429 RESOURCE_EXHAUSTED: a cota de imagem esgotou. A cota tem previsão de reinício em aproximadamente 4 horas e 37 minutos.\\n","duration_seconds":25.43,"num_turns":1,"usage":{"input_tokens":32165}}';
+    const err = quotaErrorFrom("agy", raw)!;
+    expect(err.original).toMatch(/37 minutos\.$/);
+    expect(err.original).not.toMatch(/duration_seconds|num_turns|usage/);
+    expect(err.retryAfterMinutes).toBe(277);
+    // plain text (stderr) keeps working
+    expect(quotaErrorFrom("agy", "429 RESOURCE_EXHAUSTED: quota exceeded. Quota will reset after 3h25m0s.")!.original).toMatch(/3h25m0s\.$/);
+  });
+
   it("does not take aspect ratios, timestamps, sizes or ordinary words for a quota", () => {
     for (const text of [
       "Imagem 9:16 gerada em /home/u/.gemini/antigravity-cli/brain/x/car.png",
@@ -68,6 +79,9 @@ describe("quota detection in agy output", () => {
     expect(parseWaitMinutes("Quota will reset after 3h25m0s.")).toBe(205);
     expect(parseWaitMinutes("tente novamente em 40 minutos")).toBe(40);
     expect(parseWaitMinutes("resets in 2 hours")).toBe(120);
+    // the two phrasings agy used (2026-10-26 and 2026-11-02)
+    expect(parseWaitMinutes("A cota de imagem foi redefinida em aproximadamente 3 horas e 25 minutos.")).toBe(205);
+    expect(parseWaitMinutes("A cota tem previsão de reinício em aproximadamente 4 horas e 37 minutos.")).toBe(277);
     expect(parseWaitMinutes("quota exceeded")).toBeUndefined();
     expect(parseWaitMinutes("redefinida em 99999 min")).toBeUndefined();
   });

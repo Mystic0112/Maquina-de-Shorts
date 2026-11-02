@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { z } from "zod";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { storableKeyStatus } from "../../dashboard/server/keys.js";
-import { buildPlatformStatus, groupedKeyNames, platformApp, readTests, recordTest, runProbeChild, type PlatformDeps, type PlatformInputs } from "../../dashboard/server/platform.js";
+import { buildPlatformStatus, defaultKokoroPython, groupedKeyNames, platformApp, readTests, recordTest, runProbeChild, type PlatformDeps, type PlatformInputs } from "../../dashboard/server/platform.js";
 import type { KeyStatus } from "../../dashboard/shared/api.js";
 import type { LlmProvider } from "../../src/orchestrator/lib/llmClient.js";
 import { PROBE_PROMPT, probeProvider, safeProbeMessage } from "../../src/orchestrator/lib/providerProbe.js";
@@ -68,6 +68,16 @@ describe("buildPlatformStatus", () => {
     expect(ok.voice["elevenlabs"]!.ready).toBe(true);
     expect(ok.voice["kokoro"]!.ready).toBe(true);
     expect(ok.images["ilustrado"]!.ready).toBe(true);
+  });
+
+  it("finds Kokoro at the setup's default folder when KOKORO_PYTHON is not set (the loop does the same)", () => {
+    const standard = defaultKokoroPython("C:\\Users\\x\\AppData\\Local")!;
+    expect(standard.replace(/\\/g, "/")).toMatch(/maquina-tts\/kokoro\/Scripts\/python\.exe$/);
+    const env = (n: string) => (n === "LOCALAPPDATA" ? "C:\\Users\\x\\AppData\\Local" : undefined);
+    const found = buildPlatformStatus(inputs({ env, fileExists: (p) => p === standard }));
+    expect(found.voice["kokoro"]).toMatchObject({ ready: true, detail: expect.stringMatching(/setup_kokoro/) });
+    expect(buildPlatformStatus(inputs({ env, fileExists: () => false })).voice["kokoro"]).toMatchObject({ ready: false, detail: expect.stringMatching(/KOKORO_PYTHON/) });
+    expect(defaultKokoroPython(undefined)).toBeUndefined();
   });
 
   it("shows every storable key in exactly one card", () => {

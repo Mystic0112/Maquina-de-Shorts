@@ -88,6 +88,18 @@ export interface PlatformInputs {
 
 const keyConfigured = (keys: readonly KeyStatus[], name: string): boolean => keys.some((k) => k.name === name && k.configured);
 
+/** Where setup_kokoro.ps1 installs Kokoro and where scripts/loop.ps1 looks when KOKORO_PYTHON is not set (Windows). */
+export function defaultKokoroPython(localAppData: string | undefined): string | undefined {
+  return localAppData ? join(localAppData, "maquina-tts", "kokoro", "Scripts", "python.exe") : undefined;
+}
+
+function kokoroReadiness(i: PlatformInputs, python: (name: string) => { ready: boolean; detail: string }): { ready: boolean; detail: string } {
+  if (i.env("KOKORO_PYTHON")) return python("KOKORO_PYTHON");
+  const standard = defaultKokoroPython(i.env("LOCALAPPDATA"));
+  if (standard && i.fileExists(standard)) return { ready: true, detail: "pronto (instalação padrão do setup_kokoro.ps1; o loop.ps1 usa este caminho)" };
+  return python("KOKORO_PYTHON");
+}
+
 function voiceReadiness(i: PlatformInputs): Record<string, PlatformReadiness> {
   const python = (name: string): { ready: boolean; detail: string } => {
     const value = i.env(name);
@@ -97,7 +109,7 @@ function voiceReadiness(i: PlatformInputs): Record<string, PlatformReadiness> {
   const hasKey = (name: string, extra?: string): { ready: boolean; detail: string } =>
     keyConfigured(i.keys, name) ? { ready: true, detail: extra ?? "pronto (chave configurada)" } : { ready: false, detail: `falta a chave ${name}` };
   const by: Record<(typeof VOICE_ENGINES)[number], { ready: boolean; detail: string; note?: string }> = {
-    kokoro: python("KOKORO_PYTHON"),
+    kokoro: kokoroReadiness(i, python),
     chatterbox: { ...python("CHATTERBOX_PYTHON"), note: NOTES.chatterbox },
     elevenlabs: { ...hasKey("ELEVENLABS_API_KEY", "chave configurada (falta só o ID da voz, se ainda não escolheu)"), note: NOTES.elevenlabs },
     gemini: { ...hasKey("GEMINI_API_KEY"), note: NOTES.paidApi },
