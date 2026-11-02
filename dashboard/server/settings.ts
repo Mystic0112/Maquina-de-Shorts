@@ -21,6 +21,7 @@ import {
 } from "../../src/shared/settings.js";
 import type { FieldError, KeyStatus, SettingsPayload, TopicsPayload } from "../shared/api.js";
 import { envIsSet, envValue, paths, projectRoot } from "./config.js";
+import { storableKeyStatus } from "./keys.js";
 
 const BACKUP_DIR = join(projectRoot, "config", "backups");
 
@@ -149,9 +150,7 @@ function keyStatus(): KeyStatus[] {
     return existsSync(join(projectRoot, rel));
   };
   return [
-    { name: "GEMINI_API_KEY", label: "Gemini (roteiro e filtro visual)", configured: envIsSet("GEMINI_API_KEY") },
-    { name: "YOUTUBE_API_KEY", label: "YouTube Data API (estatísticas públicas)", configured: envIsSet("YOUTUBE_API_KEY") },
-    { name: "PEXELS_API_KEY", label: "Pexels (footage)", configured: envIsSet("PEXELS_API_KEY") },
+    ...storableKeyStatus(),
     { name: "YOUTUBE_CHANNEL_ID", label: "ID do canal (inscritos)", configured: envIsSet("YOUTUBE_CHANNEL_ID") },
     {
       name: "YT_CLIENT_SECRET_PATH",

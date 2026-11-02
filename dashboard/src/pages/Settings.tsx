@@ -45,6 +45,7 @@ import type {
 import { categoryColor } from "../colors";
 import { Card, Empty, formatIcon } from "../components";
 import { CutsChannelsSection } from "../CutsChannels";
+import { KeysEditor } from "../KeysEditor";
 import { MusicSection } from "../MusicSection";
 import { WatermarkSection } from "../WatermarkSection";
 import { SCRIPT_FORMATS, type ScriptFormat } from "../format";
@@ -727,9 +728,10 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
             </div>
           </Section>
 
-          <Section id="cfg-chaves" icon={KeyRound} title="Chaves e acessos" description="Só mostramos se cada item está configurado. Valores secretos nunca saem do servidor nem podem ser editados aqui.">
+          <Section id="cfg-chaves" icon={KeyRound} title="Chaves e acessos" description="Só mostramos se cada item está configurado. Chaves de API podem ser coladas aqui (ficam em secrets/, fora do git) e nunca voltam para a tela; o resto se edita no .env.">
+            <KeysEditor />
             <div className="key-list">
-              {settings.keys.map((k) => (
+              {settings.keys.filter((k) => !k.storable).map((k) => (
                 <div key={k.name} className="key-row">
                   <div>
                     <b>{k.label}</b>
@@ -752,7 +754,7 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
                 Para publicar, autorize o canal uma vez: rode <code>npm run auth:youtube</code> na raiz do projeto (precisa do client secret em secrets/).
               </p>
             )}
-            <p className="hint">Para alterar, edite o arquivo .env (ou a pasta secrets/) na raiz do projeto e reinicie o painel.</p>
+            <p className="hint">Os demais itens se alteram no arquivo .env (ou na pasta secrets/) na raiz do projeto; reinicie o painel depois.</p>
           </Section>
         </div>
 

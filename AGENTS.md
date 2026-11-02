@@ -17,6 +17,7 @@ Lido automaticamente pelo Antigravity CLI, Gemini CLI, Codex e Claude. Leia inte
 | `src/orchestrator/publishers/` | `youtube.ts` em uso, `instagram.ts` pronto e desligado; travas em `gates.ts` e `runner.ts` |
 | `src/orchestrator/lib/` | cliente LLM, ffmpeg, relevância, redação de segredos, trava de arquivo, retenção, hashes de conteúdo |
 | `src/orchestrator/lib/antigravityCli.ts` + `antigravitySession.ts` | chamada isolada ao `agy` e sessão contínua (`ANTIGRAVITY_CLI_SESSION_TURNS`) |
+| `src/orchestrator/lib/secretStore.ts`, `dashboard/server/keys.ts` | chaves de API digitadas no painel: `secrets/api-keys.json` (0600, fora do git), carregadas no início do pipeline sem sobrepor o `.env`; as rotas `/api/keys` são só de escrita e nunca devolvem o valor (teste em `test/dashboard/keys.test.ts`) |
 | `src/orchestrator/lib/beats.ts` | trechos da fala (*beats*): uma busca de imagem por trecho |
 | `src/orchestrator/lib/terminalCards.ts`, `src/remotion/components/Terminal.tsx` | `script.imageSource: "terminal"`: sem imagens; um cartão animado por cena (números conferidos contra o roteiro checado) |
 | `src/orchestrator/lib/illustrate.ts` | `script.imageSource: "ilustrado"`: uma ilustração 3D por trecho gerada pela ferramenta de imagem do `agy` (arquivo lido da pasta "brain" do agy, conferido antes de copiar) |

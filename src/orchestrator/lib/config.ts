@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 import { z } from "zod";
+import { applyStoredKeys, secretsDir } from "./secretStore.js";
 import {
   CaptionSettingsSchema,
   EditingSettingsSchema,
@@ -55,6 +56,8 @@ export const paths = {
 } as const;
 
 dotenv.config({ path: join(projectRoot, ".env"), quiet: true });
+// Keys typed in the dashboard (secrets/api-keys.json) fill what .env left unset.
+applyStoredKeys(secretsDir(projectRoot));
 
 export const PipelineConfigSchema = z.object({
   video: z.object({

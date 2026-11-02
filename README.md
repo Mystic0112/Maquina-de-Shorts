@@ -358,6 +358,7 @@ O `.env` nunca entra no git. O modelo comentado é o `.env.example`. A tabela ab
 | Voz | `KOKORO_PYTHON` | Python do ambiente do Kokoro (vazio = `.venv` do projeto) |
 | Imagens | `PEXELS_API_KEY`, `PIXABAY_API_KEY` | Mais fontes de imagem e vídeo (recomendado). A do Pixabay também serve aos memes. |
 | Publicação | `YT_CLIENT_SECRET_PATH`, `YT_TOKEN_PATH` | Arquivos do login do YouTube (padrão em `secrets/`) |
+| Chaves de API | `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `YOUTUBE_API_KEY`, `PEXELS_API_KEY`, `PIXABAY_API_KEY` | Podem vir do `.env` **ou** ser coladas em Configurações > Chaves e acessos, que as guarda em `secrets/api-keys.json` (fora do git, só o dono do arquivo lê). O painel nunca devolve o valor: mostra só "configurada" e de onde vem. O que estiver no `.env` ou no ambiente vale mais que o do painel |
 | Publicação | `YOUTUBE_CHANNEL_ID` | ID do canal (`UC...`), mostrado pelo `npm run auth:youtube` |
 | Publicação | `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET` | App da Meta, usados só pelo `npm run auth:instagram` |
 | Painel | `YOUTUBE_API_KEY` | Estatísticas públicas no painel (não serve para publicar) |

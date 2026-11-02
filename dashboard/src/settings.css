@@ -474,6 +474,25 @@ select.input {
 .key-row b {
   font-size: 0.88rem;
 }
+.key-edit {
+  flex-wrap: wrap;
+}
+.key-edit > div:first-child {
+  flex: 1 1 240px;
+}
+.key-edit .key-actions {
+  flex: 0 1 auto;
+  margin-left: auto;
+}
+.key-edit .key-actions {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.key-edit .key-actions .input {
+  width: 200px;
+}
 
 /* topics */
 .topics {

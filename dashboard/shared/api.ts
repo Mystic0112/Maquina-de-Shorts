@@ -234,6 +234,17 @@ export interface KeyStatus {
   label: string;
   /** Only whether it is set: secret values never leave the server. */
   configured: boolean;
+  /** The panel can store this key (secrets/api-keys.json); absent = only editable in .env / secrets/. */
+  storable?: boolean;
+  /** Where the value in use comes from: the environment/.env file or the panel's store. */
+  source?: ".env" | "painel";
+}
+
+/** Answer of PUT/DELETE /api/keys/:name: never carries a key, only the statuses. */
+export interface KeyWriteResponse {
+  ok: boolean;
+  message: string;
+  keys?: KeyStatus[];
 }
 
 export interface SettingsPayload {

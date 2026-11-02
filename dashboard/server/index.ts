@@ -6,6 +6,7 @@ import { buildOverview, buildVideoRows } from "./aggregate.js";
 import { config, dashboardDir, paths } from "./config.js";
 import { LOGO_FILE, logoExists, MAX_LOGO_BYTES, saveLogo } from "./branding.js";
 import { getCuts, putCuts, resolveChannel } from "./cuts.js";
+import { keysRouter } from "./keys.js";
 import { addTrack, listTracks, MAX_TRACK_BYTES, removeTrack, trackPath } from "./music.js";
 import { manualRefresh, startMetrics, youtubeStatus } from "./metrics.js";
 import { getRevenue } from "./revenue.js";
@@ -175,6 +176,9 @@ app.get("/api/branding/logo", (_req, res) => {
   }
   res.sendFile(LOGO_FILE, { headers: { "Cache-Control": "no-store" } });
 });
+
+/* ---------- Chaves de API (só escrita) ---------- */
+app.use("/api/keys", keysRouter());
 
 /* ---------- Músicas (edits) ---------- */
 app.get("/api/music", async (_req, res) => {
