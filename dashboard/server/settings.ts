@@ -196,7 +196,7 @@ export async function getSettings(): Promise<SettingsPayload> {
     fonts: CAPTION_FONTS,
     schema: jsonSchema(),
     keys: keyStatus(),
-    llm: llmCatalog(),
+    llm: llmCatalog(typed?.llm),
   };
 }
 

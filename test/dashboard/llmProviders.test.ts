@@ -20,6 +20,21 @@ describe("providers offered in 'IA por tarefa'", () => {
     expect(llmProviderStatus([], () => true).find((s) => s.name === "antigravity-cli")?.available).toBe(true);
   });
 
+  it("openai-compatible: usable with a valid base URL (key only when the server is not local); paid unless local", () => {
+    const by = (llm: unknown, keys: KeyStatus[] = []) =>
+      llmProviderStatus(keys, () => false, llm as never).find((s) => s.name === "openai-compatible")!;
+    const noUrl = by(undefined);
+    expect(noUrl).toMatchObject({ available: false, paid: true });
+    expect(noUrl.reason).toMatch(/URL base/);
+    expect(by({ openaiCompatible: { baseUrl: "http://localhost:11434/v1" } })).toMatchObject({ available: true, paid: false });
+    expect(by({ openaiCompatible: { baseUrl: "http://192.168.0.5:1234/v1" } })).toMatchObject({ available: true, paid: false });
+    const remote = by({ openaiCompatible: { baseUrl: "https://openrouter.ai/api/v1" } });
+    expect(remote).toMatchObject({ available: false, paid: true });
+    expect(remote.reason).toMatch(/OPENAI_COMPAT_API_KEY/);
+    expect(by({ openaiCompatible: { baseUrl: "https://openrouter.ai/api/v1" } }, [key("OPENAI_COMPAT_API_KEY", true)])).toMatchObject({ available: true, paid: true });
+    expect(by({ openaiCompatible: { baseUrl: "ftp://x" } })).toMatchObject({ available: false });
+  });
+
   it("lists every registered provider and task, and never carries a key value", () => {
     const catalog = llmCatalog();
     expect(catalog.providers.map((p) => p.name)).toEqual([...LLM_PROVIDER_NAMES]);

@@ -63,18 +63,20 @@ export class QuotaExhaustedError extends Error {
     /** Original text of the tool (secrets redacted, shortened). */
     readonly original: string,
     readonly retryAfterMinutes?: number,
+    /** What ran out, for the message: "Image quota" (agy images), "Text quota" (an LLM provider) or plain "Quota". */
+    what = "Quota",
   ) {
     const back = retryAfterMinutes ? `; back in about ${Math.floor(retryAfterMinutes / 60)}h${String(retryAfterMinutes % 60).padStart(2, "0")}` : "";
-    super(`Quota exhausted at provider "${provider}" (RESOURCE_EXHAUSTED)${back}: ${original}`);
+    super(`${what} exhausted at provider "${provider}" (RESOURCE_EXHAUSTED)${back}: ${original}`);
     this.name = "QuotaExhaustedError";
     if (retryAfterMinutes) this.resetAt = new Date(Date.now() + retryAfterMinutes * 60_000).toISOString();
   }
 }
 
 /** The typed error when `text` (agy's answer or stderr) says the quota is gone; undefined otherwise. */
-export function quotaErrorFrom(provider: string, text: string): QuotaExhaustedError | undefined {
+export function quotaErrorFrom(provider: string, text: string, what?: string): QuotaExhaustedError | undefined {
   const at = firstSign(text);
   if (at < 0) return undefined;
   const window = text.slice(Math.max(0, at - BEFORE_CHARS), at + AFTER_CHARS).replace(/\s+/g, " ").trim();
-  return new QuotaExhaustedError(provider, redactSecrets(window), parseWaitMinutes(text));
+  return new QuotaExhaustedError(provider, redactSecrets(window), parseWaitMinutes(text), what);
 }

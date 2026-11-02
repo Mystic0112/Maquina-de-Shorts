@@ -48,7 +48,7 @@ export function resolveTaskSettings(task: LlmTaskName, config: Pick<PipelineConf
   let fallback: ResolvedTask["fallback"];
   const fb = s?.fallback;
   if (fb) {
-    if (isPaidLlmProvider(fb.provider) && !fb.allowPaid) {
+    if (isPaidLlmProvider(fb.provider, config.llm) && !fb.allowPaid) {
       warnings.push(`alternativa "${fb.provider}" ignorada: é API paga e "allowPaid" não está ligado nesta tarefa`);
     } else {
       fallback = { provider: fb.provider, ...(fb.model ? { model: fb.model } : {}) };

@@ -3,14 +3,16 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { GoogleGenAI, ThinkingLevel, type ThinkingConfig } from "@google/genai";
 import { z } from "zod";
 import type { LlmUsage, LlmUsageByModel, LlmUsageTotals, StageName } from "../types.js";
-import { env, paths } from "./config.js";
+import { env, loadConfig, paths } from "./config.js";
 import { AntigravityCliProvider } from "./antigravityCli.js";
 import { CliAgentProvider } from "./cliAgent.js";
 import { CLAUDE_CODE_PROFILE } from "./claudeCodeProfile.js";
+import { openAiCompatibleFromConfig } from "./openaiCompatible.js";
 import { QuotaExhaustedError } from "./quota.js";
 
 // Re-exported so existing imports keep working after the move to antigravityCli.ts.
 export { AntigravityCliProvider, DEFAULT_ANTIGRAVITY_MODEL, DEFAULT_ANTIGRAVITY_CLI_PATH } from "./antigravityCli.js";
+export { OpenAiCompatibleProvider, SearchUnsupportedError, VisionUnsupportedError } from "./openaiCompatible.js";
 
 // The provider names and their metadata (label, paid or not) live in src/shared/settings.ts; factories are below.
 import { isLlmProviderName, LLM_PROVIDER_NAMES, type LlmProviderName } from "../../shared/settings.js";
@@ -138,7 +140,7 @@ export async function withRateLimitRetry<T>(
         retry--; // a timeout retry does not consume a rate-limit retry
         continue;
       }
-      // A plan quota (QuotaExhaustedError) is back in hours, not seconds: no backoff, the caller stops or falls back.
+      // A quota that ran out (plan or credits) is back in hours, not seconds: no backoff, the caller stops or falls back.
       if (error instanceof QuotaExhaustedError || !isRateLimitError(error) || retry >= retries) throw error;
       await sleep(delay(retry));
     }
@@ -312,6 +314,7 @@ const PROVIDER_FACTORIES: Record<LlmProviderName, () => LlmProvider> = {
   "antigravity-cli": () => new AntigravityCliProvider(env("ANTIGRAVITY_CLI_PATH"), env("ANTIGRAVITY_MODEL")),
   // Plan login of the Claude Code CLI, no key; never the default (LLM_PROVIDER / llm.tasks must name it).
   "claude-code": () => new CliAgentProvider(CLAUDE_CODE_PROFILE, { timeoutEnv: "CLAUDE_CLI_TIMEOUT_S", concurrencyEnv: "CLAUDE_CLI_CONCURRENCY" }),
+  "openai-compatible": () => openAiCompatibleFromConfig(loadConfig().llm?.openaiCompatible, env("OPENAI_COMPAT_API_KEY")),
 };
 
 export function getProviderByName(name: LlmProviderName): LlmProvider {

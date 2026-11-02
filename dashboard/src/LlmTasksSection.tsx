@@ -43,6 +43,42 @@ export function LlmTasksSection(props: {
           Não aparecem para escolher: {unusable.map((p) => `${p.label} (${p.reason ?? "indisponível"})`).join("; ")}.
         </p>
       )}
+      <div className="llm-task">
+        <div className="llm-task-head">
+          <b>Servidor OpenAI-compatível</b>
+          <span className="muted">Para usar OpenAI, OpenRouter, Ollama, LM Studio ou outro servidor no formato da OpenAI.</span>
+        </div>
+        <div className="cfg-grid">
+          <Field
+            label="URL base"
+            error={errorAt("llm.openaiCompatible.baseUrl")}
+            help="Ollama: http://localhost:11434/v1 · LM Studio: http://localhost:1234/v1 · OpenRouter: https://openrouter.ai/api/v1. Sem usuário, senha nem parâmetros na URL."
+          >
+            <input
+              className="input"
+              value={String(getPath(draft, "llm.openaiCompatible.baseUrl") ?? "")}
+              placeholder="http://localhost:11434/v1"
+              onChange={(e) => set("llm.openaiCompatible.baseUrl", e.target.value.trim() || undefined)}
+            />
+          </Field>
+          <Field
+            label="Modelo padrão"
+            error={errorAt("llm.openaiCompatible.model")}
+            help="Ex.: llama3.2 (Ollama), gpt-4o-mini (OpenAI). O modelo escolhido em cada tarefa abaixo tem prioridade."
+          >
+            <input
+              className="input"
+              value={String(getPath(draft, "llm.openaiCompatible.model") ?? "")}
+              placeholder="nome do modelo"
+              onChange={(e) => set("llm.openaiCompatible.model", e.target.value.trim() || undefined)}
+            />
+          </Field>
+        </div>
+        <p className="hint">
+          A chave (opcional em servidor local) fica em Chaves e acessos, como OPENAI_COMPAT_API_KEY. Servidor deste computador ou da rede local é grátis; um servidor
+          na internet cobra por chamada e só entra como alternativa se você permitir. Salve a configuração para o provedor aparecer nas listas abaixo.
+        </p>
+      </div>
       <div className="llm-tasks">
         {catalog.tasks.map((t) => {
           const base = `llm.tasks.${t.id}`;

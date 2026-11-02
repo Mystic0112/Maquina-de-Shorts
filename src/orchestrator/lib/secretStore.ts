@@ -20,6 +20,7 @@ export interface StorableKey {
 export const STORABLE_KEYS: readonly StorableKey[] = [
   { name: "GEMINI_API_KEY", label: "Gemini (roteiro, filtro visual e voz; API paga)" },
   { name: "ANTHROPIC_API_KEY", label: "Anthropic / Claude (API paga)" },
+  { name: "OPENAI_COMPAT_API_KEY", label: "OpenAI-compatível (OpenAI, OpenRouter, gateway; deixe vazio no Ollama/LM Studio local)" },
   { name: "YOUTUBE_API_KEY", label: "YouTube Data API (estatísticas públicas)" },
   { name: "PEXELS_API_KEY", label: "Pexels (imagens)" },
   { name: "PIXABAY_API_KEY", label: "Pixabay (imagens e sons)" },

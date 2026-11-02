@@ -106,7 +106,7 @@ function runAgy(prompt: string, cwd: string, signal?: AbortSignal): Promise<stri
       done();
       if (signal?.aborted) reject(new Error("pedido de imagem cancelado"));
       else if (code === 0) resolvePromise(out);
-      else reject(quotaErrorFrom(AGY_PROVIDER, `${err}\n${out}`) ?? new Error(`agy finalizou com código ${code}: ${(err || out).slice(-500)}`));
+      else reject(quotaErrorFrom(AGY_PROVIDER, `${err}\n${out}`, "Image quota") ?? new Error(`agy finalizou com código ${code}: ${(err || out).slice(-500)}`));
     });
     child.stdin.end(prompt, "utf8");
   });
@@ -133,7 +133,7 @@ export async function generateIllustration(scene: string, outBase: string, signa
       return target;
     }
     // agy may also answer with exit code 0 and the quota error in its text instead of a path.
-    throw quotaErrorFrom(AGY_PROVIDER, output) ?? new Error(`agy não devolveu caminho de imagem válido dentro de ${brain}: ${output.slice(-300)}`);
+    throw quotaErrorFrom(AGY_PROVIDER, output, "Image quota") ?? new Error(`agy não devolveu caminho de imagem válido dentro de ${brain}: ${output.slice(-300)}`);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
