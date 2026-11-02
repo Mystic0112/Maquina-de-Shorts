@@ -220,6 +220,7 @@ async function buildRun(runId: string): Promise<RunSummary> {
     metadata: readMetadata(ctx),
     upload: readUpload(ctx),
     rejection: ctx?.rejection && typeof ctx.rejection.reason === "string" ? ctx.rejection : null,
+    quota: ctx?.quota && typeof ctx.quota.message === "string" ? ctx.quota : null,
     cut: readCut(ctx),
   };
 }

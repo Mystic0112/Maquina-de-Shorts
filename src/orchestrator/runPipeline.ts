@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import { loadConfig, paths } from "./lib/config.js";
 import { drainLlmUsage, mergeLlmUsage } from "./lib/llmClient.js";
 import { describeError, getLogger } from "./lib/logger.js";
+import { QuotaExhaustedError } from "./lib/quota.js";
 import { redactSecrets } from "./lib/redact.js";
 import { pruneRuns, resolveRetention } from "./lib/retention.js";
 import { RunRejectedError, StageFailedError } from "./lib/rejection.js";
@@ -110,7 +111,10 @@ export async function executeStage(stage: StageDefinition, ctx: RunContext): Pro
   drainLlmUsage(); // usage recorded outside any stage is not attributable to this run
   try {
     const run = await stage.load();
-    const next = withStageUsage(await run(ctx), stage.name);
+    const done = withStageUsage(await run(ctx), stage.name);
+    // A resumed run that got past the stage that hit the quota no longer carries it.
+    const { quota: stale, ...clean } = done;
+    const next = stale && stale.stage !== stage.name ? done : clean;
     await saveRunContext(next);
     const usage = next.llmUsage?.byStage[stage.name];
     const usageNote = usage ? `, LLM ${usage.calls} call(s) ${usage.inputTokens} in / ${usage.outputTokens} out tokens` : "";
@@ -123,6 +127,14 @@ export async function executeStage(stage: StageDefinition, ctx: RunContext): Pro
       const rejected = withStageUsage(error.ctx, stage.name);
       await saveRunContext(rejected).catch(() => undefined);
       throw new RunRejectedError(error.message, rejected);
+    }
+    if (error instanceof QuotaExhaustedError) {
+      // Not a rejection: the run keeps what it has and records why it stopped (the dashboard shows it).
+      const quota = { stage: stage.name, provider: error.provider, message: error.original, ...(error.resetAt ? { resetAt: error.resetAt } : {}), at: new Date().toISOString() };
+      await saveRunContext(withStageUsage({ ...ctx, quota }, stage.name)).catch(() => undefined);
+      const back = error.resetAt ? `; a cota deve voltar por volta de ${error.resetAt}` : "";
+      log.warn(`Cota esgotada em ${stage.name}: execução parada sem trocar de tema${back}. Para continuar esta mesma execução: npm run pipeline -- --resume ${ctx.runId}`);
+      throw error;
     }
     // Partial results (e.g. one platform published, another failed) are kept; otherwise the input context.
     const keep = error instanceof StageFailedError ? error.ctx : ctx;
@@ -160,7 +172,7 @@ export function fixtureContent(fixture: RunContext): Omit<RunContext, "runId" | 
   const {
     runId: _runId, runDir: _runDir, createdAt: _createdAt,
     render: _render, metadata: _metadata, upload: _upload, quality: _quality, factCheck: _factCheck,
-    rejection: _rejection, llmUsage: _llmUsage,
+    rejection: _rejection, quota: _quota, llmUsage: _llmUsage,
     ...content
   } = fixture;
   return content;
@@ -191,6 +203,13 @@ export class QualityGateError extends Error {
     this.name = "QualityGateError";
   }
 }
+
+/**
+ * Exit code when a provider's quota ran out (image tool): the run stopped cleanly, nothing was wrong with the
+ * topic or the script, and no new topic was tried. scripts/loop.ps1 stops the loop on it; `--resume <runId>`
+ * continues the same run once the quota is back (context.json "quota" says when, if the tool told).
+ */
+export const EXIT_QUOTA = 4;
 
 const QUALITY_GATED_STAGE: StageName = "03-fetchFootage";
 
@@ -315,7 +334,7 @@ async function main(): Promise<void> {
     await runPipeline(parseCliOptions(process.argv.slice(2)));
   } catch (error) {
     console.error(`Pipeline failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
-    process.exitCode = error instanceof QualityGateError ? EXIT_QUALITY_GATE : 1;
+    process.exitCode = error instanceof QualityGateError ? EXIT_QUALITY_GATE : error instanceof QuotaExhaustedError ? EXIT_QUOTA : 1;
   }
 }
 

@@ -16,6 +16,7 @@ import { minimalChildEnv } from "./childEnv.js";
 import { env } from "./config.js";
 import { probeVideo } from "./ffmpeg.js";
 import type { Logger } from "./logger.js";
+import { QuotaExhaustedError, quotaErrorFrom } from "./quota.js";
 import type { FootageClip } from "../types.js";
 
 /** Fixed look of every illustration (the scene description from the script goes in front of it). */
@@ -24,6 +25,8 @@ export const ILLUSTRATION_STYLE =
   "dark gradient background, cinematic, vertical 9:16 composition, stylized characters (not photorealistic), " +
   "no text, no letters, no numbers, no logos, no license plates, no watermark";
 export const ILLUSTRATION_SOURCE = "ia-agy";
+/** Provider name in QuotaExhaustedError and in the image-provider registry (lib/imageProvider.ts). */
+export const AGY_PROVIDER = "agy";
 export const ILLUSTRATION_LICENSE = "gerada por IA";
 /** Model of the agent that calls the image tool (the image itself comes from the tool). */
 const AGENT_MODEL = "gemini-3.8-flash-low";
@@ -77,34 +80,46 @@ async function readHead(file: string): Promise<Buffer> {
   }
 }
 
-function runAgy(prompt: string, cwd: string): Promise<string> {
+function runAgy(prompt: string, cwd: string, signal?: AbortSignal): Promise<string> {
   const cli = env("ANTIGRAVITY_CLI_PATH") || "agy";
   const args = ["--output-format", "json", "--sandbox", "--disable-slash-commands", "--print-timeout", `${TIMEOUT_S}s`, "--model", AGENT_MODEL];
   return new Promise((resolvePromise, reject) => {
+    if (signal?.aborted) return reject(new Error("pedido de imagem cancelado"));
     const child = spawn(cli, args, { cwd, env: minimalChildEnv([], process.env), stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     let out = "";
     let err = "";
     const timer = setTimeout(() => child.kill("SIGKILL"), (TIMEOUT_S + 30) * 1000);
+    // Another request hit the quota: this one is pointless, kill the agy process now.
+    const onAbort = (): void => void child.kill("SIGKILL");
+    signal?.addEventListener("abort", onAbort, { once: true });
+    const done = (): void => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    };
     child.stdout.on("data", (c: Buffer) => (out += c.toString("utf8")));
     child.stderr.on("data", (c: Buffer) => (err += c.toString("utf8")));
     child.on("error", (e) => {
-      clearTimeout(timer);
+      done();
       reject(e);
     });
     child.on("close", (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolvePromise(out);
-      else reject(new Error(`agy finalizou com código ${code}: ${(err || out).slice(-500)}`));
+      done();
+      if (signal?.aborted) reject(new Error("pedido de imagem cancelado"));
+      else if (code === 0) resolvePromise(out);
+      else reject(quotaErrorFrom(AGY_PROVIDER, `${err}\n${out}`) ?? new Error(`agy finalizou com código ${code}: ${(err || out).slice(-500)}`));
     });
     child.stdin.end(prompt, "utf8");
   });
 }
 
-/** One illustration of `scene` copied to `outBase`.<ext>; throws when agy gave no usable image. */
-export async function generateIllustration(scene: string, outBase: string): Promise<string> {
+/**
+ * One illustration of `scene` copied to `outBase`.<ext>; throws when agy gave no usable image, and
+ * QuotaExhaustedError when the reason is the image quota (429 / RESOURCE_EXHAUSTED).
+ */
+export async function generateIllustration(scene: string, outBase: string, signal?: AbortSignal): Promise<string> {
   const cwd = await mkdtemp(join(tmpdir(), "agy-img-"));
   try {
-    const output = await runAgy(illustrationPrompt(scene), cwd);
+    const output = await runAgy(illustrationPrompt(scene), cwd, signal);
     const brain = brainDir();
     // Last mention wins: the final answer repeats the path after the tool output.
     for (const mentioned of imagePathsIn(output).reverse()) {
@@ -117,32 +132,54 @@ export async function generateIllustration(scene: string, outBase: string): Prom
       await copyFile(candidate, target);
       return target;
     }
-    throw new Error(`agy não devolveu caminho de imagem válido dentro de ${brain}: ${output.slice(-300)}`);
+    // agy may also answer with exit code 0 and the quota error in its text instead of a path.
+    throw quotaErrorFrom(AGY_PROVIDER, output) ?? new Error(`agy não devolveu caminho de imagem válido dentro de ${brain}: ${output.slice(-300)}`);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
 }
 
-/** Same contract as the stock adapter: one image clip per query (sceneIndex as given); failures are logged and skipped. */
-export async function generateIllustrations(queries: readonly { sceneIndex: number; query: string }[], outDir: string, log: Logger): Promise<FootageClip[]> {
+/** Seams for tests: the real ones call agy and ffprobe. */
+export interface IllustrateDeps {
+  generate?: (scene: string, outBase: string, signal?: AbortSignal) => Promise<string>;
+  probe?: (path: string) => Promise<{ width: number; height: number }>;
+}
+
+/**
+ * Same contract as the stock adapter: one image clip per query (sceneIndex as given); failures are logged and
+ * skipped. A quota error is different: it stops everything at once (no other pending image is asked for, the
+ * ones in flight are killed) and is thrown as QuotaExhaustedError with the clips already made in `partial`.
+ * The log line of that stop deliberately avoids the quota keywords: with the "acervo" fallback the run goes on,
+ * and scripts/loop.ps1 stops on those words.
+ */
+export async function generateIllustrations(
+  queries: readonly { sceneIndex: number; query: string }[],
+  outDir: string,
+  log: Logger,
+  deps: IllustrateDeps = {},
+): Promise<FootageClip[]> {
+  const generate = deps.generate ?? generateIllustration;
+  const probe = deps.probe ?? probeVideo;
   await mkdir(outDir, { recursive: true });
   const results: (FootageClip | undefined)[] = new Array(queries.length);
+  const stop = new AbortController();
+  let quota: QuotaExhaustedError | undefined;
   let next = 0;
   const worker = async (): Promise<void> => {
-    while (next < queries.length) {
+    while (next < queries.length && !stop.signal.aborted) {
       const i = next++;
       const q = queries[i]!;
       const started = performance.now();
       try {
-        const path = await generateIllustration(q.query, join(outDir, `ia_${String(i).padStart(2, "0")}`));
-        const probe = await probeVideo(path);
+        const path = await generate(q.query, join(outDir, `ia_${String(i).padStart(2, "0")}`), stop.signal);
+        const size = await probe(path);
         results[i] = {
           sceneIndex: q.sceneIndex,
           path,
           kind: "image",
           durationSeconds: STILL_SECONDS,
-          width: probe.width,
-          height: probe.height,
+          width: size.width,
+          height: size.height,
           source: ILLUSTRATION_SOURCE,
           sourceUrl: "",
           creator: "",
@@ -150,10 +187,21 @@ export async function generateIllustrations(queries: readonly { sceneIndex: numb
         };
         log.info(`Illustration ${i + 1}/${queries.length} (scene slot ${q.sceneIndex}) in ${((performance.now() - started) / 1000).toFixed(0)} s: "${q.query}"`);
       } catch (error) {
-        log.warn(`Illustration ${i + 1}/${queries.length} failed ("${q.query}"): ${error instanceof Error ? error.message : String(error)}`);
+        if (error instanceof QuotaExhaustedError) {
+          quota ??= error;
+          stop.abort();
+          log.warn(`Illustration ${i + 1}/${queries.length}: the image allowance is used up; not asking for the remaining images`);
+        } else if (!stop.signal.aborted) {
+          log.warn(`Illustration ${i + 1}/${queries.length} failed ("${q.query}"): ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
     }
   };
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queries.length) }, worker));
-  return results.filter((c): c is FootageClip => c !== undefined);
+  const clips = results.filter((c): c is FootageClip => c !== undefined);
+  if (quota) {
+    quota.partial = clips;
+    throw quota;
+  }
+  return clips;
 }

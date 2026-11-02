@@ -107,6 +107,16 @@ export const ScriptSettingsSchema = z.object({
    * (lib/illustrate.ts); terminal = no images, one animated terminal card per scene (lib/terminalCards.ts).
    */
   imageSource: z.enum(["acervo", "ilustrado", "terminal"]).optional(),
+  /**
+   * Who generates the images when imageSource is "ilustrado" (lib/imageProvider.ts). Only "agy" exists today; a new
+   * provider (image API, local ComfyUI) is added here and in the registry there. Absent = "agy" (old configs).
+   */
+  imageProvider: z.enum(["agy"]).optional(),
+  /**
+   * What to do when the provider fails or its quota runs out: nenhum = stop cleanly (default); acervo = look the
+   * missing images up in the stock libraries (same license filters and quality gate). Never a paid API.
+   */
+  imageFallback: z.enum(["nenhum", "acervo"]).optional(),
 });
 
 /** Instagram Reels publisher (config section `instagram`). Off by default; needs `npm run auth:instagram`. */
@@ -196,6 +206,8 @@ export const SCRIPT_DEFAULTS: Required<Omit<ScriptSettings, "cta">> & Pick<Scrip
   specificFootage: true,
   instructions: "",
   imageSource: "acervo",
+  imageProvider: "agy",
+  imageFallback: "nenhum",
 };
 
 export const VOICE_EXTRAS_DEFAULTS: Required<VoiceExtras> = {

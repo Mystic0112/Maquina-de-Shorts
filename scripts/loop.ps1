@@ -11,8 +11,10 @@
 # limit; a failed scan is logged but does not count toward MaxFailures.
 #
 # Pause between videos: create logs/_loop/PAUSE (the current video finishes first); delete it to resume.
-# Stops when: upload.enabled is not false, free disk < MinFreeGB, a real quota/credits error, or
-# MaxFailures consecutive failed videos (exit code other than 0 = ok and 3 = nothing publishable).
+# Stops when: upload.enabled is not false, free disk < MinFreeGB, a real quota/credits error (a log line, or the
+# pipeline's exit code 4 = image quota exhausted; the run was stopped cleanly without trying another topic and
+# `npm run pipeline -- --resume <runId>` continues it), or MaxFailures consecutive failed videos (exit code other
+# than 0 = ok and 3 = nothing publishable).
 
 param(
     [string]$KokoroPython = (Join-Path $env:LOCALAPPDATA 'maquina-tts\kokoro\Scripts\python.exe'),
@@ -38,6 +40,7 @@ New-Item -ItemType Directory -Force -Path $LoopDir | Out-Null
 # ("higher rate limits") once produced a false positive; a bare 429 matched timestamps ("…17.429Z") and
 # file ids, so 429 only counts next to status/code/http/error.
 $QuotaPattern = 'credits balance|too low to continue|resource_exhausted|quota|rate.?limit|too many requests|usage limit|(status|code|http|error|erro)[^0-9A-Za-z]{0,3}429([^0-9]|$)'
+$ExitImageQuota = 4   # EXIT_QUOTA in src/orchestrator/runPipeline.ts
 $ContextPattern = 'xx |ERROR|WARN|agy|antigravity|LlmOutputError|status'
 
 function Write-Event([hashtable]$Data) {
@@ -161,8 +164,9 @@ try {
         Write-Event @{ event = 'video'; log = (Split-Path -Leaf $log); exit = $code; minutes = [math]::Round(((Get-Date) - $started).TotalMinutes, 1) }
 
         $quota = Test-QuotaHit $log
-        if ($quota.Count -gt 0) {
-            Write-Event @{ event = 'stop'; reason = 'quota'; line = $quota[0].Line.Substring(0, [math]::Min(300, $quota[0].Line.Length)) }
+        if ($quota.Count -gt 0 -or $code -eq $ExitImageQuota) {
+            $line = if ($quota.Count -gt 0) { $quota[0].Line.Substring(0, [math]::Min(300, $quota[0].Line.Length)) } else { 'image quota exhausted (exit code 4)' }
+            Write-Event @{ event = 'stop'; reason = 'quota'; line = $line }
             exit 2
         }
         if ($code -ne 0 -and $code -ne 3) { $failures += 1 } else { $failures = 0 }

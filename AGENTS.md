@@ -20,7 +20,7 @@ Lido automaticamente pelo Antigravity CLI, Gemini CLI, Codex e Claude. Leia inte
 | `src/orchestrator/lib/secretStore.ts`, `dashboard/server/keys.ts` | chaves de API digitadas no painel: `secrets/api-keys.json` (0600, fora do git), carregadas no início do pipeline sem sobrepor o `.env`; as rotas `/api/keys` são só de escrita e nunca devolvem o valor (teste em `test/dashboard/keys.test.ts`) |
 | `src/orchestrator/lib/beats.ts` | trechos da fala (*beats*): uma busca de imagem por trecho |
 | `src/orchestrator/lib/terminalCards.ts`, `src/remotion/components/Terminal.tsx` | `script.imageSource: "terminal"`: sem imagens; um cartão animado por cena (números conferidos contra o roteiro checado) |
-| `src/orchestrator/lib/illustrate.ts` | `script.imageSource: "ilustrado"`: uma ilustração 3D por trecho gerada pela ferramenta de imagem do `agy` (arquivo lido da pasta "brain" do agy, conferido antes de copiar) |
+| `src/orchestrator/lib/illustrate.ts`, `imageProvider.ts`, `quota.ts` | `script.imageSource: "ilustrado"`: uma ilustração 3D por trecho gerada pela ferramenta de imagem do `agy` (arquivo lido da pasta "brain" do agy, conferido antes de copiar). `imageProvider.ts`: interface de provedor plugável (`script.imageProvider`) e reserva configurável (`script.imageFallback`: `nenhum` ou `acervo`, nunca API paga); `quota.ts`: `QuotaExhaustedError` (429/RESOURCE_EXHAUSTED) que para o estágio 03 e a execução sem nova tentativa de tema |
 | `src/orchestrator/lib/verdictLog.ts` + `scripts/export_verdicts_dataset.ts` | grava `footage_verdicts.jsonl` e exporta o dataset do juiz de imagem local (LlamaFactory) |
 | `src/orchestrator/cuts/`, `python/cuts/`, `scripts/cuts.ts` | cortes (Onda 4): YouTube ou TikTok, download, transcrição, seleção, conferência de sentido, cortes secos (`jumpcut.ts`), humor (`humor.ts`), compilações de vídeos curtos (`compilation.ts`), recorte vertical; **não publica** |
 | `src/orchestrator/viral/`, `scripts/collect_shorts_stats.ts`, `scripts/build_viral_dataset.ts`, `python/viral/` | dados públicos de Shorts de outros canais (título + views, sem baixar vídeo). Laya treinado só com o título não previu viral (AUC 0,48 em 22/10); os títulos virais viram exemplos de ESTILO nos prompts de título (`viral/titleExamples.ts`: roteiro dos Shorts, seleção de cortes e compilações). Segunda tentativa (23/10): pergunta "vai flopar?" (`--target fraco`) e gancho = duração + primeiras falas da legenda automática (`--hooks`, sem baixar vídeo); só entra na máquina com AUC ≥ 0,6 e acima do `durationOnly`. Dados em `data/datasets/viral/`, fora do git |
@@ -73,7 +73,7 @@ npm run auth:youtube / npm run auth:instagram      # logins (uma vez)
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scheduler\status.ps1
 ```
 
-Saída do pipeline e dos cortes: `0` ok, `1` erro, `3` nada publicável/nada a fazer (não é falha). `scripts/test_agy_relevance.ts` usa a API paga do Gemini: só com OK do dono.
+Saída do pipeline e dos cortes: `0` ok, `1` erro, `3` nada publicável/nada a fazer (não é falha), `4` (só o pipeline) cota de imagens do `agy` esgotada: parada limpa, sem refazer roteiro nem trocar de tema (`context.json` guarda `quota`; o loop para). `scripts/test_agy_relevance.ts` usa a API paga do Gemini: só com OK do dono.
 
 ## Ambiente
 

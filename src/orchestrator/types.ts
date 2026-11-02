@@ -283,6 +283,21 @@ export interface RunRejection {
   retriedAs?: string;
 }
 
+/**
+ * A stage stopped because a provider's quota ran out (QuotaExhaustedError). Not a rejection: nothing was wrong with
+ * the topic or the script, so there is no retry with a new topic; the run stays resumable (`--resume`) once the
+ * quota is back.
+ */
+export interface RunQuota {
+  stage: StageName;
+  provider: string;
+  /** Original text of the tool, secrets redacted. */
+  message: string;
+  /** When the quota is back (ISO), only when the tool said how long it takes. */
+  resetAt?: string;
+  at: string;
+}
+
 /** What a scene of the "terminal" format shows (script.imageSource "terminal"); every text comes from the narration. */
 export type TerminalCard =
   | { kind: "headline"; text: string; highlight?: string }
@@ -320,6 +335,8 @@ export interface RunContext {
   /** Result per platform; YouTube's entry mirrors `upload`. */
   publications?: Partial<Record<PlatformId, PublicationResult>>;
   rejection?: RunRejection;
+  /** Set when a stage stopped on an exhausted quota (see RunQuota); cleared when that stage later succeeds. */
+  quota?: RunQuota;
   /** "terminal" runs: one animated card per scene instead of footage (lib/terminalCards.ts). */
   terminal?: { scenes: TerminalScene[] };
 }

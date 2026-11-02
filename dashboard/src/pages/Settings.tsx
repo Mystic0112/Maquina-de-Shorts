@@ -514,6 +514,27 @@ export function Settings({ runs }: { runs: RunSummary[] }) {
                 onChange={(v) => set("script.imageSource", v)}
                 help="Ilustrado: cada trecho da fala ganha uma imagem 3D gerada pelo Antigravity, sempre no mesmo estilo, em vez de buscar no acervo (≈ 1 a 2 min por imagem, créditos do plano). Dica: legenda com 1 palavra por vez combina com esse estilo. Terminal: nenhuma imagem; cada cena vira um cartão animado numa janela de terminal (frase, número, lista ou comparação) e a legenda some."
               />
+              {script.imageSource === "ilustrado" && (
+                <>
+                  <Segmented
+                    label="Quem gera as imagens"
+                    value={script.imageProvider}
+                    options={[{ value: "agy" as const, label: "Antigravity (agy, créditos do plano)" }]}
+                    onChange={(v) => set("script.imageProvider", v)}
+                    help="Hoje só o Antigravity gera as imagens. API de imagem e Stable Diffusion/ComfyUI local ainda não estão ligados (o código já tem o ponto de encaixe)."
+                  />
+                  <Segmented
+                    label="Se as imagens falharem ou a cota acabar"
+                    value={script.imageFallback}
+                    options={[
+                      { value: "nenhum" as const, label: "Parar (nenhum)" },
+                      { value: "acervo" as const, label: "Buscar no acervo" },
+                    ]}
+                    onChange={(v) => set("script.imageFallback", v)}
+                    help="O Antigravity tem uma cota de imagens por período (em 26/10 acabou depois de umas 18). Parar: a execução termina sem refazer roteiro nem trocar de tema, avisa quando a cota volta e dá para continuar a mesma execução depois; o loop para. Buscar no acervo: as imagens que faltaram vêm do acervo (NASA, Commons, Pexels…), com os mesmos filtros de licença e a trava de qualidade; o vídeo fica com estilos misturados. Nunca usa API paga."
+                  />
+                </>
+              )}
               <Switch
                 label="Buscar imagens específicas"
                 checked={script.specificFootage}

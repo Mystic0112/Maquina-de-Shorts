@@ -5,7 +5,7 @@ import { STAGE_NAMES, stageCode, type CategoryInfo, type Overview, type RunSumma
 import { sourceColor, stageColor } from "../colors";
 import { axisProps, CategoryChip, Card, ChartCard, Empty, FormatBadge, HBars, Kpi, Legend, OverlayTextTag, StatusBadge, tooltipProps } from "../components";
 import { chronological, runLabel, stageDurations } from "../derive";
-import { FactCheckPanel, MetadataPreview, RejectionBox, UploadBadge, UploadDetail } from "../runDetails";
+import { FactCheckPanel, MetadataPreview, QuotaBox, RejectionBox, UploadBadge, UploadDetail } from "../runDetails";
 import { fmtAgo, fmtBytes, fmtDateTime, fmtDuration, fmtInt, fmtPercent, STAGE_LABEL, STAGE_STATUS_LABEL } from "../format";
 
 const STAGE_LEGEND = STAGE_NAMES.map((s) => ({ label: `${stageCode(s)} ${STAGE_LABEL[s]}`, color: stageColor(s) }));
@@ -99,7 +99,7 @@ function RunCard({ run, categories }: { run: RunSummary; categories: CategoryInf
 
       <Gantt run={run} />
 
-      {run.failure && (
+      {run.failure && !run.quota && (
         <div className="failure">
           <b>
             <CircleX size={14} color="var(--critical)" /> Falha em {run.failure.stage} ({STAGE_LABEL[run.failure.stage]})
@@ -116,6 +116,7 @@ function RunCard({ run, categories }: { run: RunSummary; categories: CategoryInf
       )}
 
       {run.rejection && <RejectionBox rejection={run.rejection} />}
+      {run.quota && <QuotaBox quota={run.quota} runId={run.runId} />}
 
       <div className="facts">
         <UploadBadge upload={run.upload} />

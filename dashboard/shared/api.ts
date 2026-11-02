@@ -3,6 +3,7 @@ import type {
   FactCheckSummary,
   LlmUsage,
   QualitySummary,
+  RunQuota,
   RunRejection,
   StageName,
   UploadResult,
@@ -11,7 +12,7 @@ import type {
 
 import type { CaptionSettings, ScriptSettings, VisualSettings, VoiceExtras, WatermarkSettings } from "../../src/shared/settings.js";
 
-export type { FactCheckSummary, LlmUsage, QualitySummary, RunRejection, StageName, UploadResult, VideoMetadata };
+export type { FactCheckSummary, LlmUsage, QualitySummary, RunQuota, RunRejection, StageName, UploadResult, VideoMetadata };
 export type { CaptionSettings, ScriptSettings, VisualSettings, VoiceExtras, WatermarkSettings };
 export type ResolvedScript = Required<Omit<ScriptSettings, "cta">> & Pick<ScriptSettings, "cta">;
 
@@ -102,6 +103,8 @@ export interface RunSummary {
   metadata: VideoMetadata | null;
   upload: UploadResult | null;
   rejection: RunRejection | null;
+  /** The run stopped because a provider's quota ran out (image tool); resumable once it is back. */
+  quota: RunQuota | null;
   /** Set when the run is a cut of another channel's video (npm run cuts), not one of our Shorts. */
   cut: { channelName: string; sourceUrl: string; videoTitle: string } | null;
 }

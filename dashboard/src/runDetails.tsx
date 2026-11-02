@@ -1,9 +1,26 @@
 // Detail blocks for the new pipeline stages: 02b fact-check, 07 metadata, 08 upload, run rejections.
-import { ArrowRight, BadgeCheck, CloudOff, CloudUpload, ExternalLink, Gauge, Lock, ShieldAlert, ShieldCheck, ShieldX, Tags } from "lucide-react";
-import type { FactCheckSummary, RunRejection, UploadResult, VideoMetadata } from "../shared/api";
+import { ArrowRight, BadgeCheck, CloudOff, Hourglass, CloudUpload, ExternalLink, Gauge, Lock, ShieldAlert, ShieldCheck, ShieldX, Tags } from "lucide-react";
+import type { FactCheckSummary, RunQuota, RunRejection, UploadResult, VideoMetadata } from "../shared/api";
 import { fmtDateTime, fmtInt, STAGE_LABEL } from "./format";
 
 const PRIVACY: Record<string, string> = { public: "público", unlisted: "não listado", private: "privado" };
+
+/** The run stopped on an exhausted quota (not a failed topic): says when it is back, if the tool said so. */
+export function QuotaBox({ quota, runId }: { quota: RunQuota; runId: string }) {
+  return (
+    <div className="failure rejection">
+      <b>
+        <Hourglass size={14} color="var(--warning)" /> Cota esgotada em {STAGE_LABEL[quota.stage] ?? quota.stage}
+      </b>
+      {quota.resetAt ? ` · volta em ${fmtDateTime(quota.resetAt)}` : " · a ferramenta não disse quando volta"}
+      <pre className="mono">{quota.message}</pre>
+      <span className="muted">
+        A execução parou sem trocar de tema nem refazer o roteiro. Quando a cota voltar, continue esta mesma execução com{" "}
+        <code>npm run pipeline -- --resume {runId}</code>.
+      </span>
+    </div>
+  );
+}
 
 export function UploadBadge({ upload }: { upload: UploadResult | null }) {
   if (!upload) return null;

@@ -35,7 +35,8 @@ import { footageHash } from "../lib/contentHash.js";
 import { PythonExitError, runPythonJson } from "../lib/python.js";
 import { RunRejectedError } from "../lib/rejection.js";
 import { creditsFitDescription } from "./07-generateMetadata.js";
-import { generateIllustrations } from "../lib/illustrate.js";
+import { ILLUSTRATION_SOURCE } from "../lib/illustrate.js";
+import { generateImages, getImageProvider } from "../lib/imageProvider.js";
 import { planTerminal } from "../lib/terminalCards.js";
 import { redactSecrets } from "../lib/redact.js";
 import { getDefaultProvider, getProviderByName, type LlmProvider } from "../lib/llmClient.js";
@@ -234,7 +235,8 @@ async function normalizeAll(
     const started = performance.now();
     try {
       const normalized = await normalizeClip(clip, join(normDir, names[i] ?? `clip_${i}`), target);
-      sourceSizes?.set(normalized.path, { width: clip.width, height: clip.height });
+      // Generated images are 768x1376 by design: no low-resolution penalty (only stock clips can be too small).
+      if (clip.source !== ILLUSTRATION_SOURCE) sourceSizes?.set(normalized.path, { width: clip.width, height: clip.height });
       log.info(
         `Normalized ${basename(clip.path)} -> ${basename(normalized.path)} (${normalized.durationSeconds.toFixed(1)} s) in ${seconds(started)}`,
       );
@@ -337,7 +339,7 @@ interface FetchRound {
   hookSceneIndex?: number;
   /** First round only: clips get their beat (beat queries travel as pseudo scene indexes, see lib/beats.ts). */
   beatsOf?: Pick<Script, "scenes">;
-  /** Where the raw clips come from; default the stock adapter. "ilustrado" runs generate them (lib/illustrate.ts). */
+  /** Where the raw clips come from; default the stock adapter. "ilustrado" runs generate them (lib/imageProvider.ts). */
   request?: (queries: FootageRequest["queries"], outputDir: string, log: Logger) => Promise<FootageClip[]>;
 }
 
@@ -628,7 +630,7 @@ async function runRelevanceGate(firstRound: readonly FootageClip[], gate: GateCo
     if (firstScored.length > 0 && firstScored.every((s) => !s.verdict)) {
       throw new Error(`Relevance gate unavailable (every scoring call failed): ${firstScored[0]?.error ?? "unknown"}`);
     }
-    // Illustrated runs have no retry: an alternative query would search the stock libraries.
+    // Illustrated runs have no retry (an alternative query would search the stock libraries), except after the stock fallback.
     const scored = retry ? [...firstScored, ...(await retryFailedScenes(firstScored, gate))] : firstScored;
     const selections = selectAll(scored, gate, true);
     logSceneSummary(selections, gate);
@@ -708,9 +710,22 @@ export async function run(ctx: RunContext): Promise<RunContext> {
   // The adapter returns up to clipsPerQuery items of EACH kind; 3 per kind keeps ~6 candidates per scene.
   // Scenes with several beats split a budget of 1.5x that between their beat queries (lib/beats.ts).
   const clipsPerQuery = footageConfig?.clipsPerQuery ?? (settings.enabled ? (kindCount > 1 ? 3 : 4) : 2);
-  // Illustrated: one generated image per query; no resolution penalty (768x1376 by design) and no stock retry.
-  const illustrated = resolveScript(config.script).imageSource === "ilustrado";
-  if (illustrated) log.info("Image source: ilustrado (one image generated per beat by agy, no stock search)");
+  // Illustrated: one generated image per query by the configured provider (lib/imageProvider.ts); no stock retry
+  // unless the "acervo" fallback had to search stock footage. A quota stop with fallback "nenhum" throws
+  // QuotaExhaustedError out of here: no gate, no new topic (see runPipeline).
+  const scriptSettings = resolveScript(config.script);
+  const illustrated = scriptSettings.imageSource === "ilustrado";
+  const provider = getImageProvider(scriptSettings.imageProvider);
+  const fallbackUsed = { stock: false };
+  if (illustrated) {
+    log.info(`Image source: ilustrado (one image generated per beat by ${provider.name}, fallback "${scriptSettings.imageFallback}")`);
+  }
+  const stockSearch = (queries: FootageRequest["queries"], dir: string, l: Logger): Promise<FootageClip[]> => requestFootage(queries, dir, clipsPerQuery, l);
+  const generateFirstRound = async (queries: FootageRequest["queries"], dir: string, l: Logger): Promise<FootageClip[]> => {
+    const made = await generateImages(provider, queries, dir, l, scriptSettings.imageFallback, stockSearch);
+    fallbackUsed.stock = made.usedStock;
+    return made.clips;
+  };
   const firstRound = await fetchAndNormalize(
     {
       queries: illustrated ? firstRoundQueries(script) : firstRoundQueries(script, { clipsPerQuery, kinds: kindCount }),
@@ -720,19 +735,19 @@ export async function run(ctx: RunContext): Promise<RunContext> {
       namePrefix: "",
       hookSceneIndex: script.scenes.length,
       beatsOf: script,
-      ...(illustrated ? { request: generateIllustrations } : {}),
+      ...(illustrated ? { request: generateFirstRound } : {}),
     },
     gate.seen,
     gate.stats,
     log,
-    illustrated ? undefined : gate.sourceSizes,
+    gate.sourceSizes,
   );
   if (firstRound.length === 0) throw new RunRejectedError("No usable footage for this script (every query empty or failed)", ctx);
 
   let kept: FootageClip[];
   let rejected = 0;
   if (settings.enabled) {
-    ({ kept, rejected } = await runRelevanceGate(firstRound, gate, !illustrated));
+    ({ kept, rejected } = await runRelevanceGate(firstRound, gate, !illustrated || fallbackUsed.stock));
     await removeEmptyDirs([gate.dirs.frames, join(footageDir, "retry")]);
   } else {
     log.warn("Relevance gate disabled in config; footage is NOT checked against the narration");
